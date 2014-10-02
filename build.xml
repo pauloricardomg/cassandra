@@ -190,7 +190,7 @@
     <target name="gen-cli-grammar" depends="check-gen-cli-grammar" unless="cliUpToDate">
       <echo>Building Grammar ${build.src.java}/org/apache/cassandra/cli/Cli.g  ....</echo>
       <java classname="org.antlr.Tool"
-            classpath="${build.lib}/antlr-3.2.jar"
+        classpath="${build.dir.lib}/jars/antlr-3.5.2.jar;${build.lib}/antlr-runtime-3.5.2.jar;${build.lib}/ST4-4.0.8.jar"
             fork="true"
             failonerror="true">
          <jvmarg value="-Xmx512M" />
@@ -217,7 +217,7 @@
     <target name="gen-cql2-grammar" depends="check-gen-cql2-grammar" unless="cql2current">
       <echo>Building Grammar ${build.src.java}/org/apache/cassandra/cql/Cql.g  ...</echo>
       <java classname="org.antlr.Tool"
-            classpath="${build.lib}/antlr-3.2.jar"
+            classpath="${build.dir.lib}/jars/antlr-3.5.2.jar;${build.lib}/antlr-runtime-3.5.2.jar;${build.lib}/ST4-4.0.8.jar"
             fork="true"
             failonerror="true">
          <jvmarg value="-Xmx512M" />
@@ -229,7 +229,7 @@
     <target name="gen-cql3-grammar" depends="check-gen-cql3-grammar" unless="cql3current">
       <echo>Building Grammar ${build.src.java}/org/apache/cassandra/cql3/Cql.g  ...</echo>
       <java classname="org.antlr.Tool"
-            classpath="${build.lib}/antlr-3.2.jar"
+            classpath="${build.dir.lib}/jars/antlr-3.5.2.jar;${build.lib}/antlr-runtime-3.5.2.jar;${build.lib}/ST4-4.0.8.jar"
             fork="true"
             failonerror="true">
          <jvmarg value="-Xmx512M" />
@@ -351,7 +351,12 @@
           <dependency groupId="commons-codec" artifactId="commons-codec" version="1.2"/>
           <dependency groupId="org.apache.commons" artifactId="commons-lang3" version="3.1"/>
           <dependency groupId="com.googlecode.concurrentlinkedhashmap" artifactId="concurrentlinkedhashmap-lru" version="1.3"/>
-          <dependency groupId="org.antlr" artifactId="antlr" version="3.2"/>
+          <dependency groupId="org.antlr" artifactId="antlr" version="3.5.2">
+            <exclusion groupId="org.antlr" artifactId="stringtemplate"/>
+          </dependency>
+          <dependency groupId="org.antlr" artifactId="antlr-runtime" version="3.5.2">
+            <exclusion groupId="org.antlr" artifactId="stringtemplate"/>
+          </dependency>
           <dependency groupId="org.slf4j" artifactId="slf4j-api" version="1.7.2"/>
           <dependency groupId="org.slf4j" artifactId="slf4j-log4j12" version="1.7.2"/>
           <dependency groupId="org.codehaus.jackson" artifactId="jackson-core-asl" version="1.9.2"/>
@@ -419,6 +424,7 @@
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-core"/>
       	<dependency groupId="org.apache.hadoop" artifactId="hadoop-minicluster"/>
         <dependency groupId="org.apache.pig" artifactId="pig"/>
+        <dependency groupId="org.antlr" artifactId="antlr"/>
         <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core"/>
         <dependency groupId="net.java.dev.jna" artifactId="jna"/>
       </artifact:pom>
@@ -457,6 +463,7 @@
         <dependency groupId="org.apache.commons" artifactId="commons-lang3"/>
         <dependency groupId="com.googlecode.concurrentlinkedhashmap" artifactId="concurrentlinkedhashmap-lru"/>
         <dependency groupId="org.antlr" artifactId="antlr"/>
+        <dependency groupId="org.antlr" artifactId="antlr-runtime"/>
         <dependency groupId="org.slf4j" artifactId="slf4j-api"/>
         <dependency groupId="org.codehaus.jackson" artifactId="jackson-core-asl"/>
         <dependency groupId="org.codehaus.jackson" artifactId="jackson-mapper-asl"/>
