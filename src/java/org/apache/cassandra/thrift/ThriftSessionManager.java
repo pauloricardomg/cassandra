@@ -37,7 +37,7 @@ public class ThriftSessionManager
     public final static ThriftSessionManager instance = new ThriftSessionManager();
 
     private final ThreadLocal<SocketAddress> remoteSocket = new ThreadLocal<>();
-    private final Map<SocketAddress, ThriftClientState> activeSocketSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<SocketAddress, ThriftClientState> activeSocketSessions = new ConcurrentHashMap<>();
 
     /**
      * @param socket the address on which the current thread will work on requests for until further notice
@@ -58,8 +58,9 @@ public class ThriftSessionManager
         ThriftClientState cState = activeSocketSessions.get(socket);
         if (cState == null)
         {
-            cState = new ThriftClientState((InetSocketAddress)socket);
-            activeSocketSessions.put(socket, cState);
+            //guarantee atomicity
+            activeSocketSessions.putIfAbsent(socket, new ThriftClientState((InetSocketAddress)socket));
+            cState = activeSocketSessions.get(socket);
         }
         return cState;
     }
