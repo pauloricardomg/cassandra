@@ -52,7 +52,6 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
-import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.StartupException;
 import org.apache.cassandra.io.FSError;
@@ -206,7 +205,7 @@ public class CassandraDaemon
         Schema.instance.loadFromDisk();
 
         // clean up compaction leftovers
-        Map<Pair<String, String>, Map<Integer, UUID>> unfinishedCompactions = SystemKeyspace.getUnfinishedCompactions();
+        Map<Pair<String, String>, Map<Integer, UUID>> unfinishedCompactions = SystemKeyspace.getUnfinishedCompactions();;
         for (Pair<String, String> kscf : unfinishedCompactions.keySet())
         {
             CFMetaData cfm = Schema.instance.getCFMetaData(kscf.left, kscf.right);
