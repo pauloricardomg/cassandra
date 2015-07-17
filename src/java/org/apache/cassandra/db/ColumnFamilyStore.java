@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 import java.io.*;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -521,6 +522,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public static void scrubDataDirectories(CFMetaData metadata)
     {
         Directories directories = new Directories(metadata);
+
+        // clear ephemeral snapshots that were not properly cleared last session (CASSANDRA-7357)
+        clearEphemeralSnapshots(directories);
 
         // remove any left-behind SSTables from failed/stalled streaming
         FileFilter filter = new FileFilter()
@@ -1703,10 +1707,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public void snapshotWithoutFlush(String snapshotName)
     {
-        snapshotWithoutFlush(snapshotName, null);
+        snapshotWithoutFlush(snapshotName, null, false);
     }
 
-    public Set<SSTableReader> snapshotWithoutFlush(String snapshotName, Predicate<SSTableReader> predicate)
+    /**
+     * @param ephemeral If this flag is set to true, the snapshot will be cleaned during next startup
+     */
+    public Set<SSTableReader> snapshotWithoutFlush(String snapshotName, Predicate<SSTableReader> predicate, boolean ephemeral)
     {
         Set<SSTableReader> snapshottedSSTables = new HashSet<>();
         for (ColumnFamilyStore cfs : concatWithIndexes())
@@ -1730,6 +1737,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 writeSnapshotManifest(filesJSONArr, snapshotName);
             }
         }
+        if (ephemeral)
+            createEphemeralSnapshotMarkerFile(snapshotName);
         return snapshottedSSTables;
     }
 
@@ -1752,6 +1761,38 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         catch (IOException e)
         {
             throw new FSWriteError(e, manifestFile);
+        }
+    }
+
+    private void createEphemeralSnapshotMarkerFile(final String snapshot)
+    {
+        final File ephemeralSnapshotMarker = directories.getNewEphemeralSnapshotMarkerFile(snapshot);
+
+        try
+        {
+            if (!ephemeralSnapshotMarker.getParentFile().exists())
+                ephemeralSnapshotMarker.getParentFile().mkdirs();
+
+            Files.createFile(ephemeralSnapshotMarker.toPath());
+            if (logger.isDebugEnabled())
+                logger.debug("Created ephemeral snapshot marker file on {}.", ephemeralSnapshotMarker.getAbsolutePath());
+        }
+        catch (IOException e)
+        {
+            logger.warn(String.format("Could not create marker file %s for ephemeral snapshot %s. " +
+                                      "In case there is a failure in the operation that created " +
+                                      "this snapshot, you may need to clean it manually afterwards.",
+                                      ephemeralSnapshotMarker.getAbsolutePath(), snapshot), e);
+        }
+    }
+
+    protected static void clearEphemeralSnapshots(Directories directories)
+    {
+        for (String ephemeralSnapshot : directories.listEphemeralSnapshots())
+        {
+            if (logger.isDebugEnabled())
+                logger.debug("Clearing ephemeral snapshot {} leftover from previous session.", ephemeralSnapshot);
+            Directories.clearSnapshot(ephemeralSnapshot, directories.getCFDirectories());
         }
     }
 
@@ -1800,13 +1841,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     public Set<SSTableReader> snapshot(String snapshotName)
     {
-        return snapshot(snapshotName, null);
+        return snapshot(snapshotName, null, false);
     }
 
-    public Set<SSTableReader> snapshot(String snapshotName, Predicate<SSTableReader> predicate)
+    /**
+     * @param ephemeral If this flag is set to true, the snapshot will be cleaned up during next startup
+     */
+    public Set<SSTableReader> snapshot(String snapshotName, Predicate<SSTableReader> predicate, boolean ephemeral)
     {
         forceBlockingFlush();
-        return snapshotWithoutFlush(snapshotName, predicate);
+        return snapshotWithoutFlush(snapshotName, predicate, ephemeral);
     }
 
     public boolean snapshotExists(String snapshotName)
