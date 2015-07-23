@@ -247,6 +247,18 @@ public abstract class Operation
              : Hex.bytesToHex(term);
     }
 
+    protected String getStandardCf(String key)
+    {
+        int cfId = Math.abs(getUnQuotedCqlBlob(key, session.cqlVersion.startsWith("3")).hashCode());
+        return String.format("Standard%d", (cfId % session.getNumCfs() + 1));
+    }
+
+    protected String getStandardCf(byte[] key)
+    {
+        int cfId = Math.abs(getUnQuotedCqlBlob(key, session.cqlVersion.startsWith("3")).hashCode());
+        return String.format("Standard%d", (cfId % session.getNumCfs() + 1));
+    }
+
     protected List<ByteBuffer> queryParamsAsByteBuffer(List<String> queryParams)
     {
         return Lists.transform(queryParams, new Function<String, ByteBuffer>()

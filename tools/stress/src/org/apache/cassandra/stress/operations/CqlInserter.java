@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import com.yammer.metrics.core.TimerContext;
 import org.apache.cassandra.db.ColumnFamilyType;
@@ -58,7 +59,7 @@ public class CqlInserter extends CQLOperation
         // Construct a query string once.
         if (cqlQuery == null)
         {
-            StringBuilder query = new StringBuilder("UPDATE ").append(wrapInQuotesIfRequired("Standard1"));
+            StringBuilder query = new StringBuilder("UPDATE ").append("?");
 
             if (session.cqlVersion.startsWith("2"))
                 query.append(" USING CONSISTENCY ").append(session.getConsistencyLevel().toString());
@@ -89,13 +90,17 @@ public class CqlInserter extends CQLOperation
         }
 
         List<String> queryParms = new ArrayList<String>();
+
+        String key = String.format("%0" + session.getTotalKeysLength() + "d", index);
+        String cf = getStandardCf(key);
+
+        queryParms.add(wrapInQuotesIfRequired(cf));
         for (int i = 0; i < session.getColumnsPerKey(); i++)
         {
             // Column value
             queryParms.add(getUnQuotedCqlBlob(values.get(i % values.size()).array(), session.cqlVersion.startsWith("3")));
         }
 
-        String key = String.format("%0" + session.getTotalKeysLength() + "d", index);
         queryParms.add(getUnQuotedCqlBlob(key, session.cqlVersion.startsWith("3")));
 
         TimerContext context = session.latency.time();
