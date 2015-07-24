@@ -63,9 +63,10 @@ public class BigTableWriter extends SSTableWriter
                           CFMetaData metadata, 
                           MetadataCollector metadataCollector, 
                           SerializationHeader header,
-                          LifecycleTransaction txn)
+                          LifecycleTransaction txn,
+                          boolean skipBloomFilter)
     {
-        super(descriptor, keyCount, repairedAt, metadata, metadataCollector, header);
+        super(descriptor, keyCount, repairedAt, metadata, metadataCollector, header, skipBloomFilter);
         txn.trackNew(this); // must track before any files are created
 
         if (compression)
@@ -377,7 +378,9 @@ public class BigTableWriter extends SSTableWriter
             indexFile = SequentialWriter.open(new File(descriptor.filenameFor(Component.PRIMARY_INDEX)));
             builder = SegmentedFile.getBuilder(DatabaseDescriptor.getIndexAccessMode(), false);
             summary = new IndexSummaryBuilder(keyCount, metadata.params.minIndexInterval, Downsampling.BASE_SAMPLING_LEVEL);
-            bf = FilterFactory.getFilter(keyCount, metadata.params.bloomFilterFpChance, true, descriptor.version.hasOldBfHashOrder());
+            bf = skipBloomFilter ? FilterFactory.AlwaysPresent :
+                                            FilterFactory.getFilter(keyCount, metadata.params.bloomFilterFpChance, true,
+                                                                    descriptor.version.hasOldBfHashOrder());
             // register listeners to be alerted when the data files are flushed
             indexFile.setPostFlushListener(new Runnable()
             {

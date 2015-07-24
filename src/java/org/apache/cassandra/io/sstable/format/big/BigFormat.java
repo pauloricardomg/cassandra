@@ -88,9 +88,10 @@ public class BigFormat implements SSTableFormat
                                   CFMetaData metadata,
                                   MetadataCollector metadataCollector,
                                   SerializationHeader header,
-                                  LifecycleTransaction txn)
+                                  LifecycleTransaction txn,
+                                  boolean skipBloomFilter)
         {
-            return new BigTableWriter(descriptor, keyCount, repairedAt, metadata, metadataCollector, header, txn);
+            return new BigTableWriter(descriptor, keyCount, repairedAt, metadata, metadataCollector, header, txn, skipBloomFilter);
         }
     }
 

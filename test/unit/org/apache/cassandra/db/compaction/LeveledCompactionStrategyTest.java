@@ -224,6 +224,8 @@ public class LeveledCompactionStrategyTest
         }
 
         waitForLeveling(cfs);
+        // in AbstractCompationStrategy.replaceSSTables() first we remove and then we add sstables so wait a little bit longer
+        Thread.sleep(10);
         LeveledCompactionStrategy strategy = (LeveledCompactionStrategy) (cfs.getCompactionStrategyManager()).getStrategies().get(1);
         assert strategy.getLevelSize(1) > 0;
 

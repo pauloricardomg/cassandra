@@ -32,13 +32,16 @@ public class LeveledCompactionTask extends CompactionTask
     private final int level;
     private final long maxSSTableBytes;
     private final boolean majorCompaction;
+    private final boolean skipBloomFilter;
 
-    public LeveledCompactionTask(ColumnFamilyStore cfs, LifecycleTransaction txn, int level, int gcBefore, long maxSSTableBytes, boolean majorCompaction)
+    public LeveledCompactionTask(ColumnFamilyStore cfs, LifecycleTransaction txn, int level, int gcBefore, long maxSSTableBytes,
+                                 boolean majorCompaction, boolean skipBloomFilter)
     {
         super(cfs, txn, gcBefore);
         this.level = level;
         this.maxSSTableBytes = maxSSTableBytes;
         this.majorCompaction = majorCompaction;
+        this.skipBloomFilter = skipBloomFilter;
     }
 
     @Override
@@ -49,7 +52,8 @@ public class LeveledCompactionTask extends CompactionTask
     {
         if (majorCompaction)
             return new MajorLeveledCompactionWriter(cfs, directories, txn, nonExpiredSSTables, maxSSTableBytes, false, false);
-        return new MaxSSTableSizeWriter(cfs, directories, txn, nonExpiredSSTables, maxSSTableBytes, getLevel(), false, false);
+        return new MaxSSTableSizeWriter(cfs, directories, txn, nonExpiredSSTables, maxSSTableBytes, getLevel(), false, false,
+                                        skipBloomFilter);
     }
 
     @Override
