@@ -79,7 +79,7 @@ public class LeveledCompactionStrategyTest
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED)
                                                 .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1"))));
-        }
+    }
 
     @Before
     public void enableCompaction()

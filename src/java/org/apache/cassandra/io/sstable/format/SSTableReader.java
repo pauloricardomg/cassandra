@@ -679,7 +679,8 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
     private void load(ValidationMetadata validation) throws IOException
     {
-        if (metadata.params.bloomFilterFpChance == 1.0)
+        if (metadata.params.bloomFilterFpChance == 1.0 ||
+                        validation.bloomFilterFPChance == ValidationMetadata.SKIP_BLOOM_FILTER_FP_MARKER)
         {
             // bf is disabled.
             load(false, true);

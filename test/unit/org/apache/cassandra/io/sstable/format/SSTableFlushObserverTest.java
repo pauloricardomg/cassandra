@@ -90,7 +90,7 @@ public class SSTableFlushObserverTest
                                                    new MetadataCollector(cfm.comparator).sstableLevel(0),
                                                    new SerializationHeader(true, cfm, cfm.partitionColumns(), EncodingStats.NO_STATS),
                                                    Collections.singletonList(observer),
-                                                   transaction);
+                                                   transaction, false);
 
         SSTableReader reader = null;
         Multimap<ByteBuffer, Cell> expected = ArrayListMultimap.create();

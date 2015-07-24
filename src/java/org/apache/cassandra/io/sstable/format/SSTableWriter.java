@@ -41,6 +41,7 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
+import org.apache.cassandra.io.sstable.metadata.ValidationMetadata;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.concurrent.Transactional;
 
@@ -60,6 +61,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
     protected final SerializationHeader header;
     protected final TransactionalProxy txnProxy = txnProxy();
     protected final Collection<SSTableFlushObserver> observers;
+    protected final boolean skipBloomFilter;
 
     protected abstract TransactionalProxy txnProxy();
 
@@ -77,15 +79,31 @@ public abstract class SSTableWriter extends SSTable implements Transactional
                             CFMetaData metadata,
                             MetadataCollector metadataCollector,
                             SerializationHeader header,
-                            Collection<SSTableFlushObserver> observers)
+                            Collection<SSTableFlushObserver> observers,
+                            boolean skipBloomFilter)
     {
-        super(descriptor, components(metadata), metadata);
+        super(descriptor, components(skipBloomFilter, metadata), metadata);
         this.keyCount = keyCount;
         this.repairedAt = repairedAt;
         this.metadataCollector = metadataCollector;
         this.header = header;
         this.rowIndexEntrySerializer = descriptor.version.getSSTableFormat().getIndexSerializer(metadata, descriptor.version, header);
         this.observers = observers == null ? Collections.emptySet() : observers;
+        this.skipBloomFilter = skipBloomFilter;
+    }
+
+    public static SSTableWriter create(Descriptor descriptor,
+                                       Long keyCount,
+                                       Long repairedAt,
+                                       CFMetaData metadata,
+                                       MetadataCollector metadataCollector,
+                                       SerializationHeader header,
+                                       Collection<Index> indexes,
+                                       LifecycleTransaction txn,
+                                       boolean skipBloomFilter)
+    {
+        Factory writerFactory = descriptor.getFormat().getWriterFactory();
+        return writerFactory.open(descriptor, keyCount, repairedAt, metadata, metadataCollector, header, observers(descriptor, indexes, txn.opType()), txn, skipBloomFilter);
     }
 
     public static SSTableWriter create(Descriptor descriptor,
@@ -97,8 +115,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
                                        Collection<Index> indexes,
                                        LifecycleTransaction txn)
     {
-        Factory writerFactory = descriptor.getFormat().getWriterFactory();
-        return writerFactory.open(descriptor, keyCount, repairedAt, metadata, metadataCollector, header, observers(descriptor, indexes, txn.opType()), txn);
+        return create(descriptor, keyCount, repairedAt, metadata, metadataCollector, header, indexes, txn, false);
     }
 
     public static SSTableWriter create(Descriptor descriptor,
@@ -123,7 +140,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
                                        LifecycleTransaction txn)
     {
         MetadataCollector collector = new MetadataCollector(metadata.comparator).sstableLevel(sstableLevel);
-        return create(descriptor, keyCount, repairedAt, metadata, collector, header, indexes, txn);
+        return create(descriptor, keyCount, repairedAt, metadata, collector, header, indexes, txn, false);
     }
 
     public static SSTableWriter create(String filename,
@@ -149,7 +166,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
         return create(descriptor, keyCount, repairedAt, 0, header, indexes, txn);
     }
 
-    private static Set<Component> components(CFMetaData metadata)
+    private static Set<Component> components(boolean skipBloomFilter, CFMetaData metadata)
     {
         Set<Component> components = new HashSet<Component>(Arrays.asList(Component.DATA,
                 Component.PRIMARY_INDEX,
@@ -158,7 +175,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
                 Component.TOC,
                 Component.digestFor(BigFormat.latestVersion.uncompressedChecksumType())));
 
-        if (metadata.params.bloomFilterFpChance < 1.0)
+        if (!skipBloomFilter && metadata.params.bloomFilterFpChance < 1.0)
             components.add(Component.FILTER);
 
         if (metadata.params.compression.isEnabled())
@@ -305,7 +322,8 @@ public abstract class SSTableWriter extends SSTable implements Transactional
     protected Map<MetadataType, MetadataComponent> finalizeMetadata()
     {
         return metadataCollector.finalizeMetadata(getPartitioner().getClass().getCanonicalName(),
-                                                  metadata.params.bloomFilterFpChance,
+                                                  skipBloomFilter? ValidationMetadata.SKIP_BLOOM_FILTER_FP_MARKER :
+                                                                   metadata.params.bloomFilterFpChance,
                                                   repairedAt,
                                                   header);
     }
@@ -339,6 +357,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
                                            MetadataCollector metadataCollector,
                                            SerializationHeader header,
                                            Collection<SSTableFlushObserver> observers,
-                                           LifecycleTransaction txn);
+                                           LifecycleTransaction txn,
+                                           boolean skipBloomFilter);
     }
 }
