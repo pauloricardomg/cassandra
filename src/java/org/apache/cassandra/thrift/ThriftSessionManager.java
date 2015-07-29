@@ -58,8 +58,10 @@ public class ThriftSessionManager
         if (cState == null)
         {
             //guarantee atomicity
-            activeSocketSessions.putIfAbsent(socket, new ThriftClientState(socket));
-            cState = activeSocketSessions.get(socket);
+            ThriftClientState newState = new ThriftClientState(socket);
+            cState = activeSocketSessions.putIfAbsent(socket, newState);
+            if (cState == null)
+                cState = newState;
         }
         return cState;
     }
