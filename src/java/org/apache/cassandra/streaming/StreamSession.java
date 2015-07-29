@@ -370,8 +370,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             if (task == null)
             {
                 //guarantee atomicity
-                transfers.putIfAbsent(cfId, new StreamTransferTask(this, cfId));
-                task = transfers.get(cfId);
+                StreamTransferTask newTask = new StreamTransferTask(this, cfId);
+                task = transfers.putIfAbsent(cfId, newTask);
+                if (task == null)
+                    task = newTask;
             }
             task.addTransferFile(details.ref, details.estimatedKeys, details.sections, details.repairedAt);
             iter.remove();
