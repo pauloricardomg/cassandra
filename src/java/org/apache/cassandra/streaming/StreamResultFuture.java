@@ -83,7 +83,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                 future.addEventListener(listener);
         }
 
-        logger.info("[Stream #{}] Executing streaming plan for {}", planId,  description);
+        logger.info("[Stream #{}] Executing streaming plan for {}", planId, description);
 
         // Initialize and start all sessions
         for (final StreamSession session : coordinator.getAllStreamSessions())
@@ -101,6 +101,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                                                                     InetAddress from,
                                                                     Socket socket,
                                                                     boolean isForOutgoing,
+                                                                    int sessionEpoch,
                                                                     int version) throws IOException
     {
         StreamResultFuture future = StreamManager.instance.getReceivingStream(planId);
@@ -112,7 +113,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
             future = new StreamResultFuture(planId, description);
             StreamManager.instance.registerReceiving(future);
         }
-        future.attachSocket(from, sessionIndex, socket, isForOutgoing, version);
+        future.attachSocket(from, sessionIndex, socket, isForOutgoing, version, sessionEpoch);
         logger.info("[Stream #{}, ID#{}] Received streaming plan for {}", planId, sessionIndex, description);
         return future;
     }
@@ -124,11 +125,18 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         return future;
     }
 
-    private void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version) throws IOException
+    private void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version, int sessionEpoch) throws IOException
     {
         StreamSession session = coordinator.getOrCreateSessionById(from, sessionIndex, socket.getInetAddress());
-        session.init(this);
-        session.handler.initiateOnReceivingSide(socket, isForOutgoing, version);
+        if (sessionEpoch == 0)
+            session.init(this);
+        else
+            session.reconnectFromFollower(sessionEpoch);
+
+        session.handler.initiateOnReceivingSide(socket, isForOutgoing, sessionEpoch, version);
+
+        if (sessionEpoch > 0 && sessionEpoch == session.handler.getSessionEpoch())
+            session.endReconnect(from);
     }
 
     public void addEventListener(StreamEventHandler listener)

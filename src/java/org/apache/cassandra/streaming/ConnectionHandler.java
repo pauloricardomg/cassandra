@@ -56,6 +56,8 @@ public class ConnectionHandler
 
     private final StreamSession session;
 
+    private int sessionEpoch;
+
     private IncomingMessageHandler incoming;
     private OutgoingMessageHandler outgoing;
 
@@ -64,6 +66,46 @@ public class ConnectionHandler
         this.session = session;
         this.incoming = new IncomingMessageHandler(session);
         this.outgoing = new OutgoingMessageHandler(session);
+        this.sessionEpoch = 0;
+    }
+
+    protected synchronized boolean tryReconnect()
+    {
+        IncomingMessageHandler newIncoming = new IncomingMessageHandler(session);
+        OutgoingMessageHandler newOutgoing = new OutgoingMessageHandler(session);
+
+        try {
+            logger.debug("[Stream #{}] Trying to reconnect incoming stream", session.planId());
+            Socket incomingSocket = session.createConnection();
+            incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION);
+            incoming.sendInitMessage(incomingSocket, true, this.sessionEpoch + 1);
+
+            logger.debug("[Stream #{}] Trying to reconnect outgoing stream", session.planId());
+            Socket outgoingSocket = session.createConnection();
+            outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
+            outgoing.sendInitMessage(outgoingSocket, false, this.sessionEpoch + 1);
+        } catch (IOException e)
+        {
+            logger.debug(String.format("[Stream %s] Could not reconnect stream", session.planId()), e);
+            newIncoming.close();
+            newOutgoing.close();
+            return false;
+        }
+
+        this.incoming = newIncoming;
+        this.outgoing = newOutgoing;
+        increaseEpoch();
+        return true;
+    }
+
+    private synchronized void increaseEpoch()
+    {
+        this.sessionEpoch++;
+    }
+
+    public synchronized int getSessionEpoch()
+    {
+        return this.sessionEpoch;
     }
 
     /**
@@ -78,12 +120,12 @@ public class ConnectionHandler
         logger.debug("[Stream #{}] Sending stream init for incoming stream", session.planId());
         Socket incomingSocket = session.createConnection();
         incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION);
-        incoming.sendInitMessage(incomingSocket, true);
+        incoming.sendInitMessage(incomingSocket, true, 0);
 
         logger.debug("[Stream #{}] Sending stream init for outgoing stream", session.planId());
         Socket outgoingSocket = session.createConnection();
         outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
-        outgoing.sendInitMessage(outgoingSocket, false);
+        outgoing.sendInitMessage(outgoingSocket, false, 0);
     }
 
     /**
@@ -93,12 +135,23 @@ public class ConnectionHandler
      * @param version Streaming message version
      * @throws IOException
      */
-    public void initiateOnReceivingSide(Socket socket, boolean isForOutgoing, int version) throws IOException
+    protected synchronized void initiateOnReceivingSide(Socket socket, boolean isForOutgoing, int epoch, int version) throws IOException
     {
         if (isForOutgoing)
+        {
+            if (epoch > 0)
+                outgoing = new OutgoingMessageHandler(session);
             outgoing.start(socket, version);
+        }
         else
+        {
+            if (epoch > 0)
+                incoming = new IncomingMessageHandler(session);
             incoming.start(socket, version);
+            //complete reconnection on follower side
+            if (epoch == getSessionEpoch()+1)
+                increaseEpoch();
+        }
     }
 
     public ListenableFuture<?> close()
@@ -172,14 +225,15 @@ public class ConnectionHandler
                  : in;
         }
 
-        public void sendInitMessage(Socket socket, boolean isForOutgoing) throws IOException
+        public void sendInitMessage(Socket socket, boolean isForOutgoing, int sessionEpoch) throws IOException
         {
             StreamInitMessage message = new StreamInitMessage(
                     FBUtilities.getBroadcastAddress(),
                     session.sessionIndex(),
                     session.planId(),
                     session.description(),
-                    isForOutgoing);
+                    isForOutgoing,
+                    sessionEpoch);
             ByteBuffer messageBuf = message.createMessage(false, protocolVersion);
             getWriteChannel(socket).write(messageBuf);
         }
@@ -259,8 +313,7 @@ public class ConnectionHandler
             }
             catch (SocketException e)
             {
-                // socket is closed
-                close();
+                session.onSocketError(e);
             }
             catch (Throwable t)
             {
@@ -333,6 +386,10 @@ public class ConnectionHandler
             catch (InterruptedException e)
             {
                 throw new AssertionError(e);
+            }
+            catch (SocketException e)
+            {
+                session.onSocketError(e);
             }
             catch (Throwable e)
             {

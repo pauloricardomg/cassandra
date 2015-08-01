@@ -47,13 +47,17 @@ public class StreamInitMessage
     // true if this init message is to connect for outgoing message on receiving side
     public final boolean isForOutgoing;
 
-    public StreamInitMessage(InetAddress from, int sessionIndex, UUID planId, String description, boolean isForOutgoing)
+    public final int sessionEpoch;
+
+    public StreamInitMessage(InetAddress from, int sessionIndex, UUID planId, String description, boolean isForOutgoing,
+                             int sessionEpoch)
     {
         this.from = from;
         this.sessionIndex = sessionIndex;
         this.planId = planId;
         this.description = description;
         this.isForOutgoing = isForOutgoing;
+        this.sessionEpoch = sessionEpoch;
     }
 
     /**
@@ -105,6 +109,7 @@ public class StreamInitMessage
             UUIDSerializer.serializer.serialize(message.planId, out, MessagingService.current_version);
             out.writeUTF(message.description);
             out.writeBoolean(message.isForOutgoing);
+            out.writeInt(message.sessionEpoch);
         }
 
         public StreamInitMessage deserialize(DataInput in, int version) throws IOException
@@ -114,7 +119,8 @@ public class StreamInitMessage
             UUID planId = UUIDSerializer.serializer.deserialize(in, MessagingService.current_version);
             String description = in.readUTF();
             boolean sentByInitiator = in.readBoolean();
-            return new StreamInitMessage(from, sessionIndex, planId, description, sentByInitiator);
+            int sessionEpoch = in.readInt();
+            return new StreamInitMessage(from, sessionIndex, planId, description, sentByInitiator, sessionEpoch);
         }
 
         public long serializedSize(StreamInitMessage message, int version)
@@ -124,6 +130,7 @@ public class StreamInitMessage
             size += UUIDSerializer.serializer.serializedSize(message.planId, MessagingService.current_version);
             size += TypeSizes.NATIVE.sizeof(message.description);
             size += TypeSizes.NATIVE.sizeof(message.isForOutgoing);
+            size += TypeSizes.NATIVE.sizeof(message.sessionEpoch);
             return size;
         }
     }

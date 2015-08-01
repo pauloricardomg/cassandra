@@ -20,11 +20,11 @@ package org.apache.cassandra.streaming;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.annotation.Nullable;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Function;
 import com.google.common.collect.*;
@@ -149,6 +149,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     private int retries;
 
     private AtomicBoolean isAborted = new AtomicBoolean(false);
+
+    private AtomicReference<InetAddress> reconnectionInitiator = new AtomicReference<>();
 
     public static enum State
     {
@@ -508,6 +510,83 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             handler.sendMessage(new SessionFailedMessage());
         // fail session
         closeSession(State.FAILED);
+    }
+
+    public void onSocketError(SocketException e)
+    {
+        if (isReconnecting())
+            logger.debug("[Stream #{}] Socket exception while reconnection in progress, ignoring.", planId(), e);
+        else {
+            int epochBeforeReconnection = handler.getSessionEpoch();
+            reconnectFromInitiator();
+            if (epochBeforeReconnection == handler.getSessionEpoch())
+                //reconnection did not succeed
+                onError(e);
+        }
+    }
+
+    private boolean isReconnecting()
+    {
+        return reconnectionInitiator.get() != null;
+    }
+
+    private boolean isInitiator(InetAddress address)
+    {
+        return address.equals(reconnectionInitiator.get());
+    }
+
+    private void reconnectFromInitiator()
+    {
+        InetAddress localAddress = FBUtilities.getBroadcastAddress();
+        beginReconnect(null, localAddress);
+        if (isInitiator(localAddress))
+        {
+            if (handler.tryReconnect())
+            {
+                logger.info("[Stream #{}] Successfully reconnected stream session with {}.", planId(), peer);
+                onInitializationComplete();
+            }
+            endReconnect(localAddress);
+        }
+    }
+
+    protected void reconnectFromFollower(int sessionEpoch) throws IOException
+    {
+        InetAddress previousInitiator = reconnectionInitiator.get();
+        if (previousInitiator == null || previousInitiator.getHostAddress().compareTo(peer.getHostAddress()) < 0)
+            beginReconnect(previousInitiator, peer);
+
+        if (!isInitiator(peer))
+            throw new IOException(String.format("Terminating incoming connection for stream reconnection with peer {}"
+                                                + " because this node is also trying to reconnect with that peer.",
+                                                peer));
+
+        if (sessionEpoch <= handler.getSessionEpoch())
+        {
+            endReconnect(peer);
+            throw new IOException(String.format("Received reconnect stream request using old connection epoch %d " +
+                                                "(current epoch %d). Terminating connection.",
+                                                sessionEpoch, handler.getSessionEpoch()));
+        }
+    }
+
+    private void beginReconnect(InetAddress previousInitiator, InetAddress currentInitiator)
+    {
+        if (reconnectionInitiator.compareAndSet(previousInitiator, currentInitiator))
+        {
+            logger.info("[Stream #{}] Reconnecting stream session with initiator {}. (previous initiator was {})",
+                        planId(), currentInitiator.getHostAddress(), previousInitiator);
+            if (previousInitiator == null)
+            {
+                state(State.INITIALIZED); //reset state (maybe create a RECONNECTING state?)
+                handler.close(); //close previous message handlers
+            }
+        }
+    }
+
+    protected void endReconnect(InetAddress initiator)
+    {
+        reconnectionInitiator.compareAndSet(initiator, null);
     }
 
     /**
