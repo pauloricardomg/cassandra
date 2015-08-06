@@ -13,6 +13,14 @@ restore snapshots created with the previous major version using the
 'sstableloader' tool. You can upgrade the file format of your snapshots
 using the provided 'sstableupgrade' tool.
 
+2.2.1
+=====
+
+Upgrading
+---------
+    - CQLSH will now display timestamps in UTC timezone by default, before
+    this release it was displaying dates in the local timezone.
+
 2.2
 ===
 
