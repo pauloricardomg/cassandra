@@ -16,19 +16,16 @@
 
 import calendar
 import math
-import platform
 import re
 import sys
 import platform
 import time
 from collections import defaultdict
-
 from . import wcwidth
 from .displaying import colorme, FormattedValue, DEFAULT_VALUE_COLORS
 from datetime import datetime, timedelta
 from cassandra.cqltypes import EMPTY
-
-is_win = platform.system() == 'Windows'
+from cassandra.util import datetime_from_timestamp
 
 unicode_controlchars_re = re.compile(r'[\x00-\x31\x7f-\xa0]')
 controlchars_re = re.compile(r'[\x00-\x31\x7f-\xff]')
@@ -97,7 +94,7 @@ DEFAULT_DATE_FORMAT = '%Y-%m-%d'
 DEFAULT_TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S%z'
 
 if platform.system() == 'Windows':
-    DEFAULT_TIME_FORMAT = '%Y-%m-%d %H:%M:%S %Z'
+    DEFAULT_TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S %Z'
 
 class DateTimeFormat():
     def __init__(self, timestamp_format=DEFAULT_TIMESTAMP_FORMAT, date_format=DEFAULT_DATE_FORMAT, nanotime_format=DEFAULT_NANOTIME_FORMAT):
@@ -191,30 +188,8 @@ def format_value_timestamp(val, colormap, date_time_format, quote=False, **_):
     return colorme(bval, colormap, 'timestamp')
 
 def strftime(time_format, seconds):
-    local = time.localtime(seconds)
-    formatted = time.strftime(time_format, local)
-    if local.tm_isdst != 0:
-        offset = -time.altzone
-    else:
-        offset = -time.timezone
-    if not is_win and (formatted[-4:] != '0000' or time_format[-2:] != '%z' or offset == 0):
-        return formatted
-    elif is_win and time_format[-2:] != '%z':
-        return formatted
-
-    # deal with %z on platforms where it isn't supported. see CASSANDRA-4746.
-    if offset < 0:
-        sign = '-'
-    else:
-        sign = '+'
-    hours, minutes = divmod(abs(offset) / 60, 60)
-    # Need to strip out invalid %z output on Windows. C libs give us 'Eastern Standard Time' instead of +/- GMT
-    if is_win and time_format[-2:] == '%z':
-        # Remove chars and strip trailing spaces left behind
-        formatted = re.sub('[A-Za-z]', '', formatted).rstrip()
-        return formatted + sign + '{0:0=2}{1:0=2}'.format(hours, minutes)
-    else:
-        return formatted[:-5] + sign + '{0:0=2}{1:0=2}'.format(hours, minutes)
+    utc_dt = datetime_from_timestamp(seconds)
+    return utc_dt.strftime(time_format)
 
 @formatter_for('Date')
 def format_value_date(val, colormap, **_):
