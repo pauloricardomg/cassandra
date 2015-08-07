@@ -60,6 +60,8 @@ Upgrading
      has been deprecated since 2.1.0 and is being removed in 3.0.0.
    - Batchlog entries are now stored in a new table - system.batches.
      The old one has been deprecated.
+   - cqlsh will now display timestamps in UTC timezone by default, before
+     this release it was displaying dates in the local timezone.
 
 
 2.2
