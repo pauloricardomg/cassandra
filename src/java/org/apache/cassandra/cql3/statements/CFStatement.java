@@ -17,7 +17,11 @@
  */
 package org.apache.cassandra.cql3.statements;
 
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.CFName;
+import org.apache.cassandra.db.KeyspaceNotDefinedException;
+import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 
@@ -60,5 +64,18 @@ public abstract class CFStatement extends ParsedStatement
     public String columnFamily()
     {
         return cfName.getColumnFamily();
+    }
+
+    protected CFMetaData findBaseCf() {
+        KeyspaceMetadata ksm = Schema.instance.getKSMetaData(keyspace());
+        if (ksm == null)
+            throw new KeyspaceNotDefinedException("Keyspace " + keyspace() + " does not exist");
+
+        for (CFMetaData cfm : ksm.tables)
+        {
+            if (cfm.getMaterializedViews().get(columnFamily()).isPresent())
+                return cfm;
+        }
+        return null;
     }
 }

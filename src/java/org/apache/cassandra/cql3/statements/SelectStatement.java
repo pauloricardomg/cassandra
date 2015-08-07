@@ -43,6 +43,7 @@ import org.apache.cassandra.db.index.SecondaryIndexManager;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.view.MaterializedView;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.serializers.MarshalException;
@@ -166,7 +167,16 @@ public class SelectStatement implements CQLStatement
 
     public void checkAccess(ClientState state) throws InvalidRequestException, UnauthorizedException
     {
-        state.hasColumnFamilyAccess(keyspace(), columnFamily(), Permission.SELECT);
+        if (cfm.isMaterializedView())
+        {
+            CFMetaData baseCf = MaterializedView.findBaseCf(keyspace(), columnFamily());
+            if (baseCf == null)
+                throw new InvalidRequestException("View '" + columnFamily() + "' could not be found in any of the " +
+                                                  "tables of keyspace '" + keyspace() + '\'');
+            state.hasColumnFamilyAccess(keyspace(), baseCf.cfName, Permission.SELECT);
+        }
+        else
+            state.hasColumnFamilyAccess(keyspace(), columnFamily(), Permission.SELECT);
         for (Function function : getFunctions())
             state.ensureHasPermission(Permission.EXECUTE, function);
     }

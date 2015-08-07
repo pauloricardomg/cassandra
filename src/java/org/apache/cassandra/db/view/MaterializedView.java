@@ -42,6 +42,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionInfo;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.KeyspaceNotDefinedException;
 import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.RangeTombstone;
@@ -59,6 +60,7 @@ import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowIterator;
+import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.service.pager.QueryPager;
 
 /**
@@ -632,6 +634,19 @@ public class MaterializedView
 
         this.builder = new MaterializedViewBuilder(baseCfs, this);
         CompactionManager.instance.submitMaterializedViewBuilder(builder);
+    }
+
+    public static CFMetaData findBaseCf(String ks, String cf) {
+        KeyspaceMetadata ksm = Schema.instance.getKSMetaData(ks);
+        if (ksm == null)
+            throw new KeyspaceNotDefinedException("Keyspace " + ks + " does not exist");
+
+        for (CFMetaData cfm : ksm.tables)
+        {
+            if (cfm.getMaterializedViews().get(cf).isPresent())
+                return cfm;
+        }
+        return null;
     }
 
     /**
