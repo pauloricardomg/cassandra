@@ -33,6 +33,7 @@ import org.apache.cassandra.cql3.CFName;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.selection.RawSelector;
 import org.apache.cassandra.cql3.selection.Selectable;
+import org.apache.cassandra.db.BatchlogManager;
 import org.apache.cassandra.db.view.MaterializedView;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
@@ -93,6 +94,7 @@ public class CreateMaterializedViewStatement extends SchemaAlteringStatement
         //  - make sure that primary key does not include any collections
         //  - make sure there is no where clause in the select statement
         //  - make sure there is not currently a table or view
+        //  - make sure baseTable gcGraceSeconds < MIN_BASE_TABLE_GC_GRACE_SECONDS
 
         properties.validate();
 
@@ -109,6 +111,10 @@ public class CreateMaterializedViewStatement extends SchemaAlteringStatement
             throw new InvalidRequestException("Materialized views are not supported on counter tables");
         if (cfm.isMaterializedView())
             throw new InvalidRequestException("Materialized views cannot be created against other materialized views");
+        if (cfm.params.gcGraceSeconds < BatchlogManager.MIN_BATCHLOG_TTL)
+            throw new InvalidRequestException(String.format("Base table '%s' must have gcGraceSeconds attribute of at " +
+                                                            "least %d seconds (currently is %d).", baseName.getColumnFamily(),
+                                                            BatchlogManager.MIN_BATCHLOG_TTL, cfm.params.gcGraceSeconds));
 
         Set<ColumnIdentifier> included = new HashSet<>();
         for (RawSelector selector : selectClause)

@@ -27,6 +27,7 @@ import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.MaterializedViewDefinition;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.*;
+import org.apache.cassandra.db.BatchlogManager;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.schema.TableParams;
@@ -290,7 +291,10 @@ public class AlterTableStatement extends SchemaAlteringStatement
                 attrs.validate();
 
                 TableParams params = attrs.asAlteredTableParams(cfm.params);
-
+                if (cfm.hasMaterializedViews() && params.gcGraceSeconds < BatchlogManager.MIN_BATCHLOG_TTL)
+                    throw new InvalidRequestException(String.format("Cannot alter gc_grace_seconds of the base table of a " +
+                                                                    "materialized view to a value lower than %d seconds.",
+                                                                    BatchlogManager.MIN_BATCHLOG_TTL));
                 if (meta.isCounter() && params.defaultTimeToLive > 0)
                     throw new InvalidRequestException("Cannot set default_time_to_live on a table with counters");
 

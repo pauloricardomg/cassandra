@@ -62,6 +62,13 @@ public class BatchlogManager implements BatchlogManagerMBean
     private static final long REPLAY_INTERVAL = 10 * 1000; // milliseconds
     private static final int DEFAULT_PAGE_SIZE = 128;
 
+    /* For correctness, batchlog entries are TTLed with the lowest gc_grace_seconds of all the tables involved in a batch.
+     * A too low gc_grace_seconds may cause batch log hints to expire before even reaching the destination node, so this
+     * parameter is the minimum recommended gc_grace_seconds to avoid losing batch hints.
+     * See CASSANDRA-9917 for more information */
+    public static final int MIN_BATCHLOG_TTL = Integer.parseInt(System.getProperty("cassandra.min_batchlog_ttl",
+                                                                                   String.valueOf(3 * 3600)));
+
     private static final Logger logger = LoggerFactory.getLogger(BatchlogManager.class);
     public static final BatchlogManager instance = new BatchlogManager();
 

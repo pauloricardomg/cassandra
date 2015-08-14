@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.helpers.MessageFormatter;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.*;
@@ -40,7 +41,6 @@ import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.tracing.Tracing;
-import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.Pair;
@@ -155,7 +155,7 @@ public class BatchStatement implements CQLStatement
             if (type == Type.COUNTER && !statement.isCounter())
                 throw new InvalidRequestException("Cannot include non-counter statement in a counter batch");
 
-            if (type == Type.LOGGED && statement.isCounter())
+            if (isLogged() && statement.isCounter())
                 throw new InvalidRequestException("Cannot include a counter statement in a logged batch");
 
             if (statement.isCounter())
@@ -181,6 +181,11 @@ public class BatchStatement implements CQLStatement
         }
     }
 
+    private boolean isLogged()
+    {
+        return type == Type.LOGGED;
+    }
+
     // The batch itself will be validated in either Parsed#prepare() - for regular CQL3 batches,
     //   or in QueryProcessor.processBatch() - for native protocol batches.
     public void validate(ClientState state) throws InvalidRequestException
@@ -197,14 +202,25 @@ public class BatchStatement implements CQLStatement
     private Collection<? extends IMutation> getMutations(BatchQueryOptions options, boolean local, long now)
     throws RequestExecutionException, RequestValidationException
     {
+        HashSet<CFMetaData> tablesWithGcGsBelowTreshold = new HashSet<>();
+
         Map<String, Map<ByteBuffer, IMutation>> mutations = new HashMap<>();
         for (int i = 0; i < statements.size(); i++)
         {
             ModificationStatement statement = statements.get(i);
+            if (isLogged() && statement.cfm.params.gcGraceSeconds < BatchlogManager.MIN_BATCHLOG_TTL)
+                tablesWithGcGsBelowTreshold.add(statement.cfm);
             QueryOptions statementOptions = options.forStatement(i);
             long timestamp = attrs.getTimestamp(now, statementOptions);
             addStatementMutations(statement, statementOptions, local, timestamp, mutations);
         }
+
+        for (CFMetaData cfm : tablesWithGcGsBelowTreshold)
+            logger.warn("Table '{}.{}' has a configured gc_grace_seconds of {}, below the recommended " +
+                        "minimum of {} for use in atomic batches. This might lead to partially applied " +
+                        "batches in the case of failures.", cfm.ksName, cfm.cfName, cfm.params.gcGraceSeconds,
+                        BatchlogManager.MIN_BATCHLOG_TTL);
+
         return unzipMutations(mutations);
     }
 
@@ -381,7 +397,7 @@ public class BatchStatement implements CQLStatement
         verifyBatchSize(updates);
         verifyBatchType(updates);
 
-        boolean mutateAtomic = (type == Type.LOGGED && mutations.size() > 1);
+        boolean mutateAtomic = (isLogged() && mutations.size() > 1);
         StorageProxy.mutateWithTriggers(mutations, cl, mutateAtomic);
     }
 

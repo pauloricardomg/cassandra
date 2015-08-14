@@ -20,10 +20,12 @@ package org.apache.cassandra.cql3.statements;
 import org.apache.cassandra.auth.Permission;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.CFName;
+import org.apache.cassandra.db.BatchlogManager;
 import org.apache.cassandra.db.view.MaterializedView;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.UnauthorizedException;
+import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.transport.Event;
@@ -64,7 +66,13 @@ public class AlterMaterializedViewStatement extends SchemaAlteringStatement
             throw new InvalidRequestException("ALTER MATERIALIZED VIEW WITH invoked, but no parameters found");
 
         attrs.validate();
-        cfm.params(attrs.asAlteredTableParams(cfm.params));
+
+        TableParams params = attrs.asAlteredTableParams(cfm.params);
+        if (params.gcGraceSeconds < BatchlogManager.MIN_BATCHLOG_TTL)
+            throw new InvalidRequestException(String.format("Cannot alter gc_grace_seconds of a materialized view to a " +
+                                                            "value lower than %d seconds.", BatchlogManager.MIN_BATCHLOG_TTL));
+
+        cfm.params(params);
 
         MigrationManager.announceColumnFamilyUpdate(cfm, false, isLocalOnly);
         return true;

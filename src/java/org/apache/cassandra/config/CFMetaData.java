@@ -302,6 +302,11 @@ public final class CFMetaData
         return materializedViews;
     }
 
+    public boolean hasMaterializedViews()
+    {
+        return !materializedViews.isEmpty();
+    }
+
     public static CFMetaData create(String ksName,
                                     String name,
                                     UUID cfId,
