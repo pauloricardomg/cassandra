@@ -297,7 +297,12 @@ public class AlterTableStatement extends SchemaAlteringStatement
                 attrs.validate();
 
                 TableParams params = attrs.asAlteredTableParams(cfm.params);
-
+                if (cfm.hasMaterializedViews() && params.gcGraceSeconds == 0)
+                    throw new InvalidRequestException("Cannot alter gc_grace_seconds of the base table of a " +
+                                                      "materialized view to 0, since this value is used to TTL " +
+                                                      "undelivered updates to failed nodes. Setting a too low " +
+                                                      "gc_grace_seconds might cause undelivered updates to expire " +
+                                                      "before being replayed.");
                 if (meta.isCounter() && params.defaultTimeToLive > 0)
                     throw new InvalidRequestException("Cannot set default_time_to_live on a table with counters");
 
