@@ -310,6 +310,11 @@ public final class CFMetaData
         return materializedViews;
     }
 
+    public boolean hasMaterializedViews()
+    {
+        return !materializedViews.isEmpty();
+    }
+
     public Indexes getIndexes()
     {
         return indexes;

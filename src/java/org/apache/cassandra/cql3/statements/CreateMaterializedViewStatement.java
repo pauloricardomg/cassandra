@@ -93,6 +93,7 @@ public class CreateMaterializedViewStatement extends SchemaAlteringStatement
         //  - make sure that primary key does not include any collections
         //  - make sure there is no where clause in the select statement
         //  - make sure there is not currently a table or view
+        //  - make sure baseTable gcGraceSeconds > 0
 
         properties.validate();
 
@@ -109,6 +110,13 @@ public class CreateMaterializedViewStatement extends SchemaAlteringStatement
             throw new InvalidRequestException("Materialized views are not supported on counter tables");
         if (cfm.isMaterializedView())
             throw new InvalidRequestException("Materialized views cannot be created against other materialized views");
+        if (cfm.params.gcGraceSeconds == 0)
+            throw new InvalidRequestException(String.format("Cannot create materialized view '%s' from base table " +
+                                                            "'%s' with a gc_grace_seconds of 0, since this value is " +
+                                                            "used to TTL undelivered updates to failed nodes. " +
+                                                            "Setting a too low gc_grace_seconds might cause " +
+                                                            "undelivered updates to expire before being replayed.",
+                                                            cfName.getColumnFamily(), baseName.getColumnFamily()));
 
         Set<ColumnIdentifier> included = new HashSet<>();
         for (RawSelector selector : selectClause)
