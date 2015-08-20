@@ -26,7 +26,7 @@ public class NanoTimeToCurrentTimeMillisTest
     @Test
     public void testTimestampOrdering() throws Exception
     {
-        long nowNanos = System.nanoTime();
+        long nowNanos;
         long now = System.currentTimeMillis();
         long lastConverted = 0;
         for (long ii = 0; ii < 10000000; ii++)
@@ -42,11 +42,16 @@ public class NanoTimeToCurrentTimeMillisTest
             }
             nowNanos = Math.max(now, System.nanoTime());
             long convertedNow = NanoTimeToCurrentTimeMillis.convert(nowNanos);
-            assertTrue("convertedNow = " + convertedNow + " lastConverted = " + lastConverted + " in iteration " + ii, convertedNow >= (lastConverted - 1));
-            lastConverted = convertedNow;
-            //Seems to be off by as much as two milliseconds sadly
-            assertTrue("now = " + now + " convertedNow = " + convertedNow + " in iteration " + ii, (now - 2) <= convertedNow);
 
+            int maxDiff = FBUtilities.isWindows()? 15 : 1;
+            assertTrue("convertedNow = " + convertedNow + " lastConverted = " + lastConverted + " in iteration " + ii,
+                       convertedNow >= (lastConverted - maxDiff));
+
+            maxDiff = FBUtilities.isWindows()? 5 : 2;
+            assertTrue("now = " + now + " convertedNow = " + convertedNow + " in iteration " + ii,
+                       (now - maxDiff) <= convertedNow);
+
+            lastConverted = convertedNow;
         }
     }
 }
