@@ -215,6 +215,12 @@ public class Keyspace
         return columnFamilyStores.containsKey(id);
     }
 
+    public boolean hasColumnFamilyStore(String cfName)
+    {
+        UUID id = Schema.instance.getId(getName(), cfName);
+        return id == null? false : hasColumnFamilyStore(id);
+    }
+
     /**
      * Take a snapshot of the specific column family, or the entire set of column families
      * if columnFamily is null with a given timestamp

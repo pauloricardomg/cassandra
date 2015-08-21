@@ -39,6 +39,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import javax.annotation.Nullable;
 import javax.management.JMX;
@@ -160,6 +162,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private static final Logger logger = LoggerFactory.getLogger(StorageService.class);
 
     public static final int RING_DELAY = getRingDelay(); // delay after which we assume ring has stablized
+    public static final long CONDITION_WAIT_DELAY = 500L;
+    public static final int CONDITION_MAX_RETRIES = 10;
 
     private final JMXProgressSupport progressSupport = new JMXProgressSupport(this);
 
@@ -1027,6 +1031,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // if we don't have system_auth keyspace at this point, then create it
             if (Schema.instance.getKSMetaData(AuthKeyspace.NAME) == null)
                 maybeAddKeyspace(AuthKeyspace.metadata());
+            if (!waitUntilCondition(StorageService::hasKeyspace, AuthKeyspace.NAME, null))
+                logger.warn("Newly created keyspace {} still not available after {} milliseconds.",
+                            AuthKeyspace.NAME, CONDITION_MAX_RETRIES * CONDITION_WAIT_DELAY);
         }
         catch (Exception e)
         {
@@ -1038,8 +1045,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // Also, the addKeyspace above can be racy if multiple nodes are started
         // concurrently - see CASSANDRA-9201
         for (CFMetaData table : AuthKeyspace.metadata().tables)
+        {
             if (Schema.instance.getCFMetaData(table.ksName, table.cfName) == null)
                 maybeAddTable(table);
+            if (!waitUntilCondition(StorageService::hasTable, table.ksName, table.cfName))
+                logger.warn("Newly created table {} still not available after {} milliseconds.",
+                            table.cfName, CONDITION_MAX_RETRIES * CONDITION_WAIT_DELAY);
+        }
 
         DatabaseDescriptor.getRoleManager().setup();
         DatabaseDescriptor.getAuthenticator().setup();
@@ -1069,6 +1081,28 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             logger.debug("Attempted to create new keyspace {}, but it already exists", ksm.name);
         }
+    }
+
+    private static boolean hasKeyspace(String ksName, String cfName)
+    {
+        return Keyspace.open(ksName) != null;
+    }
+
+    private static boolean hasTable(String ksName, String cfName)
+    {
+        return Keyspace.open(ksName).hasColumnFamilyStore(cfName);
+    }
+
+    /**
+     * Wait until a condition is reached
+     * @return true if the condition was reached within timeout, {false} otherwise
+     */
+    private boolean waitUntilCondition(BiFunction<String, String, Boolean> condition, String ksName, String cfName)
+    {
+        int attempts = 0;
+        while(!condition.apply(ksName,cfName) && attempts++ < CONDITION_MAX_RETRIES)
+            Uninterruptibles.sleepUninterruptibly(CONDITION_WAIT_DELAY, TimeUnit.MILLISECONDS);
+        return condition.apply(ksName,cfName);
     }
 
     public boolean isJoined()
