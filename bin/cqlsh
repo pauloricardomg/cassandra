@@ -1090,6 +1090,10 @@ class Shell(cmd.Cmd):
             try:
                 rows = self.session.execute(statement, trace=self.tracing_enabled)
                 break
+            except cassandra.OperationTimedOut, err:
+                self.refresh_schema_metadata_best_effort()
+                self.printerr(str(err.__class__.__name__) + ": " + str(err))
+                return False
             except CQL_ERRORS, err:
                 self.printerr(str(err.__class__.__name__) + ": " + str(err))
                 return False
