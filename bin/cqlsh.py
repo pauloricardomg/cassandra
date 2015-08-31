@@ -1163,6 +1163,10 @@ class Shell(cmd.Cmd):
                 future = self.session.execute_async(statement, trace=self.tracing_enabled)
                 rows = future.result(self.session.default_timeout)
                 break
+            except cassandra.OperationTimedOut, err:
+                self.refresh_schema_metadata_best_effort()
+                self.printerr(str(err.__class__.__name__) + ": " + str(err))
+                return False, None
             except CQL_ERRORS, err:
                 self.printerr(str(err.__class__.__name__) + ": " + str(err))
                 return False, None
