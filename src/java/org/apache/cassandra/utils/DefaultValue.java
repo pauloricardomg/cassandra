@@ -15,16 +15,37 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.io.util;
+package org.apache.cassandra.utils;
 
-import java.nio.MappedByteBuffer;
-import java.util.TreeMap;
 
-import org.apache.cassandra.io.compress.CompressionMetadata;
-
-public interface ICompressedFile extends IChecksummedFiled
+public class DefaultValue<T>
 {
-    public ChannelProxy channel();
-    public CompressionMetadata getMetadata();
-    public TreeMap<Long, MappedByteBuffer> chunkSegments();
+    private final T originalValue;
+    private T currentValue;
+
+    public DefaultValue(T value)
+    {
+        originalValue = value;
+        currentValue = value;
+    }
+
+    public T value()
+    {
+        return currentValue;
+    }
+
+    public void set(T i)
+    {
+        currentValue = i;
+    }
+
+    public void reset()
+    {
+        currentValue = originalValue;
+    }
+
+    public boolean isModified()
+    {
+        return originalValue != currentValue;
+    }
 }

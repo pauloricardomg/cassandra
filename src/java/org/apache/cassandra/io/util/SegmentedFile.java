@@ -36,6 +36,7 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.IndexSummary;
 import org.apache.cassandra.io.sstable.IndexSummaryBuilder;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
+import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.utils.CLibrary;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.RefCounted;
@@ -52,7 +53,7 @@ import static org.apache.cassandra.utils.Throwables.maybeFail;
  * would need to be longer than 2GB, that segment will not be mmap'd, and a new RandomAccessFile will be created for
  * each access to that segment.
  */
-public abstract class SegmentedFile extends SharedCloseableImpl
+public abstract class SegmentedFile extends SharedCloseableImpl implements IChecksummedFiled
 {
     public final ChannelProxy channel;
     public final int bufferSize;
@@ -61,6 +62,7 @@ public abstract class SegmentedFile extends SharedCloseableImpl
     // This differs from length for compressed files (but we still need length for
     // SegmentIterator because offsets in the file are relative to the uncompressed size)
     public final long onDiskLength;
+    private volatile double crcCheckChance = TableParams.DEFAULT_CRC_CHECK_CHANCE;
 
     /**
      * Use getBuilder to get a Builder to construct a SegmentedFile.
@@ -130,6 +132,16 @@ public abstract class SegmentedFile extends SharedCloseableImpl
         RandomAccessReader reader = createReader();
         reader.seek(position);
         return reader;
+    }
+
+    public double getCrcCheckChance()
+    {
+        return this.crcCheckChance;
+    }
+
+    public void setCrcCheckChance(double crcCheckChance)
+    {
+        this.crcCheckChance = crcCheckChance;
     }
 
     public void dropPageCache(long before)

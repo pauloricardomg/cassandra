@@ -15,37 +15,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.utils;
 
+package org.apache.cassandra.io.util;
 
-public class DefaultInteger
+public interface IChecksummedFiled
 {
-    private final int originalValue;
-    private int currentValue;
-
-    public DefaultInteger(int value)
-    {
-        originalValue = value;
-        currentValue = value;
-    }
-
-    public int value()
-    {
-        return currentValue;
-    }
-
-    public void set(int i)
-    {
-        currentValue = i;
-    }
-
-    public void reset()
-    {
-        currentValue = originalValue;
-    }
-
-    public boolean isModified()
-    {
-        return originalValue != currentValue;
-    }
+    public double getCrcCheckChance();
+    public void setCrcCheckChance(double crcCheckChance);
 }

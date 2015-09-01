@@ -31,6 +31,7 @@ import com.google.common.primitives.Ints;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.util.*;
+import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.memory.BufferPool;
 
@@ -63,6 +64,8 @@ public class CompressedRandomAccessReader extends RandomAccessReader
     // raw checksum bytes
     private ByteBuffer checksumBytes;
 
+    private final Double crcCheckChance;
+
     protected CompressedRandomAccessReader(ChannelProxy channel, CompressionMetadata metadata, ICompressedFile file)
     {
         super(channel, metadata.chunkLength(), metadata.compressedFileLength, metadata.compressor().preferredBufferType());
@@ -75,6 +78,8 @@ public class CompressedRandomAccessReader extends RandomAccessReader
             compressed = allocateBuffer(metadata.compressor().initialCompressedBufferLength(metadata.chunkLength()), metadata.compressor().preferredBufferType());
             checksumBytes = ByteBuffer.wrap(new byte[4]);
         }
+
+        crcCheckChance = file == null ? TableParams.DEFAULT_CRC_CHECK_CHANCE : file.getCrcCheckChance();
     }
 
     protected int getBufferSize(int size)
@@ -128,7 +133,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
                 buffer.flip();
             }
 
-            if (metadata.parameters.getCrcCheckChance() > ThreadLocalRandom.current().nextDouble())
+            if (crcCheckChance > ThreadLocalRandom.current().nextDouble())
             {
                 compressed.rewind();
                 metadata.checksumType.update( checksum, (compressed));
@@ -189,7 +194,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
                 buffer.flip();
             }
 
-            if (metadata.parameters.getCrcCheckChance() > ThreadLocalRandom.current().nextDouble())
+            if (crcCheckChance > ThreadLocalRandom.current().nextDouble())
             {
                 compressedChunk.position(chunkOffset).limit(chunkOffset + chunk.length);
 

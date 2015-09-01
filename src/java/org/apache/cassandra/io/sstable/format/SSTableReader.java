@@ -657,6 +657,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             getCompressionMetadata().parameters.setLiveMetadata(
                     Schema.instance.getCFMetaData(metadata.ksName, metadata.getParentColumnFamilyName()));
         }
+        updateCrcCheckChance();
     }
 
     public boolean isKeyCacheSetup()
@@ -1647,6 +1648,12 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return dfile.onDiskLength;
     }
 
+    @VisibleForTesting
+    public double getCrcCheckChance()
+    {
+        return dfile.getCrcCheckChance();
+    }
+
     /**
      * Mark the sstable as obsolete, i.e., compacted into newer sstables.
      *
@@ -2046,6 +2053,17 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         this.readMeter = tidy.global.readMeter;
         if (compression)
             getCompressionMetadata().parameters.setLiveMetadata(metadata);
+        updateCrcCheckChance();
+    }
+
+    private void updateCrcCheckChance()
+    {
+        final ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(metadata.cfId);
+        if (cfs != null)
+        {
+            ifile.setCrcCheckChance(cfs.getCrcCheckChance());
+            dfile.setCrcCheckChance(cfs.getCrcCheckChance());
+        }
     }
 
     @VisibleForTesting

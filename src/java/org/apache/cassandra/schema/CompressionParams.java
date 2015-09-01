@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -38,6 +39,8 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.compress.*;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.service.ClientWarn;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 import static java.lang.String.format;
 
@@ -50,7 +53,6 @@ public final class CompressionParams
     private static volatile boolean hasLoggedChunkLengthWarning;
 
     public static final int DEFAULT_CHUNK_LENGTH = 65536;
-    public static final double DEFAULT_CRC_CHECK_CHANCE = 1.0;
     public static final IVersionedSerializer<CompressionParams> serializer = new Serializer();
 
     public static final String CLASS = "class";
@@ -61,17 +63,18 @@ public final class CompressionParams
                                                                           DEFAULT_CHUNK_LENGTH,
                                                                           Collections.emptyMap());
 
+    private static final String CRC_CHECK_CHANCE_WARNING = "The option crc_check_chance is no longer a compression option. " +
+                                                           "You should specify it as a top-level table option instead";
+
     @Deprecated public static final String SSTABLE_COMPRESSION = "sstable_compression";
     @Deprecated public static final String CHUNK_LENGTH_KB = "chunk_length_kb";
-
-    public static final String CRC_CHECK_CHANCE = "crc_check_chance";
+    @Deprecated public static final String CRC_CHECK_CHANCE = "crc_check_chance";
 
     public static final Set<String> GLOBAL_OPTIONS = ImmutableSet.of(CRC_CHECK_CHANCE);
 
     private final ICompressor sstableCompressor;
     private final Integer chunkLength;
-    private volatile double crcCheckChance;
-    private final ImmutableMap<String, String> otherOptions; // Unrecognized options, can be use by the compressor
+    private final ImmutableMap<String, String> otherOptions; // Unrecognized options, can be used by the compressor
     private CFMetaData liveMetadata;
 
     public static CompressionParams fromMap(Map<String, String> opts)
@@ -96,6 +99,13 @@ public final class CompressionParams
         }
 
         Integer chunkLength = removeChunkLength(options);
+
+        if (options.containsKey(CRC_CHECK_CHANCE))
+        {
+            NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, CRC_CHECK_CHANCE_WARNING);
+            ClientWarn.warn(CRC_CHECK_CHANCE_WARNING);
+            options.remove(CRC_CHECK_CHANCE);
+        }
 
         CompressionParams cp = new CompressionParams(sstableCompressionClass, chunkLength, options);
         cp.validate();
@@ -153,8 +163,6 @@ public final class CompressionParams
         this.sstableCompressor = sstableCompressor;
         this.chunkLength = chunkLength;
         this.otherOptions = ImmutableMap.copyOf(otherOptions);
-        String chance = otherOptions.get(CRC_CHECK_CHANCE);
-        this.crcCheckChance = (chance == null) ? DEFAULT_CRC_CHECK_CHANCE : parseCrcCheckChance(chance);
     }
 
     public CompressionParams copy()
@@ -168,15 +176,6 @@ public final class CompressionParams
             return;
 
         this.liveMetadata = liveMetadata;
-    }
-
-    public void setCrcCheckChance(double crcCheckChance) throws ConfigurationException
-    {
-        validateCrcCheckChance(crcCheckChance);
-        this.crcCheckChance = crcCheckChance;
-
-        if (liveMetadata != null && this != liveMetadata.params.compression)
-            liveMetadata.params.compression.setCrcCheckChance(crcCheckChance);
     }
 
     /**
@@ -200,31 +199,6 @@ public final class CompressionParams
     public ImmutableMap<String, String> getOtherOptions()
     {
         return otherOptions;
-    }
-
-    public double getCrcCheckChance()
-    {
-        return liveMetadata == null ? this.crcCheckChance : liveMetadata.params.compression.crcCheckChance;
-    }
-
-    private static double parseCrcCheckChance(String crcCheckChance) throws ConfigurationException
-    {
-        try
-        {
-            double chance = Double.parseDouble(crcCheckChance);
-            validateCrcCheckChance(chance);
-            return chance;
-        }
-        catch (NumberFormatException e)
-        {
-            throw new ConfigurationException("crc_check_chance should be a double");
-        }
-    }
-
-    private static void validateCrcCheckChance(double crcCheckChance) throws ConfigurationException
-    {
-        if (crcCheckChance < 0.0d || crcCheckChance > 1.0d)
-            throw new ConfigurationException("crc_check_chance should be between 0.0 and 1.0");
     }
 
     public int chunkLength()
@@ -262,9 +236,8 @@ public final class CompressionParams
             Method method = compressorClass.getMethod("create", Map.class);
             ICompressor compressor = (ICompressor)method.invoke(null, compressionOptions);
             // Check for unknown options
-            AbstractSet<String> supportedOpts = Sets.union(compressor.supportedOptions(), GLOBAL_OPTIONS);
             for (String provided : compressionOptions.keySet())
-                if (!supportedOpts.contains(provided))
+                if (!compressor.supportedOptions().contains(provided))
                     throw new ConfigurationException("Unknown compression options " + provided);
             return compressor;
         }
@@ -474,8 +447,6 @@ public final class CompressionParams
                 c >>= 1;
             }
         }
-
-        validateCrcCheckChance(crcCheckChance);
     }
 
     public Map<String, String> asMap()

@@ -356,6 +356,9 @@ public final class LegacySchemaMigrator
         if (row.has("default_time_to_live"))
             params.defaultTimeToLive(row.getInt("default_time_to_live"));
 
+        if (row.has("crc_check_chance"))
+            params.crcCheckChance(row.getInt("crc_check_chance"));
+
         if (row.has("speculative_retry"))
             params.speculativeRetry(SpeculativeRetryParam.fromString(row.getString("speculative_retry")));
 
