@@ -27,6 +27,7 @@ import java.nio.channels.WritableByteChannel;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -53,6 +54,7 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 public class ConnectionHandler
 {
     private static final Logger logger = LoggerFactory.getLogger(ConnectionHandler.class);
+    private static final double SOCKET_ERROR_CHANCE = getSocketErrorChance();
 
     private final StreamSession session;
 
@@ -222,6 +224,16 @@ public class ConnectionHandler
                 logger.debug("Unexpected error while closing streaming connection", e);
             }
         }
+
+        protected void maybeThrowSocketException() throws SocketException
+        {
+            if (SOCKET_ERROR_CHANCE > 0 &&
+                session.state() == StreamSession.State.STREAMING &&
+                SOCKET_ERROR_CHANCE > ThreadLocalRandom.current().nextDouble())
+                throw new SocketException(String.format("Fake socket error caused by option " +
+                                                        "cassandra.test.streaming_socket_error_chance of %.2f",
+                                                        SOCKET_ERROR_CHANCE));
+        }
     }
 
     /**
@@ -360,5 +372,24 @@ public class ConnectionHandler
                 session.onError(e);
             }
         }
+    }
+
+    private static double getSocketErrorChance()
+    {
+        String errorChance = System.getProperty("cassandra.test.streaming_socket_error_chance");
+        if (errorChance != null)
+        {
+            try
+            {
+                double socketErrorChance = Double.parseDouble(errorChance);
+                logger.info("Using streaming_socket_error_chance of {}", socketErrorChance);
+                return socketErrorChance;
+            }
+            catch (NumberFormatException nfe)
+            {
+                logger.warn("Invalid property streaming_socket_error_chance value: {}", errorChance);
+            }
+        }
+        return 0.0;
     }
 }
