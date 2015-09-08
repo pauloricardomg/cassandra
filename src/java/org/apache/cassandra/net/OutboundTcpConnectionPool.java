@@ -131,11 +131,33 @@ public class OutboundTcpConnectionPool
         }
         else
         {
-            Socket socket = SocketChannel.open(new InetSocketAddress(endpoint, DatabaseDescriptor.getStoragePort())).socket();
+            Socket socket;
+            if (FBUtilities.getLocalAddress().isLoopbackAddress())
+                socket = openLoobackSocketChannel(endpoint).socket();
+            else
+                socket = SocketChannel.open(new InetSocketAddress(endpoint, DatabaseDescriptor.getStoragePort())).socket();
+
             if (Config.getOutboundBindAny() && !socket.isBound())
                 socket.bind(new InetSocketAddress(FBUtilities.getLocalAddress(), 0));
             return socket;
         }
+    }
+
+    private static SocketChannel openLoobackSocketChannel(InetAddress endpoint) throws IOException
+    {
+        SocketChannel sc = SocketChannel.open();
+        sc.bind(new InetSocketAddress(FBUtilities.getLocalAddress(), 0));
+        try {
+            sc.connect(new InetSocketAddress(endpoint, DatabaseDescriptor.getStoragePort()));
+        } catch (Throwable x) {
+            try {
+                sc.close();
+            } catch (Throwable suppressed) {
+                x.addSuppressed(suppressed);
+            }
+            throw x;
+        }
+        return sc;
     }
 
     public InetAddress endPoint()
