@@ -71,7 +71,7 @@ public class IncomingStreamingConnection extends Thread implements Closeable
         }
         catch (IOException e)
         {
-            logger.debug("IOException reading from socket; closing", e);
+            logger.error("IOException reading from socket; closing", e);
             close();
         }
     }

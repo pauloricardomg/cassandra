@@ -132,7 +132,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public final InetAddress connecting;
 
     // should not be null when session is started
-    private StreamResultFuture streamResult;
+    private volatile StreamResultFuture streamResult;
 
     // stream requests to send to the peer
     private final Set<StreamRequest> requests = Sets.newConcurrentHashSet();
@@ -412,7 +412,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
             // Note that we shouldn't block on this close because this method is called on the handler
             // incoming thread (so we would deadlock).
-            handler.close();
+            handler.close(false);
 
             streamResult.handleSessionComplete(this);
         }
@@ -504,6 +504,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public void onError(Throwable e)
     {
+        if (isReconnecting())
+        {
+            logger.info("[Stream #{}] Ignoring error while reconnection in progress.", planId(), e);
+            return;
+
+        }
         logger.error("[Stream #{}] Streaming error occurred", planId(), e);
         // send session failure message
         if (handler.isOutgoingConnected())
@@ -514,9 +520,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public void onSocketError(SocketException e)
     {
-        if (isReconnecting())
-            logger.debug("[Stream #{}] Socket exception while reconnection in progress, ignoring.", planId(), e);
+        if (state() == State.COMPLETE)
+            handler.close(false);
+        else if (isReconnecting())
+            logger.info("[Stream #{}] Ignoring error while reconnection in progress.", planId(), e);
         else {
+            logger.info("[Stream #{}] Socker error during stream, reconnecting. (state is {})", planId(), state());
             int epochBeforeReconnection = handler.getSessionEpoch();
             reconnectFromInitiator();
             if (epochBeforeReconnection == handler.getSessionEpoch())
@@ -541,12 +550,17 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         beginReconnect(null, localAddress);
         if (isInitiator(localAddress))
         {
-            if (handler.tryReconnect())
-            {
-                logger.info("[Stream #{}] Successfully reconnected stream session with {}.", planId(), peer);
-                onInitializationComplete();
-            }
+            boolean reconnected =
+            handler.tryReconnect();
             endReconnect(localAddress);
+
+            if (reconnected)
+            {
+                logger.info("[Stream #{}] Successfully reconnected stream session with {}. New epoch is: {}.",
+                            planId(), peer, handler.getSessionEpoch());
+                if (!maybeCompleted())
+                    onInitializationComplete();
+            }
         }
     }
 
@@ -570,22 +584,24 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
     }
 
-    private void beginReconnect(InetAddress previousInitiator, InetAddress currentInitiator)
+    private void beginReconnect(InetAddress previousInitiator, InetAddress initiator)
     {
-        if (reconnectionInitiator.compareAndSet(previousInitiator, currentInitiator))
+        assert initiator == FBUtilities.getBroadcastAddress() || initiator == peer;
+        if (reconnectionInitiator.compareAndSet(previousInitiator, initiator))
         {
-            logger.info("[Stream #{}] Reconnecting stream session with initiator {}. (previous initiator was {})",
-                        planId(), currentInitiator.getHostAddress(), previousInitiator);
+            logger.info("[Stream #{}] Initiating reconnection with {} (initiator is {}, previous initiator was {})",
+                        planId(), peer, initiator, previousInitiator);
             if (previousInitiator == null)
             {
                 state(State.INITIALIZED); //reset state (maybe create a RECONNECTING state?)
-                handler.close(); //close previous message handlers
             }
         }
     }
 
     protected void endReconnect(InetAddress initiator)
     {
+        logger.info("[Stream #{}] Finishing reconnection with {} (initiator was {}).",
+                    planId(), peer, initiator);
         reconnectionInitiator.compareAndSet(initiator, null);
     }
 
@@ -800,6 +816,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         streamResult.handleSessionPrepared(this);
 
         state(State.STREAMING);
+        logger.warn("[Stream #{}] State is now streaming, sending {} files.", planId(), transfers.size());
         for (StreamTransferTask task : transfers.values())
         {
             Collection<OutgoingFileMessage> messages = task.getFileMessages();

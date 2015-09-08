@@ -156,6 +156,11 @@ public class StreamManager implements StreamManagerMBean
         return receivingStreams.get(planId);
     }
 
+    public StreamResultFuture getInitiatedStream(UUID planId)
+    {
+        return initiatedStreams.get(planId);
+    }
+
     public void addNotificationListener(NotificationListener listener, NotificationFilter filter, Object handback)
     {
         notifier.addNotificationListener(listener, filter, handback);

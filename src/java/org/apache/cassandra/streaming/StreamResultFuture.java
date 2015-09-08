@@ -106,6 +106,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     {
         StreamResultFuture future = StreamManager.instance.getReceivingStream(planId);
         if (future == null)
+            future = StreamManager.instance.getInitiatedStream(planId); //stream reconnection
+        if (future == null)
         {
             logger.info("[Stream #{} ID#{}] Creating new streaming plan for {}", planId, sessionIndex, description);
 
@@ -125,13 +127,21 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
         return future;
     }
 
-    private void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version, int sessionEpoch) throws IOException
+    private void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version,
+                              int sessionEpoch) throws IOException
     {
         StreamSession session = coordinator.getOrCreateSessionById(from, sessionIndex, socket.getInetAddress());
-        if (sessionEpoch == 0)
+        if (sessionEpoch == 0){
+            logger.info("[Stream #{} ID#{}] Created new session with {} (socket address is {}).",
+                        planId, sessionIndex, from, socket.getInetAddress());
             session.init(this);
+        }
         else
+        {
+            logger.info("[Stream #{} ID#{}] Received reconnection request from {} (socket address is {}).",
+                        planId, sessionIndex, from, socket.getInetAddress());
             session.reconnectFromFollower(sessionEpoch);
+        }
 
         session.handler.initiateOnReceivingSide(socket, isForOutgoing, sessionEpoch, version);
 

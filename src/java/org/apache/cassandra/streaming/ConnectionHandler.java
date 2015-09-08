@@ -60,37 +60,38 @@ public class ConnectionHandler
 
     private int sessionEpoch;
 
-    private IncomingMessageHandler incoming;
-    private OutgoingMessageHandler outgoing;
+    private volatile IncomingMessageHandler incoming;
+    private volatile OutgoingMessageHandler outgoing;
 
     ConnectionHandler(StreamSession session)
     {
         this.session = session;
-        this.incoming = new IncomingMessageHandler(session);
-        this.outgoing = new OutgoingMessageHandler(session);
+        this.incoming = new IncomingMessageHandler(session, 0);
+        this.outgoing = new OutgoingMessageHandler(session, 0);
         this.sessionEpoch = 0;
     }
 
     protected synchronized boolean tryReconnect()
     {
-        IncomingMessageHandler newIncoming = new IncomingMessageHandler(session);
-        OutgoingMessageHandler newOutgoing = new OutgoingMessageHandler(session);
+        IncomingMessageHandler newIncoming = new IncomingMessageHandler(session, this.sessionEpoch + 1);
+        OutgoingMessageHandler newOutgoing = new OutgoingMessageHandler(session, this.sessionEpoch + 1);
 
         try {
-            logger.debug("[Stream #{}] Trying to reconnect incoming stream", session.planId());
+            logger.info("[Stream #{}] Trying to reconnect incoming stream", session.planId());
             Socket incomingSocket = session.createConnection();
-            incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION);
-            incoming.sendInitMessage(incomingSocket, true, this.sessionEpoch + 1);
+            newIncoming.start(incomingSocket, StreamMessage.CURRENT_VERSION);
+            newIncoming.sendInitMessage(incomingSocket, true, this.sessionEpoch + 1);
 
-            logger.debug("[Stream #{}] Trying to reconnect outgoing stream", session.planId());
+
+            logger.info("[Stream #{}] Trying to reconnect outgoing stream", session.planId());
             Socket outgoingSocket = session.createConnection();
-            outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
-            outgoing.sendInitMessage(outgoingSocket, false, this.sessionEpoch + 1);
+            newOutgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
+            newOutgoing.sendInitMessage(outgoingSocket, false, this.sessionEpoch + 1);
         } catch (IOException e)
         {
-            logger.debug(String.format("[Stream %s] Could not reconnect stream", session.planId()), e);
-            newIncoming.close();
-            newOutgoing.close();
+            logger.info(String.format("[Stream %s] Could not reconnect stream", session.planId()), e);
+            newIncoming.close(true);
+            newOutgoing.close(true);
             return false;
         }
 
@@ -141,27 +142,31 @@ public class ConnectionHandler
     {
         if (isForOutgoing)
         {
-            if (epoch > 0)
-                outgoing = new OutgoingMessageHandler(session);
+            if (epoch > 0) {
+                outgoing.close(true);
+                outgoing = new OutgoingMessageHandler(session, epoch);
+            }
             outgoing.start(socket, version);
         }
         else
         {
-            if (epoch > 0)
-                incoming = new IncomingMessageHandler(session);
+            if (epoch > 0) {
+                incoming.close(true);
+                incoming = new IncomingMessageHandler(session, epoch);
+            }
             incoming.start(socket, version);
-            //complete reconnection on follower side
+            //complete reconnection on receiving side
             if (epoch == getSessionEpoch()+1)
                 increaseEpoch();
         }
     }
 
-    public ListenableFuture<?> close()
+    public ListenableFuture<?> close(boolean force)
     {
         logger.debug("[Stream #{}] Closing stream connection handler on {}", session.planId(), session.peer);
 
-        ListenableFuture<?> inClosed = incoming == null ? Futures.immediateFuture(null) : incoming.close();
-        ListenableFuture<?> outClosed = outgoing == null ? Futures.immediateFuture(null) : outgoing.close();
+        ListenableFuture<?> inClosed = incoming == null ? Futures.immediateFuture(null) : incoming.close(force);
+        ListenableFuture<?> outClosed = outgoing == null ? Futures.immediateFuture(null) : outgoing.close(force);
 
         return Futures.allAsList(inClosed, outClosed);
     }
@@ -196,15 +201,18 @@ public class ConnectionHandler
     abstract static class MessageHandler implements Runnable
     {
         protected final StreamSession session;
+        protected final int connectionEpoch;
 
         protected int protocolVersion;
         protected Socket socket;
 
         private final AtomicReference<SettableFuture<?>> closeFuture = new AtomicReference<>();
+        protected boolean forceClose = false;
 
-        protected MessageHandler(StreamSession session)
+        protected MessageHandler(StreamSession session, int connectionEpoch)
         {
             this.session = session;
+            this.connectionEpoch = connectionEpoch;
         }
 
         protected abstract String name();
@@ -248,13 +256,16 @@ public class ConnectionHandler
             new Thread(this, name() + "-" + session.peer).start();
         }
 
-        public ListenableFuture<?> close()
+        public ListenableFuture<?> close(boolean force)
         {
             // Assume it wasn't closed. Not a huge deal if we create a future on a race
             SettableFuture<?> future = SettableFuture.create();
-            return closeFuture.compareAndSet(null, future)
-                 ? future
-                 : closeFuture.get();
+            if (closeFuture.compareAndSet(null, future))
+            {
+                forceClose = force;
+                return future;
+            }
+            return closeFuture.get();
         }
 
         public boolean isClosed()
@@ -264,7 +275,11 @@ public class ConnectionHandler
 
         protected void signalCloseDone()
         {
-            closeFuture.get().set(null);
+            SettableFuture<?> future = this.closeFuture.get();
+            if (future != null)
+            {
+                future.set(null);
+            }
 
             // We can now close the socket
             try
@@ -278,6 +293,24 @@ public class ConnectionHandler
                 logger.debug("Unexpected error while closing streaming connection", e);
             }
         }
+
+        protected void handleError(Throwable error)
+        {
+            if (connectionEpoch == session.handler.getSessionEpoch())
+                session.onError(error);
+            else
+                logger.warn("[Stream #{}] Ignoring error from previous epoch {}.", session.planId(),
+                            connectionEpoch, error);
+        }
+
+        protected void handleSocketError(SocketException socketError)
+        {
+            if (connectionEpoch == session.handler.getSessionEpoch())
+                session.onSocketError(socketError);
+            else
+                logger.warn("[Stream #{}] Ignoring socket error from previous epoch {}.", session.planId(),
+                            connectionEpoch, socketError);
+        }
     }
 
     /**
@@ -285,9 +318,9 @@ public class ConnectionHandler
      */
     static class IncomingMessageHandler extends MessageHandler
     {
-        IncomingMessageHandler(StreamSession session)
+        IncomingMessageHandler(StreamSession session, int connectionEpoch)
         {
-            super(session);
+            super(session, connectionEpoch);
         }
 
         protected String name()
@@ -310,19 +343,19 @@ public class ConnectionHandler
                     // to ignore here since we'll have asked for a retry.
                     if (message != null)
                     {
-                        logger.debug("[Stream #{}] Received {}", session.planId(), message);
+                        logger.info("[Stream #{}] Received {}", session.planId(), message);
                         session.messageReceived(message);
                     }
                 }
             }
             catch (SocketException e)
             {
-                session.onSocketError(e);
+                handleSocketError(e);
             }
             catch (Throwable t)
             {
                 JVMStabilityInspector.inspectThrowable(t);
-                session.onError(t);
+                handleError(t);
             }
             finally
             {
@@ -350,9 +383,9 @@ public class ConnectionHandler
             }
         });
 
-        OutgoingMessageHandler(StreamSession session)
+        OutgoingMessageHandler(StreamSession session, int connectionEpoch)
         {
-            super(session);
+            super(session, connectionEpoch);
         }
 
         protected String name()
@@ -374,32 +407,26 @@ public class ConnectionHandler
                 StreamMessage next;
                 while (!isClosed())
                 {
-                    maybeThrowSocketException(); //testing purposes
-
                     if ((next = messageQueue.poll(1, TimeUnit.SECONDS)) != null)
                     {
-                        logger.debug("[Stream #{}] Sending {}", session.planId(), next);
+                        logger.info("[Stream #{}] Sending {}", session.planId(), next);
                         sendMessage(out, next);
                         if (next.type == StreamMessage.Type.SESSION_FAILED)
-                            close();
+                            close(false);
                     }
                 }
 
                 // Sends the last messages on the queue
-                while ((next = messageQueue.poll()) != null)
+                while (!forceClose && (next = messageQueue.poll()) != null)
                     sendMessage(out, next);
             }
             catch (InterruptedException e)
             {
                 throw new AssertionError(e);
             }
-            catch (SocketException e)
-            {
-                session.onSocketError(e);
-            }
             catch (Throwable e)
             {
-                session.onError(e);
+                handleError(e);
             }
             finally
             {
@@ -411,16 +438,16 @@ public class ConnectionHandler
         {
             try
             {
+                maybeThrowSocketException(); //testing purposes
                 StreamMessage.serialize(message, out, protocolVersion, session);
             }
             catch (SocketException e)
             {
-                session.onError(e);
-                close();
+                handleSocketError(e);
             }
             catch (IOException e)
             {
-                session.onError(e);
+                handleError(e);
             }
         }
     }

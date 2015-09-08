@@ -267,6 +267,12 @@ public class StreamCoordinator
             {
                 session = new StreamSession(peer, connecting, factory, id);
                 streamSessions.put(id, session);
+                logger.info("[Stream #{}, ID#{}] Creating new session with {}.", session.planId(),
+                            session.sessionIndex(), session.peer);
+            }
+            else {
+                logger.info("[Stream #{}, ID#{}] Reusing existing session with {}.", session.planId(),
+                            session.sessionIndex(), session.peer);
             }
             return session;
         }
