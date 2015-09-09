@@ -20,11 +20,10 @@ package org.apache.cassandra.streaming;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.annotation.Nullable;
 
 import com.google.common.base.Function;
 import com.google.common.collect.*;
@@ -144,7 +143,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     /* can be null when session is created in remote */
     private final StreamConnectionFactory factory;
 
-    public final ConnectionHandler handler;
+    private volatile ConnectionHandler handler;
 
     private int retries;
 
@@ -158,10 +157,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         WAIT_COMPLETE,
         COMPLETE,
         FAILED,
+        RECONNECTING,
     }
 
     private volatile State state = State.INITIALIZED;
     private volatile boolean completeSent = false;
+    private volatile boolean initiator = false;
 
     /**
      * Create new streaming session with the peer.
@@ -208,6 +209,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public void start()
     {
+        initiator = true;
         if (requests.isEmpty() && transfers.isEmpty())
         {
             logger.info("[Stream #{}] Session does not have any tasks.", planId());
@@ -234,6 +236,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     {
         assert factory != null;
         return factory.createConnection(connecting);
+    }
+
+    public synchronized void initiateOnReceivingSide(Socket socket, boolean isForOutgoing, int version) throws IOException
+    {
+        handler.initiateOnReceivingSide(socket, isForOutgoing, version);
+        if (state() == State.RECONNECTING && !isForOutgoing)
+            state(State.PREPARING); //reconnection is finished
     }
 
     /**
@@ -508,6 +517,53 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             handler.sendMessage(new SessionFailedMessage());
         // fail session
         closeSession(State.FAILED);
+    }
+
+
+    public void onConnectionError(Throwable connectionError)
+    {
+        if (state == State.COMPLETE)
+            logger.warn("[Stream #{}] Ignoring connection error on completed session.", planId(), connectionError);
+        else
+            reconnect(connectionError);
+    }
+
+    private synchronized void reconnect(Throwable socketError)
+    {
+        if (state() == State.RECONNECTING)
+        {
+            logger.warn("[Stream #{}] Ignoring socket error while reconnection in progress.", planId(), socketError);
+            return;
+        }
+
+
+        logger.warn("[Stream #{}] Socket error occurred, changing state to RECONNECTING.", planId(), socketError);
+        state(State.RECONNECTING);
+        handler.close();
+        handler = new ConnectionHandler(this);
+        if (initiator)
+        {
+            logger.info("[Stream #{}] Reconnecting streaming to {}{}", planId(), peer,
+                        peer.equals(connecting) ? "" : " through " + connecting);
+            reinitialize();
+        }
+    }
+
+    private void reinitialize()
+    {
+        try
+        {
+            handler.initiate();
+            if (!maybeCompleted())
+                onInitializationComplete();
+        }
+        catch (Exception e)
+        {
+            JVMStabilityInspector.inspectThrowable(e);
+            onError(e);
+        }
+        logger.info("[Stream #{}] Finished stream reconnection to {}{}", planId(), peer,
+                    peer.equals(connecting) ? "" : " through " + connecting);
     }
 
     /**

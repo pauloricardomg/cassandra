@@ -17,9 +17,11 @@
  */
 package org.apache.cassandra.streaming;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
@@ -77,12 +79,12 @@ public class ConnectionHandler
      */
     public void initiate() throws IOException
     {
-        logger.debug("[Stream #{}] Sending stream init for incoming stream", session.planId());
+        logger.info("[Stream #{}] Sending stream init for incoming stream", session.planId());
         Socket incomingSocket = session.createConnection();
         incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION);
         incoming.sendInitMessage(incomingSocket, true);
 
-        logger.debug("[Stream #{}] Sending stream init for outgoing stream", session.planId());
+        logger.info("[Stream #{}] Sending stream init for outgoing stream", session.planId());
         Socket outgoingSocket = session.createConnection();
         outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
         outgoing.sendInitMessage(outgoingSocket, false);
@@ -105,7 +107,7 @@ public class ConnectionHandler
 
     public ListenableFuture<?> close()
     {
-        logger.debug("[Stream #{}] Closing stream connection handler on {}", session.planId(), session.peer);
+        logger.info("[Stream #{}] Closing stream connection handler on {}", session.planId(), session.peer);
 
         ListenableFuture<?> inClosed = incoming == null ? Futures.immediateFuture(null) : incoming.close();
         ListenableFuture<?> outClosed = outgoing == null ? Futures.immediateFuture(null) : outgoing.close();
@@ -139,6 +141,7 @@ public class ConnectionHandler
     {
         return outgoing != null && !outgoing.isClosed();
     }
+
 
     abstract static class MessageHandler implements Runnable
     {
@@ -210,7 +213,8 @@ public class ConnectionHandler
 
         protected void signalCloseDone()
         {
-            closeFuture.get().set(null);
+            if (isClosed())
+                closeFuture.get().set(null);
 
             // We can now close the socket
             try
@@ -221,7 +225,25 @@ public class ConnectionHandler
             {
                 // Erroring out while closing shouldn't happen but is not really a big deal, so just log
                 // it at DEBUG and ignore otherwise.
-                logger.debug("Unexpected error while closing streaming connection", e);
+                logger.info("Unexpected error while closing streaming connection", e);
+            }
+        }
+
+        public void handleError(Throwable t)
+        {
+            if (isClosed())
+                logger.warn("[Stream #{}] Ignoring error on closed message handler.", session.planId(), t);
+            else {
+                boolean isConnectionError = t instanceof SocketException || t instanceof SocketTimeoutException;
+                if (t instanceof IOException &&
+                        (t.getMessage().contains("Broken pipe") ||
+                         t.getMessage().contains("Connection reset")))
+                    isConnectionError = true;
+
+                if (isConnectionError)
+                    session.onConnectionError(t);
+                else
+                    session.onError(t);
             }
         }
     }
@@ -256,20 +278,15 @@ public class ConnectionHandler
                     // to ignore here since we'll have asked for a retry.
                     if (message != null)
                     {
-                        logger.debug("[Stream #{}] Received {}", session.planId(), message);
+                        logger.info("[Stream #{}] Received {}", session.planId(), message);
                         session.messageReceived(message);
                     }
                 }
             }
-            catch (SocketException e)
-            {
-                // socket is closed
-                close();
-            }
             catch (Throwable t)
             {
                 JVMStabilityInspector.inspectThrowable(t);
-                session.onError(t);
+                handleError(t);
             }
             finally
             {
@@ -323,8 +340,9 @@ public class ConnectionHandler
                 {
                     if ((next = messageQueue.poll(1, TimeUnit.SECONDS)) != null)
                     {
-                        logger.debug("[Stream #{}] Sending {}", session.planId(), next);
-                        sendMessage(out, next);
+                        logger.info("[Stream #{}] Sending {}", session.planId(), next);
+                        maybeThrowSocketException(); //testing purposes
+                        StreamMessage.serialize(next, out, protocolVersion, session);
                         if (next.type == StreamMessage.Type.SESSION_FAILED)
                             close();
                     }
@@ -332,37 +350,19 @@ public class ConnectionHandler
 
                 // Sends the last messages on the queue
                 while ((next = messageQueue.poll()) != null)
-                    sendMessage(out, next);
+                    StreamMessage.serialize(next, out, protocolVersion, session);
             }
             catch (InterruptedException e)
             {
                 throw new AssertionError(e);
             }
-            catch (Throwable e)
+            catch (Throwable t)
             {
-                session.onError(e);
+                handleError(t);
             }
             finally
             {
                 signalCloseDone();
-            }
-        }
-
-        private void sendMessage(DataOutputStreamAndChannel out, StreamMessage message)
-        {
-            try
-            {
-                maybeThrowSocketException(); //testing purposes
-                StreamMessage.serialize(message, out, protocolVersion, session);
-            }
-            catch (SocketException e)
-            {
-                session.onError(e);
-                close();
-            }
-            catch (IOException e)
-            {
-                session.onError(e);
             }
         }
     }

@@ -128,7 +128,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     {
         StreamSession session = coordinator.getOrCreateSessionById(from, sessionIndex, socket.getInetAddress());
         session.init(this);
-        session.handler.initiateOnReceivingSide(socket, isForOutgoing, version);
+        session.initiateOnReceivingSide(socket, isForOutgoing, version);
     }
 
     public void addEventListener(StreamEventHandler listener)
@@ -163,13 +163,15 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     void handleSessionPrepared(StreamSession session)
     {
         SessionInfo sessionInfo = session.getSessionInfo();
-        logger.info("[Stream #{} ID#{}] Prepare completed. Receiving {} files({} bytes), sending {} files({} bytes)",
+        logger.info("[Stream #{} ID#{}] Prepare completed. Receiving {} files({} bytes), sending {} files({} bytes) --SENDING: {} -- RECEIVING: {}",
                               session.planId(),
                               session.sessionIndex(),
                               sessionInfo.getTotalFilesToReceive(),
                               sessionInfo.getTotalSizeToReceive(),
                               sessionInfo.getTotalFilesToSend(),
-                              sessionInfo.getTotalSizeToSend());
+                              sessionInfo.getTotalSizeToSend(),
+                              sessionInfo.sendingSummaries,
+                              sessionInfo.receivingSummaries);
         StreamEvent.SessionPreparedEvent event = new StreamEvent.SessionPreparedEvent(planId, sessionInfo);
         coordinator.addSessionInfo(sessionInfo);
         fireStreamEvent(event);
