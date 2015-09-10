@@ -79,7 +79,9 @@
         
   <root level="INFO">
     <appender-ref ref="SYSTEMLOG" />
+    <!-- uncomment to enable debug.log
     <appender-ref ref="ASYNCDEBUGLOG" />
+    -->
     <appender-ref ref="STDOUT" />
   </root>
 
