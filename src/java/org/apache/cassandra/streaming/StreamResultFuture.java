@@ -128,7 +128,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     {
         StreamSession session = coordinator.getOrCreateSessionById(from, sessionIndex, socket.getInetAddress());
         session.init(this);
-        session.handler.initiateOnReceivingSide(socket, isForOutgoing, version);
+        session.initiateOnReceivingSide(socket, isForOutgoing, version);
     }
 
     public void addEventListener(StreamEventHandler listener)

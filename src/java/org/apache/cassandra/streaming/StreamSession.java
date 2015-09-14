@@ -43,6 +43,7 @@ import org.apache.cassandra.gms.*;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.apache.cassandra.metrics.StreamingMetrics;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.messages.*;
@@ -144,11 +145,24 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     /* can be null when session is created in remote */
     private final StreamConnectionFactory factory;
 
-    public final ConnectionHandler handler;
+    private volatile ConnectionHandler handler;
 
     private int retries;
 
     private AtomicBoolean isAborted = new AtomicBoolean(false);
+    private AtomicBoolean isReconnecting = new AtomicBoolean(false);
+
+    private boolean initiator = false;
+
+    public void initiateOnReceivingSide(Socket socket, boolean isForOutgoing, int version) throws IOException
+    {
+        if (isReconnecting.get())
+        {
+            state(State.PREPARING);
+            isReconnecting.set(false);
+        }
+        handler.initiateOnReceivingSide(socket,isForOutgoing,version);
+    }
 
     public static enum State
     {
@@ -157,7 +171,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         STREAMING,
         WAIT_COMPLETE,
         COMPLETE,
-        FAILED,
+        FAILED;
+
+        boolean isStreaming()
+        {
+            return this == STREAMING;
+        }
     }
 
     private volatile State state = State.INITIALIZED;
@@ -208,6 +227,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public void start()
     {
+        this.initiator = true;
         if (requests.isEmpty() && transfers.isEmpty())
         {
             logger.info("[Stream #{}] Session does not have any tasks.", planId());
@@ -404,16 +424,21 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
             if (finalState == State.FAILED)
             {
-                for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
-                    task.abort();
+                abortTasks();
             }
 
             // Note that we shouldn't block on this close because this method is called on the handler
             // incoming thread (so we would deadlock).
-            handler.close();
+            handler.close(false);
 
             streamResult.handleSessionComplete(this);
         }
+    }
+
+    private void abortTasks()
+    {
+        for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
+            task.abort();
     }
 
     /**
@@ -510,6 +535,40 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         closeSession(State.FAILED);
     }
 
+    public void onConnectionError(Throwable t)
+    {
+        if (isReconnecting.compareAndSet(false, true))
+        {
+            logger.warn("[Stream #{}] Connection error ocurred, closing existing connections and {} {}.",
+                        planId(), initiator ? "initiating reconnection to" : "waiting for reconnection from",
+                        peer, t);
+
+            this.handler.close(true);
+            this.handler = new ConnectionHandler(this);
+            abortTasks();
+            if (initiator)
+            {
+                try
+                {
+                    handler.initiate();
+                    onInitializationComplete();
+                }
+                catch (Exception e)
+                {
+                    JVMStabilityInspector.inspectThrowable(e);
+                    onError(e);
+                }
+                finally
+                {
+                    isReconnecting.set(false);
+                }
+            }
+        }
+        else
+            logger.warn("[Stream #{}] Ignoring connection error while reconnection in progress.", planId(), t);
+
+    }
+
     /**
      * Prepare this session for sending/receiving files.
      */
@@ -566,7 +625,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         metrics.incomingBytes.inc(headerSize);
         // send back file received message
         handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
-        receivers.get(message.header.cfId).received(message.sstable);
+        SSTableWriter sstable = message.sstable;
+        UUID cfId = message.header.cfId;
+        StreamReceiveTask streamReceiveTask = receivers.get(cfId);
+        streamReceiveTask.received(sstable);
     }
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)

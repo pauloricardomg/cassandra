@@ -43,6 +43,7 @@ public class StreamTransferTask extends StreamTask
     private boolean aborted = false;
 
     private final Map<Integer, OutgoingFileMessage> files = new HashMap<>();
+    private final Map<Integer, OutgoingFileMessage> completedFiles = new HashMap<>();
     private final Map<Integer, ScheduledFuture> timeoutTasks = new HashMap<>();
 
     private long totalSize;

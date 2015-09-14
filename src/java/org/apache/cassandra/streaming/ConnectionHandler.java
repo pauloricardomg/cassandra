@@ -20,6 +20,7 @@ package org.apache.cassandra.streaming;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
@@ -77,12 +78,12 @@ public class ConnectionHandler
      */
     public void initiate() throws IOException
     {
-        logger.debug("[Stream #{}] Sending stream init for incoming stream", session.planId());
+        logger.info("[Stream #{}] Sending stream init for incoming stream", session.planId());
         Socket incomingSocket = session.createConnection();
         incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION);
         incoming.sendInitMessage(incomingSocket, true);
 
-        logger.debug("[Stream #{}] Sending stream init for outgoing stream", session.planId());
+        logger.info("[Stream #{}] Sending stream init for outgoing stream", session.planId());
         Socket outgoingSocket = session.createConnection();
         outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
         outgoing.sendInitMessage(outgoingSocket, false);
@@ -103,12 +104,13 @@ public class ConnectionHandler
             incoming.start(socket, version);
     }
 
-    public ListenableFuture<?> close()
+    public ListenableFuture<?> close(boolean force)
     {
-        logger.debug("[Stream #{}] Closing stream connection handler on {}", session.planId(), session.peer);
+        logger.info("[Stream #{}] Closing stream connection handler on {}. (force={})",
+                    session.planId(), session.peer, force);
 
-        ListenableFuture<?> inClosed = incoming == null ? Futures.immediateFuture(null) : incoming.close();
-        ListenableFuture<?> outClosed = outgoing == null ? Futures.immediateFuture(null) : outgoing.close();
+        ListenableFuture<?> inClosed = incoming == null ? Futures.immediateFuture(null) : incoming.close(force);
+        ListenableFuture<?> outClosed = outgoing == null ? Futures.immediateFuture(null) : outgoing.close(force);
 
         return Futures.allAsList(inClosed, outClosed);
     }
@@ -148,6 +150,7 @@ public class ConnectionHandler
         protected Socket socket;
 
         private final AtomicReference<SettableFuture<?>> closeFuture = new AtomicReference<>();
+        protected boolean forceClose = false;
 
         protected MessageHandler(StreamSession session)
         {
@@ -196,11 +199,19 @@ public class ConnectionHandler
 
         public ListenableFuture<?> close()
         {
+            return close(false);
+        }
+
+        public ListenableFuture<?> close(boolean force)
+        {
             // Assume it wasn't closed. Not a huge deal if we create a future on a race
             SettableFuture<?> future = SettableFuture.create();
-            return closeFuture.compareAndSet(null, future)
-                 ? future
-                 : closeFuture.get();
+            if (closeFuture.compareAndSet(null, future))
+            {
+                this.forceClose = force;
+                return future;
+            }
+            return closeFuture.get();
         }
 
         public boolean isClosed()
@@ -210,7 +221,8 @@ public class ConnectionHandler
 
         protected void signalCloseDone()
         {
-            closeFuture.get().set(null);
+            if (closeFuture.get() != null)
+                closeFuture.get().set(null);
 
             // We can now close the socket
             try
@@ -221,8 +233,35 @@ public class ConnectionHandler
             {
                 // Erroring out while closing shouldn't happen but is not really a big deal, so just log
                 // it at DEBUG and ignore otherwise.
-                logger.debug("Unexpected error while closing streaming connection", e);
+                logger.info("Unexpected error while closing streaming connection", e);
             }
+        }
+
+        protected void handleError(Throwable t)
+        {
+            if (isClosed())
+                logger.warn("Ignoring error on closed message handler", t);
+            else if (isConnectionError(t) && session.state().isStreaming())
+            {
+                session.onConnectionError(t);
+            } else {
+                JVMStabilityInspector.inspectThrowable(t);
+                session.onError(t);
+                if (t instanceof SocketException)
+                {
+                    // socket is closed
+                    close();
+                }
+            }
+        }
+
+        public boolean isConnectionError(Throwable t)
+        {
+            return t instanceof SocketException ||
+                   t instanceof SocketTimeoutException ||
+                   (t instanceof IOException) &&
+                        (t.getMessage().contains("Broken pipe") ||
+                         t.getMessage().contains("Connection reset"));
         }
 
         protected void maybeThrowSocketException() throws SocketException
@@ -258,26 +297,21 @@ public class ConnectionHandler
                 ReadableByteChannel in = getReadChannel(socket);
                 while (!isClosed())
                 {
+                    maybeThrowSocketException();
                     // receive message
                     StreamMessage message = StreamMessage.deserialize(in, protocolVersion, session);
                     // Might be null if there is an error during streaming (see FileMessage.deserialize). It's ok
                     // to ignore here since we'll have asked for a retry.
                     if (message != null)
                     {
-                        logger.debug("[Stream #{}] Received {}", session.planId(), message);
+                        logger.info("[Stream #{}] Received {}", session.planId(), message);
                         session.messageReceived(message);
                     }
                 }
             }
-            catch (SocketException e)
-            {
-                // socket is closed
-                close();
-            }
             catch (Throwable t)
             {
-                JVMStabilityInspector.inspectThrowable(t);
-                session.onError(t);
+                handleError(t);
             }
             finally
             {
@@ -331,7 +365,7 @@ public class ConnectionHandler
                 {
                     if ((next = messageQueue.poll(1, TimeUnit.SECONDS)) != null)
                     {
-                        logger.debug("[Stream #{}] Sending {}", session.planId(), next);
+                        logger.info("[Stream #{}] Sending {}", session.planId(), next);
                         sendMessage(out, next);
                         if (next.type == StreamMessage.Type.SESSION_FAILED)
                             close();
@@ -339,7 +373,7 @@ public class ConnectionHandler
                 }
 
                 // Sends the last messages on the queue
-                while ((next = messageQueue.poll()) != null)
+                while (!forceClose && (next = messageQueue.poll()) != null)
                     sendMessage(out, next);
             }
             catch (InterruptedException e)
@@ -348,7 +382,7 @@ public class ConnectionHandler
             }
             catch (Throwable e)
             {
-                session.onError(e);
+                handleError(e);
             }
             finally
             {
@@ -362,14 +396,9 @@ public class ConnectionHandler
             {
                 StreamMessage.serialize(message, out, protocolVersion, session);
             }
-            catch (SocketException e)
-            {
-                session.onError(e);
-                close();
-            }
             catch (IOException e)
             {
-                session.onError(e);
+                handleError(e);
             }
         }
     }

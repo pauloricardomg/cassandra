@@ -52,7 +52,7 @@ public class OutgoingFileMessage extends StreamMessage
     };
 
     public final FileMessageHeader header;
-    private final Ref<SSTableReader> ref;
+    public final Ref<SSTableReader> ref;
     private final String filename;
     private boolean completed = false;
 
