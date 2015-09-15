@@ -25,6 +25,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Iterables;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.streaming.messages.OutgoingFileMessage;
@@ -37,14 +40,15 @@ import org.apache.cassandra.utils.concurrent.RefCounted;
  */
 public class StreamTransferTask extends StreamTask
 {
+    private static final Logger logger = LoggerFactory.getLogger(StreamTransferTask.class);
+
     private static final ScheduledExecutorService timeoutExecutor = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("StreamingTransferTaskTimeouts"));
 
     private final AtomicInteger sequenceNumber = new AtomicInteger(0);
     private boolean aborted = false;
 
-    private final Map<Integer, OutgoingFileMessage> files = new HashMap<>();
-    private final Map<Integer, OutgoingFileMessage> completedFiles = new HashMap<>();
-    private final Map<Integer, ScheduledFuture> timeoutTasks = new HashMap<>();
+    private final Map<Integer, OutgoingFileMessage> files = new ConcurrentHashMap<>();
+    private final Map<Integer, ScheduledFuture> timeoutTasks = new ConcurrentHashMap<>();
 
     private long totalSize;
 
@@ -87,15 +91,18 @@ public class StreamTransferTask extends StreamTask
             session.taskCompleted(this);
     }
 
+    public synchronized void cancel()
+    {
+        cancelTasks();
+    }
+
     public synchronized void abort()
     {
         if (aborted)
             return;
         aborted = true;
 
-        for (ScheduledFuture future : timeoutTasks.values())
-            future.cancel(false);
-        timeoutTasks.clear();
+        cancelTasks();
 
         Throwable fail = null;
         for (OutgoingFileMessage file : files.values())
@@ -113,6 +120,14 @@ public class StreamTransferTask extends StreamTask
         files.clear();
         if (fail != null)
             Throwables.propagate(fail);
+    }
+
+    private void cancelTasks()
+    {
+        for (ScheduledFuture future : timeoutTasks.values())
+            future.cancel(false);
+        timeoutTasks.clear();
+//        logger.info("Cleaned all tasks. Timeout tasks is: {}", timeoutTasks);
     }
 
     public synchronized int getTotalNumberOfFiles()
@@ -156,6 +171,8 @@ public class StreamTransferTask extends StreamTask
         if (!files.containsKey(sequenceNumber))
             return null;
 
+//        logger.info("Scheduling timeout for: {}", sequenceNumber);
+
         ScheduledFuture future = timeoutExecutor.schedule(new Runnable()
         {
             public void run()
@@ -169,7 +186,11 @@ public class StreamTransferTask extends StreamTask
             }
         }, time, unit);
 
+//        logger.info("Timeout tasks before: {}", timeoutTasks);
         ScheduledFuture prev = timeoutTasks.put(sequenceNumber, future);
+//        if (prev != null) {
+//            logger.info("Oops, seems there was a scheduled tasks: {}. Timeout tasks after is: {}", prev, timeoutTasks);
+//        }
         assert prev == null;
         return future;
     }

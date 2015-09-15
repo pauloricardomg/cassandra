@@ -23,8 +23,7 @@ import java.net.Socket;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.annotation.Nullable;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.base.Function;
 import com.google.common.collect.*;
@@ -150,18 +149,28 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     private int retries;
 
     private AtomicBoolean isAborted = new AtomicBoolean(false);
-    private AtomicBoolean isReconnecting = new AtomicBoolean(false);
+
+    private AtomicInteger epoch = new AtomicInteger(0);
 
     private boolean initiator = false;
 
     public void initiateOnReceivingSide(Socket socket, boolean isForOutgoing, int version) throws IOException
     {
-        if (isReconnecting.get())
+        handler.initiateOnReceivingSide(socket, isForOutgoing, version);
+        logger.info("[Stream #{}] initiateOnReceivingSide (epoch={}, isForOugoing={}, state={}).",
+                    planId(), getEpoch(), isForOutgoing, state());
+        if (state().isReconnecting() && handler.isConnected())
         {
-            state(State.PREPARING);
-            isReconnecting.set(false);
+            logger.info("[Stream #{}] Finished reconnection of epoch {}.", planId(), getEpoch());
+            state(State.STREAMING);
+            if (!maybeCompleted())
+                startStreamingFiles();
         }
-        handler.initiateOnReceivingSide(socket,isForOutgoing,version);
+    }
+
+    public Integer getEpoch()
+    {
+        return epoch.get();
     }
 
     public static enum State
@@ -171,11 +180,17 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         STREAMING,
         WAIT_COMPLETE,
         COMPLETE,
-        FAILED;
+        FAILED,
+        RECONNECTING;
 
-        boolean isStreaming()
+        boolean isPrepared()
         {
-            return this == STREAMING;
+            return this.ordinal() > PREPARING.ordinal();
+        }
+
+        public boolean isReconnecting()
+        {
+            return this == RECONNECTING;
         }
     }
 
@@ -418,6 +433,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private synchronized void closeSession(State finalState)
     {
+        logger.info("Closing session with {}.", finalState);
         if (isAborted.compareAndSet(false, true))
         {
             state(finalState);
@@ -469,8 +485,15 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         return state == State.COMPLETE;
     }
 
-    public void messageReceived(StreamMessage message)
+    public void messageReceived(StreamMessage message, int connectionEpoch)
     {
+        if (connectionEpoch != getEpoch())
+        {
+            logger.warn("[Stream #{}] Ignoring message received from previous epoch {} (current epoch is {}).",
+                        planId(), connectionEpoch, getEpoch());
+            message.ignore();
+            return;
+        }
         switch (message.type)
         {
             case PREPARE:
@@ -535,38 +558,42 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         closeSession(State.FAILED);
     }
 
-    public void onConnectionError(Throwable t)
+    public void onConnectionError(int handlerEpoch, Throwable t)
     {
-        if (isReconnecting.compareAndSet(false, true))
+        if (epoch.compareAndSet(handlerEpoch, handlerEpoch+1))
         {
-            logger.warn("[Stream #{}] Connection error ocurred, closing existing connections and {} {}.",
+            state(State.RECONNECTING);
+            logger.warn("[Stream #{}] Connection error ocurred, closing existing connections and {} {}. New epoch is {}.",
                         planId(), initiator ? "initiating reconnection to" : "waiting for reconnection from",
-                        peer, t);
+                        peer, getEpoch());
+            logger.warn("Previous error", t);
 
             this.handler.close(true);
             this.handler = new ConnectionHandler(this);
-            abortTasks();
+
+            for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
+                task.cancel();
+
             if (initiator)
             {
                 try
                 {
                     handler.initiate();
-                    onInitializationComplete();
+                    // if there are files to stream
+                    if (!maybeCompleted())
+                        startStreamingFiles();
                 }
                 catch (Exception e)
                 {
                     JVMStabilityInspector.inspectThrowable(e);
                     onError(e);
                 }
-                finally
-                {
-                    isReconnecting.set(false);
-                }
             }
+        } else
+        {
+            logger.warn("[Stream #{}] Ignoring connection error from previous epoch {} (current epoch is {}).",
+                        planId(), handlerEpoch, getEpoch(), t);
         }
-        else
-            logger.warn("[Stream #{}] Ignoring connection error while reconnection in progress.", planId(), t);
-
     }
 
     /**
@@ -600,8 +627,14 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      *
      * @param header sent header
      */
-    public void fileSent(FileMessageHeader header)
+    public void fileSent(FileMessageHeader header, int connectionEpoch)
     {
+        if (connectionEpoch != getEpoch())
+        {
+            logger.warn("[Stream #{}] Ignoring file sent with sequence number {} from previous epoch {} (current epoch is {}).",
+                        planId(), header.sequenceNumber, connectionEpoch, getEpoch());
+            return;
+        }
         long headerSize = header.size();
         StreamingMetrics.totalOutgoingBytes.inc(headerSize);
         metrics.outgoingBytes.inc(headerSize);
@@ -623,12 +656,31 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         long headerSize = message.header.size();
         StreamingMetrics.totalIncomingBytes.inc(headerSize);
         metrics.incomingBytes.inc(headerSize);
-        // send back file received message
-        handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
+
+        try
+        {
+            // send back file received message
+            handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
+        }
+        catch (RuntimeException e)
+        {
+            //connection closed - let's abort this writer and rethrow exception
+            message.sstable.abort();
+            throw e;
+        }
+
         SSTableWriter sstable = message.sstable;
         UUID cfId = message.header.cfId;
         StreamReceiveTask streamReceiveTask = receivers.get(cfId);
-        streamReceiveTask.received(sstable);
+        if (streamReceiveTask != null)
+            streamReceiveTask.received(sstable, message.header.sequenceNumber);
+        else
+        {
+            logger.warn("Aborting sstable {} received with sequence number {} after task was completed.",
+                        sstable.getFilename(), message.header.sequenceNumber);
+            sstable.abort();
+            return;
+        }
     }
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)

@@ -21,11 +21,15 @@ import java.io.File;
 import java.io.IOError;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.config.Schema;
@@ -43,6 +47,7 @@ import org.apache.cassandra.utils.concurrent.Refs;
  */
 public class StreamReceiveTask extends StreamTask
 {
+    private static final Logger logger = LoggerFactory.getLogger(StreamReceiveTask.class);
     private static final ThreadPoolExecutor executor = DebuggableThreadPoolExecutor.createWithMaximumPoolSize("StreamReceiveTask",
                                                                                                               FBUtilities.getAvailableProcessors(),
                                                                                                               60, TimeUnit.SECONDS);
@@ -58,26 +63,38 @@ public class StreamReceiveTask extends StreamTask
     //  holds references to SSTables received
     protected Collection<SSTableWriter> sstables;
 
+    protected final BitSet receivedFiles;
+
     public StreamReceiveTask(StreamSession session, UUID cfId, int totalFiles, long totalSize)
     {
         super(session, cfId);
         this.totalFiles = totalFiles;
         this.totalSize = totalSize;
         this.sstables = new ArrayList<>(totalFiles);
+        this.receivedFiles = new BitSet(totalFiles);
     }
 
     /**
      * Process received file.
      *
      * @param sstable SSTable file received.
+     * @param sequenceNumber
      */
-    public synchronized void received(SSTableWriter sstable)
+    public synchronized void received(SSTableWriter sstable, int sequenceNumber)
     {
         if (done)
             return;
 
         assert cfId.equals(sstable.metadata.cfId);
 
+        if(receivedFiles.get(sequenceNumber))
+        {
+            logger.info("Aborting already received sstable {} with sequence number {}.", sstable.getFilename(), sequenceNumber);
+            sstable.abort();
+            return;
+        }
+
+        receivedFiles.flip(sequenceNumber);
         sstables.add(sstable);
         if (sstables.size() == totalFiles)
         {
@@ -155,5 +172,13 @@ public class StreamReceiveTask extends StreamTask
         for (SSTableWriter writer : sstables)
             writer.abort();
         sstables.clear();
+    }
+
+    /**
+     * Cancel the task.
+     */
+    public synchronized void cancel()
+    {
+        //no-op (since there are no scheduled tasks)
     }
 }

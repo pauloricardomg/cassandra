@@ -87,6 +87,12 @@ public class IncomingFileMessage extends StreamMessage
     }
 
     @Override
+    public void ignore()
+    {
+        this.sstable.abort();
+    }
+
+    @Override
     public String toString()
     {
         return "File (" + header + ", file: " + sstable.getFilename() + ")";

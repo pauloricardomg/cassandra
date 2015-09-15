@@ -52,6 +52,11 @@ public abstract class StreamTask
     public abstract void abort();
 
     /**
+     * Cancel ongoing tasks
+     */
+    public abstract void cancel();
+
+    /**
      * @return StreamSummary that describes this task
      */
     public StreamSummary getSummary()

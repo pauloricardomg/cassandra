@@ -90,10 +90,13 @@ public class StreamReader
         ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
 
         SSTableWriter writer = createWriter(cfs, totalSize, repairedAt);
-        DataInputStream dis = new DataInputStream(new LZFInputStream(Channels.newInputStream(channel)));
-        BytesReadTracker in = new BytesReadTracker(dis);
+
+        DataInputStream dis = null;
+        BytesReadTracker in = null;
         try
         {
+            dis = new DataInputStream(new LZFInputStream(Channels.newInputStream(channel)));
+            in = new BytesReadTracker(dis);
             while (in.getBytesRead() < totalSize)
             {
                 writeRow(writer, in, cfs);
@@ -105,7 +108,8 @@ public class StreamReader
         catch (Throwable e)
         {
             writer.abort();
-            drain(dis, in.getBytesRead());
+            if (dis != null && in != null)
+                drain(dis, in.getBytesRead());
             if (e instanceof IOException)
                 throw (IOException) e;
             else

@@ -74,10 +74,12 @@ public class CompressedStreamReader extends StreamReader
 
         SSTableWriter writer = createWriter(cfs, totalSize, repairedAt);
 
-        CompressedInputStream cis = new CompressedInputStream(Channels.newInputStream(channel), compressionInfo, inputVersion.hasPostCompressionAdlerChecksums);
-        BytesReadTracker in = new BytesReadTracker(new DataInputStream(cis));
+        CompressedInputStream cis = null;
+        BytesReadTracker in = null;
         try
         {
+            cis = new CompressedInputStream(Channels.newInputStream(channel), compressionInfo, inputVersion.hasPostCompressionAdlerChecksums);
+            in = new BytesReadTracker(new DataInputStream(cis));
             for (Pair<Long, Long> section : sections)
             {
                 long length = section.right - section.left;
@@ -96,7 +98,8 @@ public class CompressedStreamReader extends StreamReader
         catch (Throwable e)
         {
             writer.abort();
-            drain(cis, in.getBytesRead());
+            if (cis != null && in != null)
+                drain(cis, in.getBytesRead());
             if (e instanceof IOException)
                 throw (IOException) e;
             else

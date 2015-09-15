@@ -39,6 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
+import org.apache.cassandra.streaming.messages.OutgoingFileMessage;
 import org.apache.cassandra.streaming.messages.StreamInitMessage;
 import org.apache.cassandra.streaming.messages.StreamMessage;
 import org.apache.cassandra.utils.FBUtilities;
@@ -50,7 +51,7 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
  * <p>
  * Internally, ConnectionHandler manages thread to receive incoming {@link StreamMessage} and thread to
  * send outgoing message. Messages are encoded/decoded on those thread and handed to
- * {@link StreamSession#messageReceived(org.apache.cassandra.streaming.messages.StreamMessage)}.
+ * {@link StreamSession#messageReceived(StreamMessage, int)}.
  */
 public class ConnectionHandler
 {
@@ -142,9 +143,15 @@ public class ConnectionHandler
         return outgoing != null && !outgoing.isClosed();
     }
 
+    public boolean isConnected()
+    {
+        return outgoing != null && incoming !=null && outgoing.isConnected() && incoming.isConnected();
+    }
+
     abstract static class MessageHandler implements Runnable
     {
         protected final StreamSession session;
+        protected final int epoch;
 
         protected int protocolVersion;
         protected Socket socket;
@@ -155,6 +162,7 @@ public class ConnectionHandler
         protected MessageHandler(StreamSession session)
         {
             this.session = session;
+            this.epoch = session.getEpoch();
         }
 
         protected abstract String name();
@@ -219,6 +227,11 @@ public class ConnectionHandler
             return closeFuture.get() != null;
         }
 
+        public boolean isConnected()
+        {
+            return socket != null && !isClosed();
+        }
+
         protected void signalCloseDone()
         {
             if (closeFuture.get() != null)
@@ -240,11 +253,15 @@ public class ConnectionHandler
         protected void handleError(Throwable t)
         {
             if (isClosed())
-                logger.warn("Ignoring error on closed message handler", t);
-            else if (isConnectionError(t) && session.state().isStreaming())
+                logger.warn("Ignoring error on closed message handler (epoch is {}).", epoch, t);
+            else if (isConnectionError(t) && session.state().isPrepared())
             {
-                session.onConnectionError(t);
+                session.onConnectionError(epoch, t);
+            }
+            else if (t instanceof InterruptedException) {
+                throw new AssertionError(t);
             } else {
+                logger.info("Error on state {}", session.state());
                 JVMStabilityInspector.inspectThrowable(t);
                 session.onError(t);
                 if (t instanceof SocketException)
@@ -259,9 +276,9 @@ public class ConnectionHandler
         {
             return t instanceof SocketException ||
                    t instanceof SocketTimeoutException ||
-                   (t instanceof IOException) &&
+                   (t instanceof IOException &&
                         (t.getMessage().contains("Broken pipe") ||
-                         t.getMessage().contains("Connection reset"));
+                         t.getMessage().contains("Connection reset")));
         }
 
         protected void maybeThrowSocketException() throws SocketException
@@ -292,6 +309,7 @@ public class ConnectionHandler
 
         public void run()
         {
+            StreamMessage message = null;
             try
             {
                 ReadableByteChannel in = getReadChannel(socket);
@@ -299,18 +317,19 @@ public class ConnectionHandler
                 {
                     maybeThrowSocketException();
                     // receive message
-                    StreamMessage message = StreamMessage.deserialize(in, protocolVersion, session);
+                    message = StreamMessage.deserialize(in, protocolVersion, session);
                     // Might be null if there is an error during streaming (see FileMessage.deserialize). It's ok
                     // to ignore here since we'll have asked for a retry.
                     if (message != null)
                     {
-                        logger.info("[Stream #{}] Received {}", session.planId(), message);
-                        session.messageReceived(message);
+                        logger.info("[Stream #{}][{}][{}] Received {}", session.planId(), epoch, session.getEpoch(), message);
+                        session.messageReceived(message, epoch);
                     }
                 }
             }
             catch (Throwable t)
             {
+                if (message != null)
                 handleError(t);
             }
             finally
@@ -365,7 +384,7 @@ public class ConnectionHandler
                 {
                     if ((next = messageQueue.poll(1, TimeUnit.SECONDS)) != null)
                     {
-                        logger.info("[Stream #{}] Sending {}", session.planId(), next);
+                        logger.info("[Stream #{}][{}][{}] Sending {}", session.planId(), epoch, session.getEpoch(), next);
                         sendMessage(out, next);
                         if (next.type == StreamMessage.Type.SESSION_FAILED)
                             close();
@@ -375,10 +394,6 @@ public class ConnectionHandler
                 // Sends the last messages on the queue
                 while (!forceClose && (next = messageQueue.poll()) != null)
                     sendMessage(out, next);
-            }
-            catch (InterruptedException e)
-            {
-                throw new AssertionError(e);
             }
             catch (Throwable e)
             {
@@ -390,15 +405,12 @@ public class ConnectionHandler
             }
         }
 
-        private void sendMessage(DataOutputStreamAndChannel out, StreamMessage message)
+        private void sendMessage(DataOutputStreamAndChannel out, StreamMessage message) throws IOException
         {
-            try
+            StreamMessage.serialize(message, out, protocolVersion, session);
+            if (message instanceof OutgoingFileMessage)
             {
-                StreamMessage.serialize(message, out, protocolVersion, session);
-            }
-            catch (IOException e)
-            {
-                handleError(e);
+                session.fileSent(((OutgoingFileMessage)message).header, epoch);
             }
         }
     }

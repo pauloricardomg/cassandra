@@ -67,6 +67,11 @@ public abstract class StreamMessage
         }
     }
 
+    public void ignore()
+    {
+        //no-op
+    }
+
     /** StreamMessage serializer */
     public static interface Serializer<V extends StreamMessage>
     {

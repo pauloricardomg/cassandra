@@ -47,7 +47,6 @@ public class OutgoingFileMessage extends StreamMessage
         public void serialize(OutgoingFileMessage message, DataOutputStreamAndChannel out, int version, StreamSession session) throws IOException
         {
             message.serialize(out, version, session);
-            session.fileSent(message.header);
         }
     };
 
