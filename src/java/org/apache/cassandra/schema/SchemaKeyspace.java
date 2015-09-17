@@ -169,6 +169,7 @@ public final class SchemaKeyspace
                 + "min_index_interval int,"
                 + "read_repair_chance double,"
                 + "speculative_retry text,"
+                + "crc_check_chance double,"
                 + "PRIMARY KEY ((keyspace_name), view_name))");
 
     private static final CFMetaData Indexes =
