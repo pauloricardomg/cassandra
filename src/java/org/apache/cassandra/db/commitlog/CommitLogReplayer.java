@@ -136,7 +136,7 @@ public class CommitLogReplayer
             cfPositions.put(cfs.metadata.cfId, rp);
         }
         ReplayPosition globalPosition = replayPositionOrdering.min(cfPositions.values());
-        logger.debug("Global replay position is {} from columnfamilies {}", globalPosition, FBUtilities.toString(cfPositions));
+        logger.trace("Global replay position is {} from columnfamilies {}", globalPosition, FBUtilities.toString(cfPositions));
         return new CommitLogReplayer(commitLog, globalPosition, cfPositions, replayFilter);
     }
 
@@ -154,7 +154,7 @@ public class CommitLogReplayer
 
         // wait for all the writes to finish on the mutation stage
         FBUtilities.waitOnFutures(futures);
-        logger.debug("Finished waiting on mutations from recovery");
+        logger.trace("Finished waiting on mutations from recovery");
 
         // flush replayed keyspaces
         futures.clear();
@@ -333,7 +333,7 @@ public class CommitLogReplayer
             {
                 int replayPos = replayEnd + CommitLogSegment.SYNC_MARKER_SIZE;
 
-                if (logger.isDebugEnabled())
+                if (logger.isTraceEnabled())
                     logger.trace("Replaying {} between {} and {}", file, reader.getFilePointer(), end);
                 if (compressor != null)
                 {
@@ -361,7 +361,7 @@ public class CommitLogReplayer
                     try
                     {
                         int compressedLength = end - start;
-                        if (logger.isDebugEnabled())
+                        if (logger.isTraceEnabled())
                             logger.trace("Decompressing {} between replay positions {} and {}",
                                          file,
                                          replayPos,
@@ -406,7 +406,7 @@ public class CommitLogReplayer
 
         if (globalPosition.segment > desc.id)
         {
-            logger.debug("skipping replay of fully-flushed {}", file);
+            logger.trace("skipping replay of fully-flushed {}", file);
             return true;
         }
         return false;
@@ -423,7 +423,7 @@ public class CommitLogReplayer
         while (reader.getFilePointer() < end && !reader.isEOF())
         {
             long mutationStart = reader.getFilePointer();
-            if (logger.isDebugEnabled())
+            if (logger.isTraceEnabled())
                 logger.trace("Reading mutation at {}", mutationStart);
 
             long claimedCRC32;
@@ -434,7 +434,7 @@ public class CommitLogReplayer
                 serializedSize = reader.readInt();
                 if (serializedSize == LEGACY_END_OF_SEGMENT_MARKER)
                 {
-                    logger.debug("Encountered end of segment marker at {}", reader.getFilePointer());
+                    logger.trace("Encountered end of segment marker at {}", reader.getFilePointer());
                     return false;
                 }
 
@@ -551,8 +551,8 @@ public class CommitLogReplayer
             return;
         }
 
-        if (logger.isDebugEnabled())
-            logger.debug("replaying mutation for {}.{}: {}", mutation.getKeyspaceName(), ByteBufferUtil.bytesToHex(mutation.key()), "{" + StringUtils.join(mutation.getColumnFamilies().iterator(), ", ") + "}");
+        if (logger.isTraceEnabled())
+            logger.trace("replaying mutation for {}.{}: {}", mutation.getKeyspaceName(), ByteBufferUtil.bytesToHex(mutation.key()), "{" + StringUtils.join(mutation.getColumnFamilies().iterator(), ", ") + "}");
 
         Runnable runnable = new WrappedRunnable()
         {

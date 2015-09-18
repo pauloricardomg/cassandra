@@ -366,7 +366,7 @@ public class Memtable implements Comparable<Memtable>
             // errors when creating the writer that may leave empty temp files.
             try (SSTableWriter writer = createFlushWriter(cfs.getTempSSTablePath(sstableDirectory)))
             {
-                boolean trackContention = logger.isDebugEnabled();
+                boolean trackContention = logger.isTraceEnabled();
                 int heavilyContendedRowCount = 0;
                 // (we can't clear out the map as-we-go to free up memory,
                 //  since the memtable is being used for queries in the "pending flush" category)
@@ -411,7 +411,7 @@ public class Memtable implements Comparable<Memtable>
                 }
 
                 if (heavilyContendedRowCount > 0)
-                    logger.debug(String.format("High update contention in %d/%d partitions of %s ", heavilyContendedRowCount, rows.size(), Memtable.this.toString()));
+                    logger.trace(String.format("High update contention in %d/%d partitions of %s ", heavilyContendedRowCount, rows.size(), Memtable.this.toString()));
 
                 return ssTable;
             }
