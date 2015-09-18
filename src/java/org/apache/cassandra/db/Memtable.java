@@ -364,7 +364,7 @@ public class Memtable implements Comparable<Memtable>
             Collection<SSTableReader> ssTables;
             try (SSTableTxnWriter writer = createFlushWriter(cfs.getSSTablePath(sstableDirectory), columnsCollector.get(), statsCollector.get()))
             {
-                boolean trackContention = logger.isDebugEnabled();
+                boolean trackContention = logger.isTraceEnabled();
                 int heavilyContendedRowCount = 0;
                 // (we can't clear out the map as-we-go to free up memory,
                 //  since the memtable is being used for queries in the "pending flush" category)
@@ -409,7 +409,7 @@ public class Memtable implements Comparable<Memtable>
                 }
 
                 if (heavilyContendedRowCount > 0)
-                    logger.debug(String.format("High update contention in %d/%d partitions of %s ", heavilyContendedRowCount, partitions.size(), Memtable.this.toString()));
+                    logger.trace(String.format("High update contention in %d/%d partitions of %s ", heavilyContendedRowCount, partitions.size(), Memtable.this.toString()));
 
                 return ssTables;
             }
