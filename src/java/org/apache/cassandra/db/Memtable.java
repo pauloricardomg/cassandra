@@ -360,7 +360,7 @@ public class Memtable implements Comparable<Memtable>
 
         private SSTableReader writeSortedContents(ReplayPosition context, File sstableDirectory)
         {
-            logger.info("Writing {}", Memtable.this.toString());
+            logger.debug("Writing {}", Memtable.this.toString());
 
             SSTableReader ssTable;
             // errors when creating the writer that may leave empty temp files.
@@ -394,7 +394,7 @@ public class Memtable implements Comparable<Memtable>
 
                 if (writer.getFilePointer() > 0)
                 {
-                    logger.info(String.format("Completed flushing %s (%s) for commitlog position %s",
+                    logger.debug(String.format("Completed flushing %s (%s) for commitlog position %s",
                                               writer.getFilename(),
                                               FBUtilities.prettyPrintMemory(writer.getOnDiskFilePointer()),
                                               context));
@@ -404,7 +404,7 @@ public class Memtable implements Comparable<Memtable>
                 }
                 else
                 {
-                    logger.info("Completed flushing {}; nothing needed to be retained.  Commitlog position was {}",
+                    logger.debug("Completed flushing {}; nothing needed to be retained.  Commitlog position was {}",
                                 writer.getFilename(), context);
                     writer.abort();
                     ssTable = null;

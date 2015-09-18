@@ -392,13 +392,13 @@ public class CommitLogReplayer
         finally
         {
             FileUtils.closeQuietly(reader);
-            logger.info("Finished reading {}", file);
+            logger.debug("Finished reading {}", file);
         }
     }
 
     public boolean logAndCheckIfShouldSkip(File file, CommitLogDescriptor desc)
     {
-        logger.info("Replaying {} (CL version {}, messaging version {}, compression {})",
+        logger.debug("Replaying {} (CL version {}, messaging version {}, compression {})",
                     file.getPath(),
                     desc.version,
                     desc.getMessagingVersion(),
