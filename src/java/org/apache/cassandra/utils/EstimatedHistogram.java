@@ -233,7 +233,7 @@ public class EstimatedHistogram
     }
 
     /**
-     * log.debug() every record in the histogram
+     * log.trace() every record in the histogram
      *
      * @param log
      */
@@ -264,7 +264,7 @@ public class EstimatedHistogram
             // calculation, and accept the unnecessary whitespace prefixes that will occasionally occur
             if (i == 0 && count == 0)
                 continue;
-            log.debug(String.format(formatstr, names[i], count));
+            log.trace(String.format(formatstr, names[i], count));
         }
     }
 

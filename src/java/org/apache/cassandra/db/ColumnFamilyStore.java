@@ -242,7 +242,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         int period = metadata.params.memtableFlushPeriodInMs;
         if (period > 0)
         {
-            logger.debug("scheduling flush in {} ms", period);
+            logger.trace("scheduling flush in {} ms", period);
             WrappedRunnable runnable = new WrappedRunnable()
             {
                 protected void runMayThrow() throws Exception
@@ -429,7 +429,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             {
                 throw new RuntimeException(e);
             }
-            logger.debug("retryPolicy for {} is {}", name, this.metadata.params.speculativeRetry);
+            logger.trace("retryPolicy for {} is {}", name, this.metadata.params.speculativeRetry);
             latencyCalculator = ScheduledExecutors.optionalTasks.scheduleWithFixedDelay(new Runnable()
             {
                 public void run()
@@ -574,10 +574,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
          // clear ephemeral snapshots that were not properly cleared last session (CASSANDRA-7357)
         clearEphemeralSnapshots(directories);
 
-        logger.debug("Removing temporary or obsoleted files from unfinished operations for table", metadata.cfName);
+        logger.trace("Removing temporary or obsoleted files from unfinished operations for table", metadata.cfName);
         LifecycleTransaction.removeUnfinishedLeftovers(metadata);
 
-        logger.debug("Further extra check for orphan sstable files for {}", metadata.cfName);
+        logger.trace("Further extra check for orphan sstable files for {}", metadata.cfName);
         for (Map.Entry<Descriptor,Set<Component>> sstableFiles : directories.sstableLister(Directories.OnTxnErr.IGNORE).list().entrySet())
         {
             Descriptor desc = sstableFiles.getKey();
@@ -868,7 +868,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 {
                     public void run()
                     {
-                        logger.debug("forceFlush requested but everything is clean in {}", name);
+                        logger.trace("forceFlush requested but everything is clean in {}", name);
                     }
                 }, null);
                 postFlushExecutor.execute(task);
@@ -1161,7 +1161,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     public Collection<SSTableReader> getOverlappingSSTables(SSTableSet sstableSet, Iterable<SSTableReader> sstables)
     {
-        logger.debug("Checking for sstables overlapping {}", sstables);
+        logger.trace("Checking for sstables overlapping {}", sstables);
 
         // a normal compaction won't ever have an empty sstables list, but we create a skeleton
         // compaction controller for streaming, and that passes an empty list.
@@ -1564,8 +1564,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     ssTable.createLinks(snapshotDirectory.getPath()); // hard links
                     filesJSONArr.add(ssTable.descriptor.relativeFilenameFor(Component.DATA));
 
-                    if (logger.isDebugEnabled())
-                        logger.debug("Snapshot for {} keyspace data file {} created in {}", keyspace, ssTable.getFilename(), snapshotDirectory);
+                    if (logger.isTraceEnabled())
+                        logger.trace("Snapshot for {} keyspace data file {} created in {}", keyspace, ssTable.getFilename(), snapshotDirectory);
                     snapshottedSSTables.add(ssTable);
                 }
 
@@ -1609,7 +1609,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 ephemeralSnapshotMarker.getParentFile().mkdirs();
 
             Files.createFile(ephemeralSnapshotMarker.toPath());
-            logger.debug("Created ephemeral snapshot marker file on {}.", ephemeralSnapshotMarker.getAbsolutePath());
+            logger.trace("Created ephemeral snapshot marker file on {}.", ephemeralSnapshotMarker.getAbsolutePath());
         }
         catch (IOException e)
         {
@@ -1624,7 +1624,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         for (String ephemeralSnapshot : directories.listEphemeralSnapshots())
         {
-            logger.debug("Clearing ephemeral snapshot {} leftover from previous session.", ephemeralSnapshot);
+            logger.trace("Clearing ephemeral snapshot {} leftover from previous session.", ephemeralSnapshot);
             Directories.clearSnapshot(ephemeralSnapshot, directories.getCFDirectories());
         }
     }
@@ -1645,17 +1645,17 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 SSTableReader sstable = active.get(entries.getKey().generation);
                 if (sstable == null || !refs.tryRef(sstable))
                 {
-                    if (logger.isDebugEnabled())
-                        logger.debug("using snapshot sstable {}", entries.getKey());
+                    if (logger.isTraceEnabled())
+                        logger.trace("using snapshot sstable {}", entries.getKey());
                     // open without tracking hotness
                     sstable = SSTableReader.open(entries.getKey(), entries.getValue(), metadata, true, false);
                     refs.tryRef(sstable);
                     // release the self ref as we never add the snapshot sstable to DataTracker where it is otherwise released
                     sstable.selfRef().release();
                 }
-                else if (logger.isDebugEnabled())
+                else if (logger.isTraceEnabled())
                 {
-                    logger.debug("using active sstable {}", entries.getKey());
+                    logger.trace("using active sstable {}", entries.getKey());
                 }
             }
         }
@@ -1863,7 +1863,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // beginning if we restart before they [the CL segments] are discarded for
         // normal reasons post-truncate.  To prevent this, we store truncation
         // position in the System keyspace.
-        logger.debug("truncating {}", name);
+        logger.trace("truncating {}", name);
 
         if (keyspace.getMetadata().params.durableWrites || DatabaseDescriptor.isAutoSnapshot())
         {
@@ -1886,7 +1886,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             public void run()
             {
-                logger.debug("Discarding sstable data for truncated CF + indexes");
+                logger.trace("Discarding sstable data for truncated CF + indexes");
 
                 final long truncatedAt = System.currentTimeMillis();
                 data.notifyTruncated(truncatedAt);
@@ -1901,13 +1901,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 viewManager.truncateBlocking(truncatedAt);
 
                 SystemKeyspace.saveTruncationRecord(ColumnFamilyStore.this, truncatedAt, replayAfter);
-                logger.debug("cleaning out row cache");
+                logger.trace("cleaning out row cache");
                 invalidateCaches();
             }
         };
 
         runWithCompactionsDisabled(Executors.callable(truncateRunnable), true, true);
-        logger.debug("truncate complete");
+        logger.trace("truncate complete");
     }
 
     /**
@@ -1929,7 +1929,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // and so we only run one major compaction at a time
         synchronized (this)
         {
-            logger.debug("Cancelling in-progress compactions for {}", metadata.cfName);
+            logger.trace("Cancelling in-progress compactions for {}", metadata.cfName);
 
             Iterable<ColumnFamilyStore> selfWithAuxiliaryCfs = interruptViews
                                                                ? Iterables.concat(concatWithIndexes(), viewManager.allViewsCfs())
@@ -1952,7 +1952,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                         return null;
                     }
                 }
-                logger.debug("Compactions successfully cancelled");
+                logger.trace("Compactions successfully cancelled");
 
                 // run our task
                 try
