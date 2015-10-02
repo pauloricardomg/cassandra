@@ -17,7 +17,13 @@
  */
 package org.apache.cassandra.streaming;
 
-import java.util.*;
+import java.io.File;
+import java.io.IOError;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -35,6 +41,8 @@ import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.view.View;
+import org.apache.cassandra.dht.Bounds;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -172,6 +180,19 @@ public class StreamReceiveTask extends StreamTask
                         // add sstables and build secondary indexes
                         cfs.addSSTables(readers);
                         cfs.indexManager.buildAllIndexesBlocking(readers);
+
+                        //invalidate row cache keys
+                        if (cfs.isRowCacheEnabled())
+                        {
+                            List<Bounds<Token>> rangesToInvalidate = new ArrayList<>(readers.size());
+                            readers.forEach(sstable -> rangesToInvalidate.add(new Bounds<Token>(sstable.first.getToken(), sstable.last.getToken())));
+
+                            int invalidatedKeys = cfs.invalidateRowCacheInclusiveRanges(rangesToInvalidate);
+                            if (invalidatedKeys > 0)
+                                logger.info("[Stream #{}] Invalidated {} row cache entries from {} ranges on table {}.{} after task completed.",
+                                            task.session.planId(), invalidatedKeys, rangesToInvalidate.size(),
+                                            cfs.keyspace.getName(), cfs.getTableName());
+                        }
                     }
                 }
                 catch (Throwable t)
