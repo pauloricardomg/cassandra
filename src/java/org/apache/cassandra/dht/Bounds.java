@@ -108,6 +108,20 @@ public class Bounds<T extends RingPosition<T>> extends AbstractBounds<T>
         return "]";
     }
 
+    public static <T extends RingPosition<T>> boolean isInBounds(T token, Iterable<Bounds<T>> bounds)
+    {
+        assert bounds != null;
+
+        for (Bounds<T> bound : bounds)
+        {
+            if (bound.contains(token))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Compute a bounds of keys corresponding to a given bounds of token.
      */
