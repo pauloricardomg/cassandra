@@ -566,7 +566,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         metrics.incomingBytes.inc(headerSize);
         // send back file received message
         handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
-        receivers.get(message.header.cfId).received(message.sstable);
+        receivers.get(message.header.cfId).received(message.sstable, message.keysToInvalidate);
+    }
+
+    public int getTaskFileCount(UUID cfId)
+    {
+        StreamReceiveTask streamReceiveTask = receivers.get(cfId);
+        return streamReceiveTask != null ? streamReceiveTask.getTotalNumberOfFiles() : 0;
     }
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)
