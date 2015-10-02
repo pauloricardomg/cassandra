@@ -21,7 +21,9 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.util.List;
 
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.streaming.StreamReader;
@@ -46,7 +48,9 @@ public class IncomingFileMessage extends StreamMessage
 
             try
             {
-                return new IncomingFileMessage(reader.read(in), header);
+                SSTableWriter sstable = reader.read(in);
+                IncomingFileMessage fileMessage = new IncomingFileMessage(sstable, header, reader.getKeysToInvalidate());
+                return fileMessage;
             }
             catch (IOException eof)
             {
@@ -77,14 +81,16 @@ public class IncomingFileMessage extends StreamMessage
         }
     };
 
-    public FileMessageHeader header;
-    public SSTableWriter sstable;
+    public final FileMessageHeader header;
+    public final SSTableWriter sstable;
+    public final List<DecoratedKey> keysToInvalidate;
 
-    public IncomingFileMessage(SSTableWriter sstable, FileMessageHeader header)
+    public IncomingFileMessage(SSTableWriter sstable, FileMessageHeader header, List<DecoratedKey> keysToInvalidate)
     {
         super(Type.FILE);
         this.header = header;
         this.sstable = sstable;
+        this.keysToInvalidate = keysToInvalidate;
     }
 
     @Override

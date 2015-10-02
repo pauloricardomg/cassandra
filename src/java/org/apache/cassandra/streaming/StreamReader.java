@@ -17,10 +17,15 @@
  */
 package org.apache.cassandra.streaming;
 
-import java.io.*;
+import java.io.DataInput;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 import com.google.common.base.Throwables;
@@ -51,6 +56,9 @@ import org.apache.cassandra.utils.Pair;
  */
 public class StreamReader
 {
+    private static final int MAX_KEYS_TO_INVALIDATE_INDIVIDUALLY_PER_SSTABLE = 10000;
+    private static final int MAX_SSTABLES_PER_TASK_TO_INVALIDATE_INDIVIDUALLY = 100;
+
     private static final Logger logger = LoggerFactory.getLogger(StreamReader.class);
     protected final UUID cfId;
     protected final long estimatedKeys;
@@ -60,6 +68,7 @@ public class StreamReader
     protected final long repairedAt;
     protected final SSTableFormat.Type format;
     protected final int sstableLevel;
+    protected final List<DecoratedKey> keysToInvalidate;
 
     protected Descriptor desc;
 
@@ -73,6 +82,26 @@ public class StreamReader
         this.repairedAt = header.repairedAt;
         this.format = header.format;
         this.sstableLevel = header.sstableLevel;
+
+        if (shouldInvalidateKeysIndividually())
+            this.keysToInvalidate = new ArrayList<>((int)this.estimatedKeys);
+        else
+            this.keysToInvalidate = null;
+    }
+
+    //we only keep keys to invalidate invididually at the end of the task for small transfer tasks (CASSANDRA-10341)
+    private boolean shouldInvalidateKeysIndividually()
+    {
+        try
+        {
+            return this.getColumnFamilyStore().isRowCacheEnabled()
+                    && this.session.getTaskFileCount(cfId) <= MAX_SSTABLES_PER_TASK_TO_INVALIDATE_INDIVIDUALLY
+                    && this.estimatedKeys <= MAX_KEYS_TO_INVALIDATE_INDIVIDUALLY_PER_SSTABLE;
+        }
+        catch (IOException e)
+        {
+            return false; // schema was dropped during streaming
+        }
     }
 
     /**
@@ -86,13 +115,7 @@ public class StreamReader
         logger.debug("reading file from {}, repairedAt = {}, level = {}", session.peer, repairedAt, sstableLevel);
         long totalSize = totalSize();
 
-        Pair<String, String> kscf = Schema.instance.getCF(cfId);
-        if (kscf == null)
-        {
-            // schema was dropped during streaming
-            throw new IOException("CF " + cfId + " was dropped during streaming");
-        }
-        ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
+        ColumnFamilyStore cfs = getColumnFamilyStore();
 
         SSTableWriter writer = createWriter(cfs, totalSize, repairedAt, format);
 
@@ -117,6 +140,17 @@ public class StreamReader
             else
                 throw Throwables.propagate(e);
         }
+    }
+
+    private ColumnFamilyStore getColumnFamilyStore() throws IOException
+    {
+        Pair<String, String> kscf = Schema.instance.getCF(cfId);
+        if (kscf == null)
+        {
+            // schema was dropped during streaming
+            throw new IOException("CF " + cfId + " was dropped during streaming");
+        }
+        return Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
     }
 
     protected SSTableWriter createWriter(ColumnFamilyStore cfs, long totalSize, long repairedAt, SSTableFormat.Type format) throws IOException
@@ -160,6 +194,12 @@ public class StreamReader
     {
         DecoratedKey key = StorageService.getPartitioner().decorateKey(ByteBufferUtil.readWithShortLength(in));
         writer.appendFromStream(key, cfs.metadata, in, inputVersion);
-        cfs.invalidateCachedRow(key);
+        if (keysToInvalidate != null)
+            keysToInvalidate.add(key);
+    }
+
+    public List<DecoratedKey> getKeysToInvalidate()
+    {
+        return this.keysToInvalidate;
     }
 }

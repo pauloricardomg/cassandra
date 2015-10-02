@@ -27,10 +27,16 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.dht.Bounds;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.utils.Pair;
@@ -43,6 +49,7 @@ import org.apache.cassandra.utils.concurrent.Refs;
 public class StreamReceiveTask extends StreamTask
 {
     private static final ExecutorService executor = Executors.newCachedThreadPool(new NamedThreadFactory("StreamReceiveTask"));
+    private static final Logger logger = LoggerFactory.getLogger(StreamReceiveTask.class);
 
     // number of files to receive
     private final int totalFiles;
@@ -55,20 +62,26 @@ public class StreamReceiveTask extends StreamTask
     //  holds references to SSTables received
     protected Collection<SSTableWriter> sstables;
 
+    protected List<DecoratedKey> keysToInvalidate;
+    protected List<Bounds<Token>> boundsToInvalidate;
+
     public StreamReceiveTask(StreamSession session, UUID cfId, int totalFiles, long totalSize)
     {
         super(session, cfId);
         this.totalFiles = totalFiles;
         this.totalSize = totalSize;
         this.sstables = new ArrayList<>(totalFiles);
+        this.keysToInvalidate = new ArrayList<>();
+        this.boundsToInvalidate = new ArrayList<>();
     }
 
     /**
      * Process received file.
      *
      * @param sstable SSTable file received.
+     * @param keysToInvalidate
      */
-    public synchronized void received(SSTableWriter sstable)
+    public synchronized void received(SSTableWriter sstable, List<DecoratedKey> keysToInvalidate)
     {
         if (done)
             return;
@@ -76,6 +89,14 @@ public class StreamReceiveTask extends StreamTask
         assert cfId.equals(sstable.metadata.cfId);
 
         sstables.add(sstable);
+
+        if (keysToInvalidate != null)
+            //we only save keys to invalidate individually at the end of the task for small sstables
+            this.keysToInvalidate.addAll(keysToInvalidate);
+        else
+            //otherwise we invalidate the whole sstable range (CASSANDRA-10341)
+            this.boundsToInvalidate.add(new Bounds<Token>(sstable.first.getToken(), sstable.last.getToken()));
+
         if (sstables.size() == totalFiles)
         {
             done = true;
@@ -131,6 +152,16 @@ public class StreamReceiveTask extends StreamTask
                 // add sstables and build secondary indexes
                 cfs.addSSTables(readers);
                 cfs.indexManager.maybeBuildSecondaryIndexes(readers, cfs.indexManager.allIndexesNames());
+
+                if (cfs.isRowCacheEnabled())
+                {
+                    logger.debug("[Stream #{}] Invalidating {} keys and {} ranges of row cache on table {}.{} after task completed.",
+                                task.session.planId(), task.keysToInvalidate.size(), task.boundsToInvalidate.size(),
+                                cfs.keyspace.getName(), cfs.getColumnFamilyName());
+                    for (DecoratedKey key : task.keysToInvalidate)
+                        cfs.invalidateCachedRow(key);
+                    cfs.invalidateRowCacheInclusiveRanges(task.boundsToInvalidate);
+                }
             }
 
             task.session.taskCompleted(task);
