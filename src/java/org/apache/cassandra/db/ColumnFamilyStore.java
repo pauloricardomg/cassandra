@@ -1741,6 +1741,39 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             CacheService.instance.invalidateCounterCacheForCf(metadata.ksAndCFName);
     }
 
+    public int invalidateRowCacheInclusiveRanges(Collection<Bounds<Token>> inclusiveRanges)
+    {
+        int invalidatedKeys = 0;
+        for (Iterator<RowCacheKey> keyIter = CacheService.instance.rowCache.keyIterator();
+             keyIter.hasNext(); )
+        {
+            RowCacheKey key = keyIter.next();
+            DecoratedKey dk = decorateKey(ByteBuffer.wrap(key.key));
+            if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), inclusiveRanges))
+            {
+                invalidateCachedPartition(dk);
+                invalidatedKeys++;
+            }
+        }
+
+        if (metadata.isCounter())
+        {
+            for (Iterator<CounterCacheKey> keyIter = CacheService.instance.counterCache.keyIterator();
+                 keyIter.hasNext(); )
+            {
+                CounterCacheKey key = keyIter.next();
+                DecoratedKey dk = decorateKey(ByteBuffer.wrap(key.partitionKey));
+                if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), inclusiveRanges))
+                {
+                    CacheService.instance.counterCache.remove(key);
+                    invalidatedKeys++;
+                }
+            }
+        }
+
+        return invalidatedKeys;
+    }
+
     /**
      * @return true if @param key is contained in the row cache
      */
