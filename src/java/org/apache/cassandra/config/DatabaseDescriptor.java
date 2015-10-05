@@ -54,7 +54,6 @@ import org.apache.cassandra.scheduler.NoScheduler;
 import org.apache.cassandra.security.EncryptionContext;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.thrift.ThriftServer;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.memory.*;
 
@@ -190,9 +189,6 @@ public class DatabaseDescriptor
             {
                 throw new ConfigurationException("Unknown listen_address '" + config.listen_address + "'", false);
             }
-
-            if (listenAddress.isAnyLocalAddress())
-                throw new ConfigurationException("listen_address cannot be a wildcard address (" + config.listen_address + ")!", false);
         }
         else if (config.listen_interface != null)
         {
@@ -213,6 +209,13 @@ public class DatabaseDescriptor
 
             if (broadcastAddress.isAnyLocalAddress())
                 throw new ConfigurationException("broadcast_address cannot be a wildcard address (" + config.broadcast_address + ")!", false);
+        }
+        else
+        {
+            if (listenAddress != null && listenAddress.isAnyLocalAddress())
+                throw new ConfigurationException("If listen_address is set to a wildcard address (" + config.listen_address + "), then " +
+                                                 "you must set broadcast_address to a value other than " + config.broadcast_address, false);
+            broadcastAddress = listenAddress;
         }
 
         /* Local IP, hostname or interface to bind RPC server to */

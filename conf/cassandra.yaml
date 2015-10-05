@@ -469,7 +469,8 @@ ssl_storage_port: 7001
 # (hostname, name resolution, etc), and the Right Thing is to use the
 # address associated with the hostname (it might not be).
 #
-# Setting listen_address to 0.0.0.0 is always wrong.
+# If you specify listen_address to 0.0.0.0, you must also
+# set broadcast_address to a value other than 0.0.0.0.
 #
 # If you choose to specify the interface by name and the interface has an ipv4 and an ipv6 address
 # you can specify which should be chosen using listen_interface_prefer_ipv6. If false the first ipv4
@@ -532,7 +533,7 @@ start_rpc: false
 # Leaving rpc_address blank has the same effect as on listen_address
 # (i.e. it will be based on the configured hostname of the node).
 #
-# Note that unlike listen_address, you can specify 0.0.0.0, but you must also
+# If you specify rpc_address to 0.0.0.0, you must also
 # set broadcast_rpc_address to a value other than 0.0.0.0.
 #
 # For security reasons, you should not expose this port to the internet.  Firewall it if needed.
