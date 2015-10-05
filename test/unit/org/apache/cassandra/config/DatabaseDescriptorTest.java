@@ -43,6 +43,7 @@ import org.apache.cassandra.thrift.ThriftConversion;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class DatabaseDescriptorTest
@@ -254,6 +255,35 @@ public class DatabaseDescriptorTest
         Config testConfig = DatabaseDescriptor.loadConfig();
         testConfig.listen_address = suitableInterface.getInterfaceAddresses().get(0).getAddress().getHostAddress();
         testConfig.listen_interface = null;
+        DatabaseDescriptor.applyAddressConfig(testConfig);
+    }
+
+    @Test
+    public void testListenAddressAnyLocalAddress() throws Exception
+    {
+        Config testConfig = DatabaseDescriptor.loadConfig();
+        testConfig.listen_address = "0.0.0.0";
+        testConfig.broadcast_address = suitableInterface.getInterfaceAddresses().get(0).getAddress().getHostAddress();
+        DatabaseDescriptor.applyAddressConfig(testConfig);
+        assertTrue(DatabaseDescriptor.getListenAddress().isAnyLocalAddress());
+        assertEquals(suitableInterface.getInterfaceAddresses().get(0).getAddress(), DatabaseDescriptor.getBroadcastAddress());
+    }
+
+    @Test(expected = ConfigurationException.class)
+    public void testWilcardListenAdressShouldThrowExceptionIfBroadcastAddressNotDefined() throws Exception
+    {
+        Config testConfig = DatabaseDescriptor.loadConfig();
+        testConfig.listen_address = "0.0.0.0";
+        testConfig.broadcast_address = null;
+        DatabaseDescriptor.applyAddressConfig(testConfig);
+    }
+
+    @Test(expected = ConfigurationException.class)
+    public void testBroadcastAddressShouldNotBeWildcardAddress() throws Exception
+    {
+        Config testConfig = DatabaseDescriptor.loadConfig();
+        testConfig.listen_address = suitableInterface.getInterfaceAddresses().get(0).getAddress().getHostAddress();
+        testConfig.broadcast_address = "0.0.0.0";
         DatabaseDescriptor.applyAddressConfig(testConfig);
     }
 
