@@ -214,9 +214,6 @@ public class DatabaseDescriptor
             {
                 throw new ConfigurationException("Unknown listen_address '" + config.listen_address + "'");
             }
-
-            if (listenAddress.isAnyLocalAddress())
-                throw new ConfigurationException("listen_address cannot be a wildcard address (" + config.listen_address + ")!");
         }
         else if (config.listen_interface != null)
         {
@@ -237,6 +234,13 @@ public class DatabaseDescriptor
 
             if (broadcastAddress.isAnyLocalAddress())
                 throw new ConfigurationException("broadcast_address cannot be a wildcard address (" + config.broadcast_address + ")!");
+        }
+        else
+        {
+            if (listenAddress != null && listenAddress.isAnyLocalAddress())
+                throw new ConfigurationException("If listen_address is set to a wildcard address (" + config.listen_address + "), then " +
+                                                 "you must set broadcast_address to a value other than " + config.broadcast_address);
+            broadcastAddress = listenAddress;
         }
 
         /* Local IP, hostname or interface to bind RPC server to */
