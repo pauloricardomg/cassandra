@@ -53,7 +53,7 @@ Upgrading
    - Max mutation size is now configurable via max_mutation_size_in_kb setting in
      cassandra.yaml; the default is half the size commitlog_segment_size_in_mb * 1024.
    - 3.0 requires Java 8u40 or later.
-   - The default JVM GC has been changed to G1GC.
+   - Garbage collection options were moved from cassandra-env to jvm.options file.
    - The default JVM flag -XX:+PerfDisableSharedMem will cause the following tools JVM
      to stop working: jps, jstack, jinfo, jmc, jcmd as well as 3rd party tools like Jolokia.
      If you wish to use these tools you can comment this flag out in cassandra-env.{sh,ps1}
