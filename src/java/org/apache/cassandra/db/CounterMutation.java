@@ -29,6 +29,9 @@ import com.google.common.base.Objects;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Striped;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.context.CounterContext;
@@ -44,6 +47,9 @@ import org.apache.cassandra.utils.*;
 
 public class CounterMutation implements IMutation
 {
+    private static final Logger logger = LoggerFactory.getLogger(CounterMutation.class);
+
+
     public static final CounterMutationSerializer serializer = new CounterMutationSerializer();
 
     private static final Striped<Lock> LOCKS = Striped.lazyWeakLock(DatabaseDescriptor.getConcurrentCounterWriters() * 1024);
@@ -202,6 +208,8 @@ public class CounterMutation implements IMutation
 
             long clock = currentValue.clock + 1L;
             long count = currentValue.count + update.delta();
+
+            logger.debug("Setting new counter value to: " + count);
 
             resultCF.addColumn(new BufferCounterCell(update.name(),
                                                      CounterContext.instance().createGlobal(CounterId.getLocalId(), clock, count),
