@@ -201,6 +201,7 @@ public class CounterMutation implements IMutation
             return resultCF; // only DELETEs
 
         ClockAndCount[] currentValues = getCurrentValues(counterUpdateCells, cfs);
+        logger.debug("Current values has {} entries." + currentValues[0]);
         for (int i = 0; i < counterUpdateCells.size(); i++)
         {
             ClockAndCount currentValue = currentValues[i];
@@ -270,6 +271,7 @@ public class CounterMutation implements IMutation
         Row row = cmd.getRow(cfs.keyspace);
         ColumnFamily cf = row == null ? null : row.cf;
 
+        logger.debug("Current values was {}", currentValues);
         for (int i = 0; i < currentValues.length; i++)
         {
             if (currentValues[i] != null)
@@ -281,6 +283,7 @@ public class CounterMutation implements IMutation
             else
                 currentValues[i] = CounterContext.instance().getLocalClockAndCount(cell.value());
         }
+        logger.debug("Current values is {}", currentValues);
     }
 
     private void updateCounterCache(Mutation applied, Keyspace keyspace)
