@@ -193,9 +193,15 @@ public class CounterMutation implements IMutation
         for (Cell cell : changesCF)
         {
             if (cell instanceof CounterUpdateCell)
+            {
+                logger.info("isCounterUpdateCell", cell.getClass());
                 counterUpdateCells.add((CounterUpdateCell)cell);
+            }
             else
+            {
+                logger.info("!isCounterUpdateCell {}", cell.getClass());
                 resultCF.addColumn(cell);
+            }
         }
 
         if (counterUpdateCells.isEmpty())
