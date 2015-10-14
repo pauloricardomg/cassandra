@@ -122,6 +122,7 @@ public class CounterMutation implements IMutation
             count += cf.getColumnCount();
 
         List<Lock> locks = new ArrayList<>(count);
+        logger.debug("Acquiring {} counter locks", count);
         Tracing.trace("Acquiring {} counter locks", count);
         try
         {
@@ -228,12 +229,14 @@ public class CounterMutation implements IMutation
 
         if (CacheService.instance.counterCache.getCapacity() != 0)
         {
+            logger.debug("Fetching {} counter values from cache", counterUpdateCells.size());
             Tracing.trace("Fetching {} counter values from cache", counterUpdateCells.size());
             remaining = getCurrentValuesFromCache(counterUpdateCells, cfs, currentValues);
             if (remaining == 0)
                 return currentValues;
         }
 
+        logger.debug("Reading {} counter values from the CF", remaining);
         Tracing.trace("Reading {} counter values from the CF", remaining);
         getCurrentValuesFromCFS(counterUpdateCells, cfs, currentValues);
 
