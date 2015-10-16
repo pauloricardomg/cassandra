@@ -978,9 +978,9 @@ public abstract class LegacyLayout
             in.readLong(); // timestampOfLastDelete: this has been unused for a long time so we ignore it
             long ts = in.readLong();
             ByteBuffer value = ByteBufferUtil.readWithLength(in);
-            logger.debug("Received message: {}={}", ByteBufferUtil.bytesToHex(cellname), ByteBufferUtil.bytesToHex(value));
             if (flag == SerializationHelper.Flag.FROM_REMOTE || (flag == SerializationHelper.Flag.LOCAL && CounterContext.instance().shouldClearLocal(value)))
                 value = CounterContext.instance().clearAllLocal(value);
+            logger.debug("Received message: {}={}", ByteBufferUtil.bytesToHex(cellname), ByteBufferUtil.bytesToHex(value));
             return new LegacyCell(LegacyCell.Kind.COUNTER, decodeCellName(metadata, cellname, readAllAsDynamic), value, ts, Cell.NO_DELETION_TIME, Cell.NO_TTL);
         }
         else if ((mask & EXPIRATION_MASK) != 0)
