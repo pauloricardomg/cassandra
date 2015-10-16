@@ -1195,6 +1195,7 @@ public class StorageProxy implements StorageProxyMBean
 
                 Mutation result = ((CounterMutation) mutation).apply();
                 responseHandler.response(null);
+                logger.info("Mutation is now: {} ({})", result.getClass(), result);
 
                 Set<InetAddress> remotes = Sets.difference(ImmutableSet.copyOf(targets),
                                                            ImmutableSet.of(FBUtilities.getBroadcastAddress()));
