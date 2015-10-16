@@ -79,7 +79,7 @@ public abstract class Conflicts
 
     public static ByteBuffer mergeCounterValues(ByteBuffer left, ByteBuffer right)
     {
-        logger.debug("Counter values are: {} and {}", ByteBufferUtil.bytesToHex(left), ByteBufferUtil.bytesToHex(left));
+        logger.debug("Counter values are: {} and {}", ByteBufferUtil.bytesToHex(left), ByteBufferUtil.bytesToHex(right));
         return CounterContext.instance().merge(left, right);
     }
 
