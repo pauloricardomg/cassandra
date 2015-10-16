@@ -256,6 +256,7 @@ public class CounterContext
      */
     public ByteBuffer merge(ByteBuffer left, ByteBuffer right)
     {
+        logger.debug("left: {}, right: {}", ByteBufferUtil.bytesToHex(left), ByteBufferUtil.bytesToHex(right));
         boolean leftIsSuperSet = true;
         boolean rightIsSuperSet = true;
 
