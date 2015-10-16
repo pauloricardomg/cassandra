@@ -17,6 +17,9 @@
  */
 package org.apache.cassandra.db;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
@@ -26,6 +29,8 @@ import org.apache.cassandra.tracing.Tracing;
 
 public class ReadVerbHandler implements IVerbHandler<ReadCommand>
 {
+    private static final Logger logger = LoggerFactory.getLogger(ReadVerbHandler.class);
+
     public void doVerb(MessageIn<ReadCommand> message, int id)
     {
         if (StorageService.instance.isBootstrapMode())
@@ -41,6 +46,7 @@ public class ReadVerbHandler implements IVerbHandler<ReadCommand>
                                                                       getResponse(command, row),
                                                                       ReadResponse.serializer);
         Tracing.trace("Enqueuing response to {}", message.from);
+        logger.debug("Enqueuing response to {}: {}", message.from, reply.payload);
         MessagingService.instance().sendReply(reply, id, message.from);
     }
 
