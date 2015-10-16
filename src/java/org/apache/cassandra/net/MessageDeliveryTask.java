@@ -54,6 +54,8 @@ public class MessageDeliveryTask implements Runnable
             return;
         }
 
+        logger.debug("Received {}", message);
+
         IVerbHandler verbHandler = MessagingService.instance().getVerbHandler(verb);
         if (verbHandler == null)
         {

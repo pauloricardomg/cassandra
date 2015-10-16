@@ -19,10 +19,16 @@ package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.db.context.CounterContext;
+import org.apache.cassandra.utils.ByteBufferUtil;
 
 public abstract class Conflicts
 {
+    private static final Logger logger = LoggerFactory.getLogger(Conflicts.class);
+
     private Conflicts() {}
 
     public enum Resolution { LEFT_WINS, MERGE, RIGHT_WINS };
@@ -73,6 +79,7 @@ public abstract class Conflicts
 
     public static ByteBuffer mergeCounterValues(ByteBuffer left, ByteBuffer right)
     {
+        logger.debug("Counter values are: {} and {}", ByteBufferUtil.bytesToHex(left), ByteBufferUtil.bytesToHex(left));
         return CounterContext.instance().merge(left, right);
     }
 

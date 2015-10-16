@@ -29,6 +29,9 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.PeekingIterator;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -49,6 +52,7 @@ import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 public abstract class LegacyLayout
 {
     public final static int MAX_CELL_NAME_LENGTH = FBUtilities.MAX_UNSIGNED_SHORT;
+    private static final Logger logger = LoggerFactory.getLogger(LegacyLayout.class);
 
     public final static int STATIC_PREFIX = 0xFFFF;
 
@@ -974,6 +978,7 @@ public abstract class LegacyLayout
             in.readLong(); // timestampOfLastDelete: this has been unused for a long time so we ignore it
             long ts = in.readLong();
             ByteBuffer value = ByteBufferUtil.readWithLength(in);
+            logger.debug("Received message: {}={}", ByteBufferUtil.bytesToHex(cellname), ByteBufferUtil.bytesToHex(value));
             if (flag == SerializationHelper.Flag.FROM_REMOTE || (flag == SerializationHelper.Flag.LOCAL && CounterContext.instance().shouldClearLocal(value)))
                 value = CounterContext.instance().clearAllLocal(value);
             return new LegacyCell(LegacyCell.Kind.COUNTER, decodeCellName(metadata, cellname, readAllAsDynamic), value, ts, Cell.NO_DELETION_TIME, Cell.NO_TTL);
