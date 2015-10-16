@@ -215,7 +215,8 @@ public class CounterMutation implements IMutation
         long count = currentValue.count + CounterContext.instance().total(mark.value());
 
         ByteBuffer global = CounterContext.instance().createGlobal(CounterId.getLocalId(), clock, count);
-        logger.debug("updateWithCurrentValue. Replacing context. was: {}. is: {}", mark.value(), global);
+        logger.debug("updateWithCurrentValue. Replacing context. was: {}. is: {}", ByteBufferUtil.bytesToHex(mark.value()),
+                                                                                    ByteBufferUtil.bytesToHex(global));
         mark.setValue(global);
 
         // Cache the newly updated value

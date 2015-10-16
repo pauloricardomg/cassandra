@@ -33,6 +33,7 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.SecondaryIndexManager;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
 /**
@@ -196,7 +197,7 @@ public class UpdateParameters
         // PartitionUpdate between counter updates that has been processed by CounterMutation and those that
         // haven't.
         ByteBuffer local = CounterContext.instance().createLocal(increment);
-        logger.debug("Created local context: " + local);
+        logger.debug("Created local context: " + ByteBufferUtil.bytesToHex(local));
         builder.addCell(BufferCell.live(metadata, column, timestamp, local));
     }
 
