@@ -1132,6 +1132,7 @@ public class StorageProxy implements StorageProxyMBean
                     // belongs on a different server
                     if (message == null)
                         message = mutation.createMessage();
+                    logger.debug("Message to send is: {}", message);
                     String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(destination);
                     // direct writes to local DC or old Cassandra versions
                     // (1.1 knows how to forward old-style String message IDs; updated to int in 2.0)
