@@ -1366,6 +1366,9 @@ public class StorageProxy implements StorageProxyMBean
                 assert mutation instanceof CounterMutation;
 
                 Mutation result = ((CounterMutation) mutation).apply();
+
+                logger.info("Mutation is now: {} ({})", result.getClass(), result);
+
                 responseHandler.response(null);
 
                 Set<InetAddress> remotes = Sets.difference(ImmutableSet.copyOf(targets),
