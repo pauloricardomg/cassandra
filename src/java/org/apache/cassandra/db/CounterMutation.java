@@ -18,6 +18,7 @@
 package org.apache.cassandra.db;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -28,6 +29,9 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 import com.google.common.util.concurrent.Striped;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.rows.*;
@@ -49,6 +53,7 @@ import org.apache.cassandra.utils.btree.BTreeSet;
 public class CounterMutation implements IMutation
 {
     public static final CounterMutationSerializer serializer = new CounterMutationSerializer();
+    private static final Logger logger = LoggerFactory.getLogger(CounterMutation.class);
 
     private static final Striped<Lock> LOCKS = Striped.lazyWeakLock(DatabaseDescriptor.getConcurrentCounterWriters() * 1024);
 
@@ -209,7 +214,9 @@ public class CounterMutation implements IMutation
         long clock = currentValue.clock + 1L;
         long count = currentValue.count + CounterContext.instance().total(mark.value());
 
-        mark.setValue(CounterContext.instance().createGlobal(CounterId.getLocalId(), clock, count));
+        ByteBuffer global = CounterContext.instance().createGlobal(CounterId.getLocalId(), clock, count);
+        logger.debug("updateWithCurrentValue. Replacing context. was: {}. is: {}", mark.value(), global);
+        mark.setValue(global);
 
         // Cache the newly updated value
         cfs.putCachedCounter(key().getKey(), mark.clustering(), mark.column(), mark.path(), ClockAndCount.create(clock, count));
