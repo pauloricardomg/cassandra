@@ -47,7 +47,7 @@ public class MessageDeliveryTask implements Runnable
     public void run()
     {
         MessagingService.Verb verb = message.verb;
-        logger.debug("Received message with verb: {} (message is: {})", message.verb, message);
+        logger.debug("Received message with verb: {} (message is: {})", message.verb, message.payload);
         if (MessagingService.DROPPABLE_VERBS.contains(verb)
             && System.currentTimeMillis() > constructionTime + message.getTimeout())
         {

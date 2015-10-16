@@ -22,6 +22,9 @@ import java.io.IOError;
 import java.io.IOException;
 import java.net.InetAddress;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.io.util.FastByteArrayInputStream;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.tracing.Tracing;
@@ -29,6 +32,8 @@ import org.apache.cassandra.tracing.Tracing;
 public class MutationVerbHandler implements IVerbHandler<Mutation>
 {
     private static final boolean TEST_FAIL_WRITES = System.getProperty("cassandra.test.fail_writes", "false").equalsIgnoreCase("true");
+    private static final Logger logger = LoggerFactory.getLogger(MutationVerbHandler.class);
+
 
     public void doVerb(MessageIn<Mutation> message, int id)  throws IOException
     {
@@ -50,7 +55,9 @@ public class MutationVerbHandler implements IVerbHandler<Mutation>
             message.payload.apply();
             WriteResponse response = new WriteResponse();
             Tracing.trace("Enqueuing response to {}", replyTo);
-            MessagingService.instance().sendReply(response.createMessage(), id, replyTo);
+        MessageOut<WriteResponse> msg = response.createMessage();
+        logger.debug("Enqueuing response to {}: {]", replyTo, msg.payload);
+        MessagingService.instance().sendReply(msg, id, replyTo);
     }
 
     /**
