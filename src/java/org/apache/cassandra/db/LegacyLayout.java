@@ -372,28 +372,28 @@ public abstract class LegacyLayout
             {
                 out.writeInt(cell.ttl);
                 out.writeInt(cell.localDeletionTime);
+                out.writeLong(cell.timestamp);
+                ByteBufferUtil.writeWithLength(cell.value, out);
             }
             else if (cell.isTombstone())
             {
                 out.writeLong(cell.timestamp);
                 out.writeInt(TypeSizes.sizeof(cell.localDeletionTime));
                 out.writeInt(cell.localDeletionTime);
-                continue;
             }
             else if (cell.isCounterUpdate())
             {
                 out.writeLong(cell.timestamp);
                 long count = CounterContext.instance().getLocalCount(cell.value);
                 ByteBufferUtil.writeWithLength(ByteBufferUtil.bytes(count), out);
-                continue;
             }
             else if (cell.isCounter())
             {
                 out.writeLong(Long.MIN_VALUE);  // timestampOfLastDelete (not used, and MIN_VALUE is the default)
+                out.writeLong(cell.timestamp);
+                long count = CounterContext.instance().getLocalCount(cell.value);
+                ByteBufferUtil.writeWithLength(ByteBufferUtil.bytes(count), out);
             }
-
-            out.writeLong(cell.timestamp);
-            ByteBufferUtil.writeWithLength(cell.value, out);
         }
     }
 
