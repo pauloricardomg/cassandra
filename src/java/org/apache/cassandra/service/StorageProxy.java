@@ -1276,6 +1276,7 @@ public class StorageProxy implements StorageProxyMBean
 
         if (endpoint.equals(FBUtilities.getBroadcastAddress()))
         {
+            logger.debug("Got here..", endpoint, cm);
             return applyCounterMutationOnCoordinator(cm, localDataCenter);
         }
         else
@@ -1293,6 +1294,7 @@ public class StorageProxy implements StorageProxyMBean
             AbstractWriteResponseHandler<IMutation> responseHandler = new WriteResponseHandler<>(endpoint, WriteType.COUNTER);
 
             Tracing.trace("Enqueuing counter update to {}", endpoint);
+            logger.debug("Enqueuing counter update to {}: {}", endpoint, cm);
             MessagingService.instance().sendRR(cm.makeMutationMessage(), endpoint, responseHandler, false);
             return responseHandler;
         }
