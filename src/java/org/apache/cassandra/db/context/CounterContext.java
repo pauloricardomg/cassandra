@@ -682,12 +682,11 @@ public class CounterContext
     }
 
     /**
-     * Checks if a context is the local context
+     * Checks if a context is local
      */
     public boolean isLocal(ByteBuffer context)
     {
-        int position = findPositionOf(context, CounterId.getLocalId());
-        return position != -1;
+        return ContextState.wrap(context).isLocal();
     }
 
     /**
