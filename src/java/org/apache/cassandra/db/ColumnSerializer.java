@@ -84,6 +84,7 @@ public class ColumnSerializer implements ISerializer<Cell>
                 out.writeInt(cell.getLocalDeletionTime());
             }
             out.writeLong(cell.timestamp());
+            logger.debug("Serializing: {}", ByteBufferUtil.bytesToHex(cell.value()));
             ByteBufferUtil.writeWithLength(cell.value(), out);
         }
         catch (IOException e)

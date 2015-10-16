@@ -38,6 +38,8 @@ public class ReadVerbHandler implements IVerbHandler<ReadCommand>
             throw new RuntimeException("Cannot service reads while bootstrapping!");
         }
 
+        logger.debug("Received read command from {}: {}", message.from, message.payload);
+
         ReadCommand command = message.payload;
         Keyspace keyspace = Keyspace.open(command.ksName);
         Row row = command.getRow(keyspace);
@@ -46,7 +48,7 @@ public class ReadVerbHandler implements IVerbHandler<ReadCommand>
                                                                       getResponse(command, row),
                                                                       ReadResponse.serializer);
         Tracing.trace("Enqueuing response to {}", message.from);
-        logger.debug("Enqueuing response to {}: {}", message.from, reply.payload.row());
+        logger.debug("Enqueuing response to {}", message.from, reply.payload);
         MessagingService.instance().sendReply(reply, id, message.from);
     }
 
