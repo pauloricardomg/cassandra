@@ -41,6 +41,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.CounterId;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.OutputHandler;
 
@@ -69,9 +70,7 @@ public class CQLSSTableWriterTest
         String KS = "cql_keyspace";
         String TABLE = "table1";
 
-        File tempdir = Files.createTempDir();
-        File dataDir = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
-        assert dataDir.mkdirs();
+        File dataDir = createTempDataDir(KS, TABLE);
 
         String schema = "CREATE TABLE cql_keyspace.table1 ("
                       + "  k int PRIMARY KEY,"
@@ -133,6 +132,131 @@ public class CQLSSTableWriterTest
         assertEquals(3, row.getInt("k"));
         assertEquals(null, row.getBytes("v1")); // Using getBytes because we know it won't NPE
         assertEquals(12, row.getInt("v2"));
+    }
+
+    @Test
+    public void testCounterWriter() throws Exception
+    {
+        String KS = "cql_keyspace";
+        String TABLE = "my_counter";
+
+        File dataDir1 = createTempDataDir(KS, TABLE);
+
+        // Create CQlSStableWriter and increase value of 5 first rows by 5
+        CQLSSTableWriter writer = getCounterCqlssTableWriter(dataDir1, true);
+        for (int id=0; id < 5; id++)
+            writer.addRow(5L, id);
+        writer.close();
+
+        // Load created sstable and check all counters were modified correctly
+        loadSStables(dataDir1);
+        assertAllCountersEqual(5);
+
+        // Increase counters via CQL and check all counters were modified correctly
+        // We leave client mode so next counter inserts will use the actual node counter id
+        // and not the transient session id (see UpdateParameters.makeCounter)
+        Config.setClientMode(false);
+        incAllCountersBy(10);
+        assertAllCountersEqual(15);
+
+        // Create another CQlSStableWriter and decrease value of 5 first rows by 3
+        // We reset the counter session id and set the client mode back to true
+        // to simulate another CQLSStableWriter session
+        CounterId.resetSessionId();
+        Config.setClientMode(true);
+        File dataDir2 = createTempDataDir(KS, TABLE);
+        writer = getCounterCqlssTableWriter(dataDir2, false);
+        for (int id=0; id < 5; id++)
+            writer.addRow(3L, id);
+        writer.close();
+
+        // Load created sstable and check all counters were modified correctly
+        loadSStables(dataDir2);
+        assertAllCountersEqual(12);
+
+        // Increase counters via CQL and check all counters were modified correctly
+        Config.setClientMode(false);
+        incAllCountersBy(10);
+        assertAllCountersEqual(22);
+        incAllCountersBy(-5);
+        assertAllCountersEqual(17);
+
+        // In the next CQLSStableWriter session,
+        // we add multiple counter increment statements to the same row (2+3)
+        CounterId.resetSessionId();
+        Config.setClientMode(true);
+        File dataDir3 = createTempDataDir(KS, TABLE);
+        writer = getCounterCqlssTableWriter(dataDir3, true);
+        for (int id=0; id < 5; id++)
+            writer.addRow(2L, id);
+        for (int id=0; id < 5; id++)
+            writer.addRow(3L, id);
+        writer.close();
+
+        // Load created sstable and check all counters were modified correctly
+        loadSStables(dataDir3);
+        assertAllCountersEqual(22);
+    }
+
+    private File createTempDataDir(String KS, String TABLE)
+    {
+        File tempdir = Files.createTempDir();
+        File dataDir = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+        assert dataDir.mkdirs();
+        return dataDir;
+    }
+
+    private void incAllCountersBy(int delta)
+    {
+        for (int id=0; id < 5; id++)
+        {
+            QueryProcessor.executeInternal(String.format("UPDATE cql_keyspace.my_counter SET my_counter = my_counter + %d WHERE my_id = %d;", delta, id));
+        }
+    }
+
+    private void assertAllCountersEqual(long count)
+    {
+        for (int id=0; id < 5; id++)
+        {
+            UntypedResultSet rs = QueryProcessor.executeInternal(String.format("select my_counter from cql_keyspace.my_counter where my_id = %d;", id));
+            assertEquals(1, rs.size());
+            assertEquals(count, rs.one().getLong("my_counter"));
+        }
+    }
+
+    private CQLSSTableWriter getCounterCqlssTableWriter(File dataDir, boolean add)
+    {
+        String schema = "CREATE TABLE cql_keyspace.my_counter (" +
+                        "  my_id int, " +
+                        "  my_counter counter, " +
+                        "  PRIMARY KEY (my_id)" +
+                        ")";
+        String insert = String.format("UPDATE cql_keyspace.my_counter SET my_counter = my_counter %s ? WHERE my_id = ?",
+                                      add? "+" : "-");
+        return CQLSSTableWriter.builder().inDirectory(dataDir)
+                               .forTable(schema)
+                               .withPartitioner(StorageService.instance.getPartitioner())
+                                          .using(insert).build();
+    }
+
+    private void loadSStables(File dataDir) throws InterruptedException, java.util.concurrent.ExecutionException
+    {
+        SSTableLoader loader = new SSTableLoader(dataDir, new SSTableLoader.Client()
+        {
+            public void init(String keyspace)
+            {
+                for (Range<Token> range : StorageService.instance.getLocalRanges("cql_keyspace"))
+                    addRangeForEndpoint(range, FBUtilities.getBroadcastAddress());
+                setPartitioner(StorageService.getPartitioner());
+            }
+
+            public CFMetaData getCFMetaData(String keyspace, String cfName)
+            {
+                return Schema.instance.getCFMetaData(keyspace, cfName);
+            }
+        }, new OutputHandler.SystemOutput(false, false));
+
+        loader.stream().get();
     }
 
     @Test
@@ -251,9 +375,7 @@ public class CQLSSTableWriterTest
         String KS = "cql_keyspace2";
         String TABLE = "table2";
 
-        File tempdir = Files.createTempDir();
-        File dataDir = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
-        assert dataDir.mkdirs();
+        File dataDir = createTempDataDir(KS, TABLE);
 
         WriterThread[] threads = new WriterThread[5];
         for (int i = 0; i < threads.length; i++)
