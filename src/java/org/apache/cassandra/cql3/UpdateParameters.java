@@ -20,8 +20,12 @@ package org.apache.cassandra.cql3;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -35,6 +39,8 @@ import org.apache.cassandra.utils.FBUtilities;
  */
 public class UpdateParameters
 {
+    private static final Logger logger = LoggerFactory.getLogger(UpdateParameters.class);
+
     public final CFMetaData metadata;
     public final PartitionColumns updatedColumns;
     public final QueryOptions options;
@@ -166,7 +172,10 @@ public class UpdateParameters
         // but that makes things a bit more complex as this means we need to be able to distinguish inside
         // PartitionUpdate between counter updates that has been processed by CounterMutation and those that
         // haven't.
-        builder.addCell(BufferCell.live(metadata, column, timestamp, CounterContext.instance().createLocal(increment)));
+        if (!Config.isClientMode())
+            builder.addCell(BufferCell.live(metadata, column, timestamp, CounterContext.instance().createLocal(increment)));
+        else
+            builder.addCell(BufferCell.live(metadata, column, timestamp, CounterContext.instance().createSession(increment)));
     }
 
     public void setComplexDeletionTime(ColumnDefinition column)

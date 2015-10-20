@@ -75,6 +75,8 @@ import org.apache.cassandra.utils.*;
  */
 public class CounterContext
 {
+    public static CounterId SESSION_ID = CounterId.generate();
+
     private static final int HEADER_SIZE_LENGTH = TypeSizes.sizeof(Short.MAX_VALUE);
     private static final int HEADER_ELT_LENGTH = TypeSizes.sizeof(Short.MAX_VALUE);
     private static final int CLOCK_LENGTH = TypeSizes.sizeof(Long.MAX_VALUE);
@@ -82,6 +84,12 @@ public class CounterContext
     private static final int STEP_LENGTH = CounterId.LENGTH + CLOCK_LENGTH + COUNT_LENGTH;
 
     private static final Logger logger = LoggerFactory.getLogger(CounterContext.class);
+
+    @VisibleForTesting
+    public static void resetSessionId()
+    {
+        SESSION_ID = CounterId.generate();
+    }
 
     public static enum Relationship
     {
@@ -122,6 +130,13 @@ public class CounterContext
     {
         ContextState state = ContextState.allocate(0, 1, 0);
         state.writeLocal(CounterId.getLocalId(), 1L, count);
+        return state.context;
+    }
+
+    public ByteBuffer createSession(long count)
+    {
+        ContextState state = ContextState.allocate(0, 1, 0);
+        state.writeLocal(SESSION_ID, 1L, count);
         return state.context;
     }
 
@@ -271,6 +286,9 @@ public class CounterContext
         ContextState leftState = ContextState.wrap(left);
         ContextState rightState = ContextState.wrap(right);
 
+        logger.info("Left state: {}. Right state: {}", CounterContext.instance().toString(leftState.context),
+                                                       CounterContext.instance().toString(rightState.context));
+
         while (leftState.hasRemaining() && rightState.hasRemaining())
         {
             int cmp = leftState.compareIdTo(rightState);
@@ -406,6 +424,8 @@ public class CounterContext
             rightState.copyTo(mergedState);
             rightState.moveToNext();
         }
+
+        logger.info("Merged state: " + CounterContext.instance().toString(mergedState.context));
 
         return mergedState.context;
     }
