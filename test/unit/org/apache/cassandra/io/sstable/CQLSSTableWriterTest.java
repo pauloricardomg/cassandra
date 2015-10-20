@@ -39,6 +39,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
@@ -138,6 +139,177 @@ public class CQLSSTableWriterTest
             assertEquals(null, row.getBytes("v1")); // Using getBytes because we know it won't NPE
             assertEquals(12, row.getInt("v2"));
         }
+    }
+
+    @Test
+    public void testCounterWriterAfterCqlWrite() throws Exception
+    {
+        try (AutoCloseable switcher = Util.switchPartitioner(ByteOrderedPartitioner.instance))
+        {
+            String KS = "cql_keyspace";
+            String TABLE = "my_counter";
+
+            String keyspace = "CREATE KEYSPACE IF NOT EXISTS cql_keyspace WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}";
+            QueryProcessor.executeInternal(keyspace);
+
+            String schema = "CREATE TABLE cql_keyspace.my_counter (" +
+                            "  my_id int, " +
+                            "  my_counter counter, " +
+                            "  PRIMARY KEY (my_id)" +
+                            ")";
+            QueryProcessor.executeInternal(schema);
+
+            // Increase counters via CQL and check all counters were modified correctly
+            incAllCountersBy(10);
+            assertAllCountersEqual(10);
+
+            File tempdir = Files.createTempDir();
+            File dataDir = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir.mkdirs();
+
+            // Create CQlSStableWriter and increase value of 5 first rows by 5
+            CQLSSTableWriter writer = getCounterCqlssTableWriter(dataDir, true);
+            for (int id=0; id < 5; id++)
+                writer.addRow(2L, id);
+            //increase value of 5 first rows by 5 again
+            for (int id=0; id < 5; id++)
+                writer.addRow(1L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir);
+            assertAllCountersEqual(13);
+
+            tempdir = Files.createTempDir();
+            File dataDir2 = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir2.mkdirs();
+
+            // Create another CQlSStableWriter and decrease value of 5 first rows by 3
+            writer = getCounterCqlssTableWriter(dataDir2, true);
+            for (int id = 0; id < 5; id++)
+                writer.addRow(3L, id);
+            for (int id=0; id < 5; id++)
+                writer.addRow(4L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir2);
+            assertAllCountersEqual(20);
+        }
+    }
+
+    @Test
+    public void testCounterWriterBeforeCqlWrite() throws Exception
+    {
+        try (AutoCloseable switcher = Util.switchPartitioner(ByteOrderedPartitioner.instance))
+        {
+            String KS = "cql_keyspace";
+            String TABLE = "my_counter";
+
+            String keyspace = "CREATE KEYSPACE IF NOT EXISTS cql_keyspace WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}";
+            QueryProcessor.executeInternal(keyspace);
+
+            String schema = "CREATE TABLE cql_keyspace.my_counter (" +
+                            "  my_id int, " +
+                            "  my_counter counter, " +
+                            "  PRIMARY KEY (my_id)" +
+                            ")";
+            QueryProcessor.executeInternal(schema);
+
+            File tempdir = Files.createTempDir();
+            File dataDir = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir.mkdirs();
+
+            // Create CQlSStableWriter and increase value of 5 first rows by 5
+            CQLSSTableWriter writer = getCounterCqlssTableWriter(dataDir, true);
+            for (int id=0; id < 5; id++)
+                writer.addRow(2L, id);
+            //increase value of 5 first rows by 5 again
+            for (int id=0; id < 5; id++)
+                writer.addRow(1L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir);
+            assertAllCountersEqual(3);
+
+            Config.setClientMode(false);
+
+            // Increase counters via CQL and check all counters were modified correctly
+            incAllCountersBy(10);
+            assertAllCountersEqual(13);
+
+            Config.setClientMode(true);
+
+            tempdir = Files.createTempDir();
+            File dataDir2 = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir2.mkdirs();
+
+            // Create another CQlSStableWriter and decrease value of 5 first rows by 3
+            writer = getCounterCqlssTableWriter(dataDir2, true);
+            for (int id = 0; id < 5; id++)
+                writer.addRow(3L, id);
+            for (int id=0; id < 5; id++)
+                writer.addRow(4L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir2);
+            assertAllCountersEqual(20);
+        }
+    }
+
+    private void incAllCountersBy(int delta)
+    {
+        for (int id=0; id < 5; id++)
+        {
+            QueryProcessor.executeInternal(String.format("UPDATE cql_keyspace.my_counter SET my_counter = my_counter + %d WHERE my_id = %d;", delta, id));
+        }
+    }
+
+    private void assertAllCountersEqual(long count)
+    {
+        for (int id=0; id < 5; id++)
+        {
+            UntypedResultSet rs = QueryProcessor.executeInternal(String.format("select my_counter from cql_keyspace.my_counter where my_id = %d;", id));
+            assertEquals(1, rs.size());
+            assertEquals(count, rs.one().getLong("my_counter"));
+        }
+    }
+
+    private CQLSSTableWriter getCounterCqlssTableWriter(File dataDir, boolean add)
+    {
+        CounterContext.resetSessionId();
+        String schema = "CREATE TABLE cql_keyspace.my_counter (" +
+                        "  my_id int, " +
+                        "  my_counter counter, " +
+                        "  PRIMARY KEY (my_id)" +
+                        ")";
+        String insert = String.format("UPDATE cql_keyspace.my_counter SET my_counter = my_counter %s ? WHERE my_id = ?",
+                                      add? "+" : "-");
+        return CQLSSTableWriter.builder().inDirectory(dataDir).forTable(schema).using(insert).build();
+    }
+
+    private void loadSStables(File dataDir) throws InterruptedException, java.util.concurrent.ExecutionException
+    {
+        SSTableLoader loader = new SSTableLoader(dataDir, new SSTableLoader.Client()
+        {
+            private String keyspace;
+
+            public void init(String keyspace)
+            {
+                this.keyspace = keyspace;
+                for (Range<Token> range : StorageService.instance.getLocalRanges("cql_keyspace"))
+                    addRangeForEndpoint(range, FBUtilities.getBroadcastAddress());
+            }
+
+            public CFMetaData getTableMetadata(String cfName)
+            {
+                return Schema.instance.getCFMetaData(keyspace, cfName);
+            }
+        }, new OutputHandler.SystemOutput(false, false));
+
+        loader.stream().get();
     }
 
     @Test
