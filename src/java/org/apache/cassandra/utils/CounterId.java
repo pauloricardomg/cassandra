@@ -20,7 +20,10 @@ package org.apache.cassandra.utils;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.db.SystemKeyspace;
+import org.w3c.dom.css.Counter;
 
 public class CounterId implements Comparable<CounterId>
 {
@@ -33,6 +36,10 @@ public class CounterId implements Comparable<CounterId>
         static final LocalCounterIdHolder instance = new LocalCounterIdHolder();
     }
 
+    // Transient counter id generated per JVM session
+    // This is typically used on offline bulk loaders to populate counters
+    private static CounterId sessionId = CounterId.generate();
+
     private final ByteBuffer id;
 
     private static LocalCounterIdHolder localId()
@@ -44,6 +51,17 @@ public class CounterId implements Comparable<CounterId>
     {
         return localId().get();
     }
+
+    @VisibleForTesting
+    public static void resetSessionId()
+    {
+        sessionId = CounterId.generate();
+    }
+
+    public static CounterId getSessionId(){
+        return sessionId;
+    }
+
 
     /**
      * Function for test purposes, do not use otherwise.

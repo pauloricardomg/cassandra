@@ -23,10 +23,13 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.utils.CounterId;
 import org.apache.cassandra.utils.FBUtilities;
 
 /**
@@ -68,7 +71,13 @@ public class UpdateParameters
      public Cell makeCounter(CellName name, long delta) throws InvalidRequestException
      {
          QueryProcessor.validateCellName(name, metadata.comparator);
+
+//         if (!Config.isClientMode())
          return new BufferCounterUpdateCell(name, delta, FBUtilities.timestampMicros());
+//         else
+//             return new BufferCounterCell(name,
+//                                          CounterContext.instance().createGlobal(CounterId.getSessionId(), 1L, delta),
+//                                          FBUtilities.timestampMicros());
      }
 
     public Cell makeTombstone(CellName name) throws InvalidRequestException

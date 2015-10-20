@@ -21,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -94,9 +95,21 @@ public class CounterContext
         private static final CounterContext counterContext = new CounterContext();
     }
 
+    private static AtomicLong sessionCounter = new AtomicLong();
+
     public static CounterContext instance()
     {
         return LazyHolder.counterContext;
+    }
+
+    /**
+     * Creates a JVM session-bound context with monotonically increasing clock
+     */
+    public ByteBuffer createSession(long count)
+    {
+        ContextState state = ContextState.allocate(1, 0, 0);
+        state.writeGlobal(CounterId.getSessionId(), sessionCounter.getAndIncrement(), count);
+        return state.context;
     }
 
     /**
