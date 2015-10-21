@@ -19,6 +19,7 @@
 package org.apache.cassandra.locator;
 
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.Map;
 
@@ -30,6 +31,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.ResourceWatcher;
@@ -45,6 +47,8 @@ public class GossipingPropertyFileSnitch extends AbstractNetworkTopologySnitch//
     private volatile String myDC;
     private volatile String myRack;
     private volatile boolean preferLocal;
+    private volatile String localAddress;
+
     private AtomicReference<ReconnectableSnitchHelper> snitchHelperReference;
     private volatile boolean gossipStarted;
 
@@ -153,14 +157,11 @@ public class GossipingPropertyFileSnitch extends AbstractNetworkTopologySnitch//
     {
         super.gossiperStarting();
 
-        Gossiper.instance.addLocalApplicationState(ApplicationState.INTERNAL_IP,
-                StorageService.instance.valueFactory.internalIP(FBUtilities.getLocalAddress().getHostAddress()));
-
         reloadGossiperState();
 
         gossipStarted = true;
     }
-    
+
     private void reloadConfiguration(boolean isUpdate) throws ConfigurationException
     {
         final SnitchProperties properties = new SnitchProperties();
@@ -173,12 +174,15 @@ public class GossipingPropertyFileSnitch extends AbstractNetworkTopologySnitch//
         newDc = newDc.trim();
         newRack = newRack.trim();
         final boolean newPreferLocal = Boolean.parseBoolean(properties.get("prefer_local", "false"));
+        String newLocalAddress = getAndValidateLocalAddress(properties);
 
-        if (!newDc.equals(myDC) || !newRack.equals(myRack) || (preferLocal != newPreferLocal))
+        if (!newDc.equals(myDC) || !newRack.equals(myRack) || (preferLocal != newPreferLocal) ||
+            (newLocalAddress != null && !newLocalAddress.equals(localAddress)))
         {
             myDC = newDc;
             myRack = newRack;
             preferLocal = newPreferLocal;
+            localAddress = newLocalAddress;
 
             reloadGossiperState();
 
@@ -195,8 +199,30 @@ public class GossipingPropertyFileSnitch extends AbstractNetworkTopologySnitch//
         }
     }
 
+    private String getAndValidateLocalAddress(SnitchProperties properties) throws ConfigurationException
+    {
+        String localAddressStr = properties.get("local_address", null);
+        if (localAddressStr != null)
+        {
+            try
+            {
+                InetAddress address = InetAddress.getByName(localAddressStr);
+                if (address.isAnyLocalAddress())
+                    throw new ConfigurationException("GossipingPropertyFileSnitch property local_address cannot be set " +
+                                                     "to a wildcard address (" + localAddressStr + ").");
+            }
+            catch (UnknownHostException e)
+            {
+                throw new ConfigurationException("Unknown host for local_address property: " +
+                                                 SnitchProperties.RACKDC_PROPERTY_FILENAME, e);
+            }
+        }
+        return localAddressStr;
+    }
+
     private void reloadGossiperState()
     {
+        maybeUpdateGossipApplicationState();
         if (Gossiper.instance != null)
         {
             ReconnectableSnitchHelper pendingHelper = new ReconnectableSnitchHelper(this, myDC, preferLocal);
@@ -208,4 +234,36 @@ public class GossipingPropertyFileSnitch extends AbstractNetworkTopologySnitch//
         }
         // else this will eventually rerun at gossiperStarting()
     }
+
+    /**
+     * be careful about just blindly updating ApplicationState.INTERNAL_IP everytime we reload the rackdc file,
+     * as that can cause connections to get unnecessarily reset (via IESCS.onChange()).
+     */
+    private void maybeUpdateGossipApplicationState()
+    {
+        if (!preferLocal)
+            return;
+
+        if (localAddress == null && FBUtilities.getLocalAddress().isAnyLocalAddress()) {
+            logger.warn("GossipingPropertyFileSnitch option prefer_local was set to true, but local_address snitch" +
+                        "option was not specified and listen_address is {}. Please set snitch option local_address" +
+                        " to define the preferred local IP if you're listening on multiple interfaces.",
+                        FBUtilities.getLocalAddress());
+            return;
+        }
+
+        String internalIp = localAddress != null ? localAddress : FBUtilities.getLocalAddress().getHostAddress();
+
+        final EndpointState es = Gossiper.instance.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddress());
+        if (es == null)
+            return;
+        final VersionedValue vv = es.getApplicationState(ApplicationState.INTERNAL_IP);
+        if ((vv != null && !vv.value.equals(internalIp)) || vv == null)
+        {
+            logger.debug("Setting gossip {} field to: {}", ApplicationState.INTERNAL_IP, internalIp);
+            Gossiper.instance.addLocalApplicationState(ApplicationState.INTERNAL_IP,
+                                                       StorageService.instance.valueFactory.internalIP(internalIp));
+        }
+    }
+
 }

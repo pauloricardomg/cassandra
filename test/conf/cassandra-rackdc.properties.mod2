@@ -13,21 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+dc=DC2
+rack=RAC2
 
-# These properties are used with GossipingPropertyFileSnitch and will
-# indicate the rack and dc for this node
-#
-# When upgrading from SimpleSnitch, you will need to set your initial machines
-# to have rack=rack1
-dc=DC1
-rack=RAC1
-
-# Add a suffix to a datacenter name. Used by the Ec2Snitch and Ec2MultiRegionSnitch
-# to append a string to the EC2 region name.
-#dc_suffix=
-
-# Uncomment the following line to make this snitch prefer the internal ip when possible, as the Ec2MultiRegionSnitch does.
-# prefer_local=true
-
-# Specify the local address to use if prefer_local is set to true (useful when listening on multiple interfaces)
-#local_address=
+prefer_local=true
