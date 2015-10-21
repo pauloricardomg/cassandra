@@ -199,8 +199,10 @@ public class CounterContext
                 // process clock comparisons
                 if (leftClock == rightClock)
                 {
+                    logger.info("got here");
                     if (leftCount != rightCount)
                     {
+                        logger.info("got here");
                         // Inconsistent shard (see the corresponding code in merge()). We return DISJOINT in this
                         // case so that it will be treated as a difference, allowing read-repair to work.
                         return Relationship.DISJOINT;

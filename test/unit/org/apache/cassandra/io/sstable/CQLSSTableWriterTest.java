@@ -142,7 +142,7 @@ public class CQLSSTableWriterTest
     }
 
     @Test
-    public void testCounterWriterAfterCqlWrite() throws Exception
+    public void testCounterWriterAfterCqlWriteMultiUpdate() throws Exception
     {
         try (AutoCloseable switcher = Util.switchPartitioner(ByteOrderedPartitioner.instance))
         {
@@ -199,7 +199,59 @@ public class CQLSSTableWriterTest
     }
 
     @Test
-    public void testCounterWriterBeforeCqlWrite() throws Exception
+    public void testCounterWriterAfterCqlWriteOneUpdate() throws Exception
+    {
+        try (AutoCloseable switcher = Util.switchPartitioner(ByteOrderedPartitioner.instance))
+        {
+            String KS = "cql_keyspace";
+            String TABLE = "my_counter";
+
+            String keyspace = "CREATE KEYSPACE IF NOT EXISTS cql_keyspace WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}";
+            QueryProcessor.executeInternal(keyspace);
+
+            String schema = "CREATE TABLE cql_keyspace.my_counter (" +
+                            "  my_id int, " +
+                            "  my_counter counter, " +
+                            "  PRIMARY KEY (my_id)" +
+                            ")";
+            QueryProcessor.executeInternal(schema);
+
+            // Increase counters via CQL and check all counters were modified correctly
+            incAllCountersBy(10);
+            assertAllCountersEqual(10);
+
+            File tempdir = Files.createTempDir();
+            File dataDir = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir.mkdirs();
+
+            // Create CQlSStableWriter and increase value of 5 first rows by 5
+            CQLSSTableWriter writer = getCounterCqlssTableWriter(dataDir, true);
+            for (int id=0; id < 5; id++)
+                writer.addRow(3L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir);
+            assertAllCountersEqual(13);
+
+            tempdir = Files.createTempDir();
+            File dataDir2 = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir2.mkdirs();
+
+            // Create another CQlSStableWriter and decrease value of 5 first rows by 3
+            writer = getCounterCqlssTableWriter(dataDir2, true);
+            for (int id = 0; id < 5; id++)
+                writer.addRow(7L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir2);
+            assertAllCountersEqual(20);
+        }
+    }
+
+    @Test
+    public void testCounterWriterBeforeCqlWriteMultiUpdate() throws Exception
     {
         try (AutoCloseable switcher = Util.switchPartitioner(ByteOrderedPartitioner.instance))
         {
@@ -251,6 +303,62 @@ public class CQLSSTableWriterTest
                 writer.addRow(3L, id);
             for (int id=0; id < 5; id++)
                 writer.addRow(4L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir2);
+            assertAllCountersEqual(20);
+        }
+    }
+
+    @Test
+    public void testCounterWriterBeforeCqlWriteOneUpdate() throws Exception
+    {
+        try (AutoCloseable switcher = Util.switchPartitioner(ByteOrderedPartitioner.instance))
+        {
+            String KS = "cql_keyspace";
+            String TABLE = "my_counter";
+
+            String keyspace = "CREATE KEYSPACE IF NOT EXISTS cql_keyspace WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}";
+            QueryProcessor.executeInternal(keyspace);
+
+            String schema = "CREATE TABLE cql_keyspace.my_counter (" +
+                            "  my_id int, " +
+                            "  my_counter counter, " +
+                            "  PRIMARY KEY (my_id)" +
+                            ")";
+            QueryProcessor.executeInternal(schema);
+
+            File tempdir = Files.createTempDir();
+            File dataDir = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir.mkdirs();
+
+            // Create CQlSStableWriter and increase value of 5 first rows by 5
+            CQLSSTableWriter writer = getCounterCqlssTableWriter(dataDir, true);
+            for (int id=0; id < 5; id++)
+                writer.addRow(3L, id);
+            writer.close();
+
+            // Load created sstable and check all counters were modified correctly
+            loadSStables(dataDir);
+            assertAllCountersEqual(3);
+
+            Config.setClientMode(false);
+
+            // Increase counters via CQL and check all counters were modified correctly
+            incAllCountersBy(10);
+            assertAllCountersEqual(13);
+
+            Config.setClientMode(true);
+
+            tempdir = Files.createTempDir();
+            File dataDir2 = new File(tempdir.getAbsolutePath() + File.separator + KS + File.separator + TABLE);
+            assert dataDir2.mkdirs();
+
+            // Create another CQlSStableWriter and decrease value of 5 first rows by 3
+            writer = getCounterCqlssTableWriter(dataDir2, true);
+            for (int id = 0; id < 5; id++)
+                writer.addRow(7L, id);
             writer.close();
 
             // Load created sstable and check all counters were modified correctly

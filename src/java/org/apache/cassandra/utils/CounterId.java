@@ -20,11 +20,17 @@ package org.apache.cassandra.utils;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.db.SystemKeyspace;
 
 public class CounterId implements Comparable<CounterId>
 {
     public static final int LENGTH = 16; // we assume a fixed length size for all CounterIds
+
+    private static final Logger logger = LoggerFactory.getLogger(CounterId.class);
+
 
     // Lazy holder because this opens the system keyspace and we want to avoid
     // having this triggered during class initialization
@@ -42,6 +48,7 @@ public class CounterId implements Comparable<CounterId>
 
     public static CounterId getLocalId()
     {
+        logger.info("local id is: {}", localId().get());
         return localId().get();
     }
 

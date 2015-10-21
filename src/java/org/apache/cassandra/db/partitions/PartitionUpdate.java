@@ -386,6 +386,7 @@ public class PartitionUpdate extends AbstractBTreePartition
      */
     public synchronized void allowNewUpdates()
     {
+        logger.info("GOT HERE MUTHAFUCKAAAAA");
         if (!canReOpen)
             throw new IllegalStateException("You cannot do more updates on collectCounterMarks has been called");
 
