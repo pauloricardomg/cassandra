@@ -15,3 +15,6 @@
 # limitations under the License.
 dc=DC2
 rack=RAC2
+
+prefer_local=true
+local_address=127.0.0.2
