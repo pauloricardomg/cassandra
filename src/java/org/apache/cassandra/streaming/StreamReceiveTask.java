@@ -184,14 +184,13 @@ public class StreamReceiveTask extends StreamTask
                         //invalidate row cache keys
                         if (cfs.isRowCacheEnabled())
                         {
-                            List<Bounds<Token>> rangesToInvalidate = new ArrayList<>(readers.size());
-                            readers.forEach(sstable -> rangesToInvalidate.add(new Bounds<Token>(sstable.first.getToken(), sstable.last.getToken())));
+                            List<Bounds<Token>> boundsToInvalidate = new ArrayList<>(readers.size());
+                            readers.forEach(sstable -> boundsToInvalidate.add(new Bounds<Token>(sstable.first.getToken(), sstable.last.getToken())));
 
-                            int invalidatedKeys = cfs.invalidateRowCacheInclusiveRanges(rangesToInvalidate);
+                            int invalidatedKeys = cfs.invalidateRowCache(boundsToInvalidate);
                             if (invalidatedKeys > 0)
-                                logger.info("[Stream #{}] Invalidated {} row cache entries from {} ranges on table {}.{} after task completed.",
-                                            task.session.planId(), invalidatedKeys, rangesToInvalidate.size(),
-                                            cfs.keyspace.getName(), cfs.getTableName());
+                                logger.info("[Stream #{}] Invalidated {} row cache entries on table {}.{} after task completed.",
+                                            task.session.planId(), invalidatedKeys, cfs.keyspace.getName(), cfs.getTableName());
                         }
                     }
                 }
