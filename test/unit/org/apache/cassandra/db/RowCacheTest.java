@@ -158,7 +158,7 @@ public class RowCacheTest extends SchemaLoader
     }
 
     @Test
-    public void testInvalidateInclusiveRanges() throws Exception
+    public void testInvalidateRowCache() throws Exception
     {
         StorageService.instance.initServer(0);
         CacheService.instance.setRowCacheCapacityInMB(1);
@@ -168,11 +168,11 @@ public class RowCacheTest extends SchemaLoader
         assertEquals(CacheService.instance.rowCache.getKeySet().size(), 100);
 
         //construct 5 ranges of 20 elements each
-        ArrayList<Bounds<Token>> subranges = getInclusiveRanges(20);
+        ArrayList<Bounds<Token>> subranges = getBounds(20);
 
         //invalidate 3 of the 5 ranges
-        ArrayList<Bounds<Token>> rangesToClean = Lists.newArrayList(subranges.get(0), subranges.get(2), subranges.get(4));
-        int invalidatedKeys = store.invalidateRowCacheInclusiveRanges(rangesToClean);
+        ArrayList<Bounds<Token>> boundsToInvalidate = Lists.newArrayList(subranges.get(0), subranges.get(2), subranges.get(4));
+        int invalidatedKeys = store.invalidateRowCache(boundsToInvalidate);
         assertEquals(60, invalidatedKeys);
 
         //now there should be only 40 cached entries left
@@ -180,7 +180,7 @@ public class RowCacheTest extends SchemaLoader
         CacheService.instance.setRowCacheCapacityInMB(0);
     }
 
-    private ArrayList<Bounds<Token>> getInclusiveRanges(int rangeSize)
+    private ArrayList<Bounds<Token>> getBounds(int nElements)
     {
         ColumnFamilyStore store = Keyspace.open(KEYSPACE).getColumnFamilyStore(COLUMN_FAMILY);
         TreeSet<DecoratedKey> orderedKeys = new TreeSet<>();
@@ -188,18 +188,18 @@ public class RowCacheTest extends SchemaLoader
         for (RowCacheKey key : CacheService.instance.rowCache.getKeySet())
             orderedKeys.add(store.partitioner.decorateKey(ByteBuffer.wrap(key.key)));
 
-        ArrayList<Bounds<Token>> inclusiveRanges = new ArrayList<>();
+        ArrayList<Bounds<Token>> boundsToInvalidate = new ArrayList<>();
         Iterator<DecoratedKey> iterator = orderedKeys.iterator();
 
         while (iterator.hasNext())
         {
             Token startRange = iterator.next().getToken();
-            for (int i = 0; i < rangeSize-2; i++)
+            for (int i = 0; i < nElements-2; i++)
                 iterator.next();
             Token endRange = iterator.next().getToken();
-            inclusiveRanges.add(new Bounds<>(startRange, endRange));
+            boundsToInvalidate.add(new Bounds<>(startRange, endRange));
         }
-        return inclusiveRanges;
+        return boundsToInvalidate;
     }
 
     @Test
