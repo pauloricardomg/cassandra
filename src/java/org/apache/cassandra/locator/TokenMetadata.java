@@ -401,6 +401,7 @@ public class TokenMetadata
         lock.writeLock().lock();
         try
         {
+            removeFromPendingRanges(endpoint);
             bootstrapTokens.removeValue(endpoint);
             tokenToEndpointMap.removeValue(endpoint);
             topology.removeEndpoint(endpoint);
@@ -412,6 +413,18 @@ public class TokenMetadata
         finally
         {
             lock.writeLock().unlock();
+        }
+    }
+
+    private void removeFromPendingRanges(InetAddress endpoint)
+    {
+        for (Multimap<Range<Token>, InetAddress> ksPendingRanges : pendingRanges.values()) {
+            for(Iterator<Map.Entry<Range<Token>, InetAddress>> it = ksPendingRanges.entries().iterator(); it.hasNext(); ) {
+                Map.Entry<Range<Token>, InetAddress> entry = it.next();
+                if(endpoint.equals(entry.getValue())) {
+                    it.remove();
+                }
+            }
         }
     }
 
