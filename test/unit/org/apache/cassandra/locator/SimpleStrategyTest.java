@@ -164,6 +164,73 @@ public class SimpleStrategyTest extends SchemaLoader
         StorageServiceAccessor.setTokenMetadata(oldTmd);
     }
 
+    @Test
+    public void testGetPendingEndpointsAfterFailedBootstrap() throws UnknownHostException
+    {
+        // the token difference will be RING_SIZE * 2.
+        final int RING_SIZE = 10;
+        TokenMetadata tmd = new TokenMetadata();
+        TokenMetadata oldTmd = StorageServiceAccessor.setTokenMetadata(tmd);
+
+        Token[] endpointTokens = new Token[RING_SIZE];
+        Token[] keyTokens = new Token[RING_SIZE];
+
+        for (int i = 0; i < RING_SIZE; i++)
+        {
+            endpointTokens[i] = new BigIntegerToken(String.valueOf(RING_SIZE * 2 * i));
+            keyTokens[i] = new BigIntegerToken(String.valueOf(RING_SIZE * 2 * i + RING_SIZE));
+        }
+
+        List<InetAddress> hosts = new ArrayList<InetAddress>();
+        for (int i = 0; i < endpointTokens.length; i++)
+        {
+            InetAddress ep = InetAddress.getByName("127.0.0." + String.valueOf(i + 1));
+            tmd.updateNormalToken(endpointTokens[i], ep);
+            hosts.add(ep);
+        }
+
+        // bootstrap at the end of the ring
+        Token bsToken = new BigIntegerToken(String.valueOf(210));
+        InetAddress bootstrapEndpoint = InetAddress.getByName("127.0.0.11");
+        tmd.addBootstrapToken(bsToken, bootstrapEndpoint);
+
+        for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+        {
+            AbstractReplicationStrategy strategy = getStrategy(keyspaceName, tmd);
+            PendingRangeCalculatorService.calculatePendingRanges(strategy, keyspaceName);
+            int replicationFactor = strategy.getReplicationFactor();
+            for (int i = 0; i < keyTokens.length; i++)
+            {
+                Collection<InetAddress> pendingEndpoints = tmd.pendingEndpointsFor(keyTokens[i], keyspaceName);
+
+                // bootstrap endpoint should be present in pending endpoints
+                if (i >= RING_SIZE - replicationFactor)
+                    assertTrue(pendingEndpoints.contains(bootstrapEndpoint));
+            }
+        }
+
+        //simulate a failed bootstrap by removing the bootstraping endpoint from TokenMetadta
+        tmd.removeEndpoint(bootstrapEndpoint);
+
+
+        //Without recalculating, try fetching pending endpoints after bootstrap endpoing was removed
+        for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+        {
+            AbstractReplicationStrategy strategy = getStrategy(keyspaceName, tmd);
+            int replicationFactor = strategy.getReplicationFactor();
+            for (int i = 0; i < keyTokens.length; i++)
+            {
+                Collection<InetAddress> pendingEndpoints = tmd.pendingEndpointsFor(keyTokens[i], keyspaceName);
+
+                // bootstrap endpoint should **NOT** be present in pending endpoints
+                if (i >= RING_SIZE - replicationFactor)
+                    assertFalse(pendingEndpoints.contains(bootstrapEndpoint));
+            }
+        }
+
+        StorageServiceAccessor.setTokenMetadata(oldTmd);
+    }
+
     private AbstractReplicationStrategy getStrategy(String keyspaceName, TokenMetadata tmd)
     {
         KSMetaData ksmd = Schema.instance.getKSMetaData(keyspaceName);
