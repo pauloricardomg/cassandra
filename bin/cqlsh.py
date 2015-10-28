@@ -2328,7 +2328,7 @@ class ImportProcess(multiprocessing.Process):
         cqltypes = [table_meta.columns[name].typestring for name in self.columns]
         pk_indexes = [self.columns.index(col.name) for col in table_meta.primary_key]
         query = 'INSERT INTO %s.%s (%s) VALUES (%%s)' % (
-            protect_name(table_meta.keyspace.name),
+            protect_name(table_meta.keyspace_name),
             protect_name(table_meta.name),
             ', '.join(protect_names(self.columns)))
 
