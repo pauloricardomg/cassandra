@@ -2519,19 +2519,22 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
         }
 
-        if (metadata.isCounter())
+        return invalidatedKeys;
+    }
+
+    public int invalidateCounterCache(Collection<Bounds<Token>> boundsToInvalidate)
+    {
+        Set<Bounds<Token>> nonOverlappingBounds = Bounds.getNonOverlappingBounds(boundsToInvalidate);
+        int invalidatedKeys = 0;
+        for (CounterCacheKey key : CacheService.instance.counterCache.getKeySet())
         {
-            for (CounterCacheKey key : CacheService.instance.counterCache.getKeySet())
+            DecoratedKey dk = partitioner.decorateKey(ByteBuffer.wrap(key.partitionKey));
+            if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), nonOverlappingBounds))
             {
-                DecoratedKey dk = partitioner.decorateKey(ByteBuffer.wrap(key.partitionKey));
-                if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), nonOverlappingBounds))
-                {
-                    CacheService.instance.counterCache.remove(key);
-                    invalidatedKeys++;
-                }
+                CacheService.instance.counterCache.remove(key);
+                invalidatedKeys++;
             }
         }
-
         return invalidatedKeys;
     }
 
