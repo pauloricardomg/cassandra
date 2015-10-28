@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -140,17 +141,18 @@ public class StreamReceiveTask extends StreamTask
                 cfs.indexManager.maybeBuildSecondaryIndexes(readers, cfs.indexManager.allIndexesNames());
 
                 //invalidate row cache keys
-                if (cfs.isRowCacheEnabled())
+                if (cfs.metadata.isCounter() || cfs.isRowCacheEnabled())
                 {
                     List<Bounds<Token>> boundsToInvalidate = new ArrayList<>(readers.size());
                     for (SSTableReader sstable : readers)
                         boundsToInvalidate.add(new Bounds<Token>(sstable.first.getToken(), sstable.last.getToken()));
 
-                    int invalidatedKeys = cfs.invalidateRowCache(boundsToInvalidate);
+                    int invalidatedKeys = cfs.metadata.isCounter() ? cfs.invalidateCounterCache(boundsToInvalidate)
+                                                                   : cfs.invalidateRowCache(boundsToInvalidate);
                     if (invalidatedKeys > 0)
-                        logger.info("[Stream #{}] Invalidated {} row cache entries on table {}.{} after task completed.",
-                                    task.session.planId(), invalidatedKeys, cfs.keyspace.getName(),
-                                    cfs.getColumnFamilyName());
+                        logger.info("[Stream #{}] Invalidated {} {} cache entries on table {}.{} after stream receive task completed.",
+                                    task.session.planId(), invalidatedKeys, cfs.metadata.isCounter() ? "counter" : "row",
+                                    cfs.keyspace.getName(), cfs.getColumnFamilyName());
                 }
             }
 
