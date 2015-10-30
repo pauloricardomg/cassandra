@@ -2507,12 +2507,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public int invalidateRowCache(Collection<Bounds<Token>> boundsToInvalidate)
     {
-        Set<Bounds<Token>> nonOverlappingBounds = Bounds.getNonOverlappingBounds(boundsToInvalidate);
         int invalidatedKeys = 0;
         for (RowCacheKey key : CacheService.instance.rowCache.getKeySet())
         {
             DecoratedKey dk = partitioner.decorateKey(ByteBuffer.wrap(key.key));
-            if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), nonOverlappingBounds))
+            if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), boundsToInvalidate))
             {
                 invalidateCachedRow(dk);
                 invalidatedKeys++;
@@ -2524,12 +2523,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public int invalidateCounterCache(Collection<Bounds<Token>> boundsToInvalidate)
     {
-        Set<Bounds<Token>> nonOverlappingBounds = Bounds.getNonOverlappingBounds(boundsToInvalidate);
         int invalidatedKeys = 0;
         for (CounterCacheKey key : CacheService.instance.counterCache.getKeySet())
         {
             DecoratedKey dk = partitioner.decorateKey(ByteBuffer.wrap(key.partitionKey));
-            if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), nonOverlappingBounds))
+            if (key.ksAndCFName.equals(metadata.ksAndCFName) && Bounds.isInBounds(dk.getToken(), boundsToInvalidate))
             {
                 CacheService.instance.counterCache.remove(key);
                 invalidatedKeys++;
