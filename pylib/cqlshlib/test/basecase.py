@@ -31,18 +31,13 @@ except ImportError:
     import unittest
 
 rundir = dirname(__file__)
-path_to_cqlsh = normpath(join(rundir, '..', '..', '..', 'bin', 'cqlsh.py'))
+cqlsh_dir = normpath(join(rundir, '..', '..', '..', 'bin'))
 
-# symlink a ".py" file to cqlsh main script, so we can load it as a module
-modulepath = join(rundir, 'cqlsh.py')
-try:
-    if islink(modulepath):
-        os.unlink(modulepath)
-except OSError:
-    pass
-os.symlink(path_to_cqlsh, modulepath)
+# in order to load cqlsh as module, its parent directory must have a __init__.py file
+with open(join(cqlsh_dir, "__init__.py"), "w") as init_file:
+    init_file.write("# Auxiliary file created to run cqlshlib tests - can be deleted safely.")
 
-sys.path.append(rundir)
+sys.path.append(cqlsh_dir)
 import cqlsh
 cql = cqlsh.cassandra.cluster.Cluster
 policy = cqlsh.cassandra.policies.RoundRobinPolicy()
