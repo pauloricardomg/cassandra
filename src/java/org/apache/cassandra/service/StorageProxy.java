@@ -984,13 +984,14 @@ public class StorageProxy implements StorageProxyMBean
     {
         assert ttl > 0;
         UUID hostId = StorageService.instance.getTokenMetadata().getHostId(target);
-        if (hostId == null)
+        if (hostId != null)
         {
-            logger.warn("Missing host Id for {}", target.getHostAddress());
-            throw new AssertionError("Missing host Id for " + target.getHostAddress());
+            HintedHandOffManager.instance.hintFor(mutation, now, ttl, hostId).apply();
+            StorageMetrics.totalHints.inc();
         }
-        HintedHandOffManager.instance.hintFor(mutation, now, ttl, hostId).apply();
-        StorageMetrics.totalHints.inc();
+        else
+            //pending endpoint was probably removed from ring (See CASSANDRA-10485)
+            logger.debug("Discarding hint for unknown endpoint {}. This node probably left the ring recently.", target);
     }
 
     private static void sendMessagesToNonlocalDC(MessageOut<? extends IMutation> message, Collection<InetAddress> targets, AbstractWriteResponseHandler handler)
