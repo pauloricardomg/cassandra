@@ -83,6 +83,15 @@ public class SSTableImportTest
                                     CFMetaData.compile("CREATE TABLE table1 (k int PRIMARY KEY, v1 text, v2 int)", KEYSPACE1));
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void testImportUnknownCf() throws IOException, URISyntaxException
+    {
+        // Import JSON to temp SSTable file
+        String jsonUrl = resourcePath("SimpleCF.json");
+        File tempSS = tempSSTableFile("Keyspace1", "Standard1");
+        new SSTableImport(true).importJson(jsonUrl, "UnknownKeyspace", "UnknownCF", tempSS.getPath());
+    }
+
     @Test
     public void testImportSimpleCf() throws IOException, URISyntaxException
     {
