@@ -2477,9 +2477,24 @@ public class StorageProxy implements StorageProxyMBean
             public void runMayThrow()
             {
                 logger.trace("Adding hints for {}", targets);
-                HintsService.instance.write(Iterables.transform(targets, StorageService.instance::getHostIdForEndpoint),
-                                            Hint.create(mutation, System.currentTimeMillis()));
-                targets.forEach(HintsService.instance.metrics::incrCreatedHints);
+
+                ArrayList<InetAddress> liveTargets = new ArrayList<>(targets);
+                ArrayList<UUID> liveHostIds = new ArrayList<>(targets.size());
+                for (InetAddress target : targets)
+                {
+                    UUID hostId = StorageService.instance.getHostIdForEndpoint(target);
+                    if (hostId != null)
+                        liveHostIds.add(hostId);
+                    else
+                    {
+                        //pending endpoint was probably removed from ring (See CASSANDRA-10485)
+                        liveTargets.remove(target);
+                        logger.debug("Discarding hint for unknown endpoint {}. This node probably left the ring recently.", target);
+                    }
+                }
+
+                HintsService.instance.write(liveHostIds, Hint.create(mutation, System.currentTimeMillis()));
+                liveTargets.forEach(HintsService.instance.metrics::incrCreatedHints);
                 // Notify the handler only for CL == ANY
                 if (responseHandler != null && responseHandler.consistencyLevel == ConsistencyLevel.ANY)
                     responseHandler.response(null);
