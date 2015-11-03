@@ -265,7 +265,11 @@ public class TokenMetadata
         lock.readLock().lock();
         try
         {
-            return endpointToHostIdMap.get(endpoint);
+            UUID hostId = endpointToHostIdMap.get(endpoint);
+            assert hostId != null ||
+                   (!tokenToEndpointMap.inverse().containsKey(endpoint) && !bootstrapTokens.inverse().containsKey(endpoint)) :
+                    "Found null host ID for node present on ring: " + endpoint.getHostAddress();
+            return hostId;
         }
         finally
         {
