@@ -418,13 +418,16 @@ public class TokenMetadata
 
     private void removeFromPendingRanges(InetAddress endpoint)
     {
-        for (Multimap<Range<Token>, InetAddress> ksPendingRanges : pendingRanges.values()) {
-            for(Iterator<Map.Entry<Range<Token>, InetAddress>> it = ksPendingRanges.entries().iterator(); it.hasNext(); ) {
+        for (Map.Entry<String, Multimap<Range<Token>, InetAddress>> pendingPerKeyspace : pendingRanges.entrySet())
+        {
+            Multimap<Range<Token>, InetAddress> newPendingRanges = HashMultimap.create(pendingPerKeyspace.getValue());
+            for(Iterator<Map.Entry<Range<Token>, InetAddress>> it = newPendingRanges.entries().iterator(); it.hasNext(); ) {
                 Map.Entry<Range<Token>, InetAddress> entry = it.next();
                 if(endpoint.equals(entry.getValue())) {
                     it.remove();
                 }
             }
+            pendingPerKeyspace.setValue(newPendingRanges);
         }
     }
 
