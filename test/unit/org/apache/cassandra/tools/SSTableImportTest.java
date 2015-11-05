@@ -61,7 +61,6 @@ import org.apache.cassandra.db.marshal.CounterColumnType;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.thrift.TException;
 
 public class SSTableImportTest
 {
@@ -259,8 +258,8 @@ public class SSTableImportTest
     public void shouldRejectEmptyCellNamesForNonCqlTables() throws IOException, URISyntaxException
     {
         String jsonUrl = resourcePath("CQLTable.json");
-        File tempSS = tempSSTableFile("Keyspace1", "Counter1");
-        new SSTableImport(true).importJson(jsonUrl, "Keyspace1", "Counter1", tempSS.getPath());
+        File tempSS = tempSSTableFile(KEYSPACE1, CF_COUNTER);
+        new SSTableImport(true).importJson(jsonUrl, KEYSPACE1, CF_COUNTER, tempSS.getPath());
     }
     
     private static Matcher<UntypedResultSet.Row> withElements(final int key, final String v1, final int v2) {
