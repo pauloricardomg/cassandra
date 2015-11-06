@@ -84,6 +84,9 @@ public class TokenMetadata
     // this is a cache of the calculation from {tokenToEndpointMap, bootstrapTokens, leavingEndpoints}
     private final ConcurrentMap<String, Multimap<Range<Token>, InetAddress>> pendingRanges = new ConcurrentHashMap<>();
 
+    // Set of live endpoints that have pending ranges
+    private final Set<InetAddress> livePendingEndpoints = new HashSet<>();
+
     // nodes which are migrating to the new tokens in the ring
     private final Set<Pair<Token, InetAddress>> movingEndpoints = new HashSet<>();
 
@@ -387,6 +390,7 @@ public class TokenMetadata
         lock.writeLock().lock();
         try
         {
+            livePendingEndpoints.remove(endpoint);
             bootstrapTokens.removeValue(endpoint);
             tokenToEndpointMap.removeValue(endpoint);
             topology.removeEndpoint(endpoint);
@@ -498,6 +502,21 @@ public class TokenMetadata
         try
         {
             return tokenToEndpointMap.inverse().containsKey(endpoint);
+        }
+        finally
+        {
+            lock.readLock().unlock();
+        }
+    }
+
+    public boolean isMemberOrPending(InetAddress endpoint)
+    {
+        assert endpoint != null;
+
+        lock.readLock().lock();
+        try
+        {
+            return tokenToEndpointMap.inverse().containsKey(endpoint) || livePendingEndpoints.contains(endpoint);
         }
         finally
         {
@@ -707,7 +726,20 @@ public class TokenMetadata
 
     public void setPendingRanges(String keyspaceName, Multimap<Range<Token>, InetAddress> rangeMap)
     {
-        pendingRanges.put(keyspaceName, rangeMap);
+        lock.writeLock().lock();
+        try
+        {
+            pendingRanges.put(keyspaceName, rangeMap);
+            livePendingEndpoints.clear();
+            for (Multimap<Range<Token>, InetAddress> pending : pendingRanges.values())
+            {
+                livePendingEndpoints.addAll(pending.values());
+            }
+        }
+        finally
+        {
+            lock.writeLock().unlock();
+        }
     }
 
     public Token getPredecessor(Token token)
@@ -854,6 +886,7 @@ public class TokenMetadata
             tokenToEndpointMap.clear();
             topology.clear();
             leavingEndpoints.clear();
+            livePendingEndpoints.clear();
             pendingRanges.clear();
             endpointToHostIdMap.clear();
             invalidateCachedRings();
