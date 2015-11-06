@@ -1012,14 +1012,18 @@ public class StorageProxy implements StorageProxyMBean
     public static void writeHintForMutation(Mutation mutation, long now, int ttl, InetAddress target)
     {
         assert ttl > 0;
-        UUID hostId = StorageService.instance.getTokenMetadata().getHostId(target);
-        if (hostId == null)
+        TokenMetadata ring = StorageService.instance.getTokenMetadata();
+        if (ring.isMemberOrPending(target))
         {
-            logger.warn("Missing host Id for {}", target.getHostAddress());
-            throw new AssertionError("Missing host Id for " + target.getHostAddress());
+            UUID hostId = ring.getHostId(target);
+            if (hostId == null)
+            {
+                logger.warn("Missing host Id for {}", target.getHostAddress());
+                throw new AssertionError("Missing host Id for " + target.getHostAddress());
+            }
+            HintedHandOffManager.instance.hintFor(mutation, now, ttl, hostId).apply();
+            StorageMetrics.totalHints.inc();
         }
-        HintedHandOffManager.instance.hintFor(mutation, now, ttl, hostId).apply();
-        StorageMetrics.totalHints.inc();
     }
 
     private static void sendMessagesToNonlocalDC(MessageOut<? extends IMutation> message,
