@@ -20,6 +20,7 @@ package org.apache.cassandra.locator;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import com.google.common.collect.Iterators;
@@ -37,9 +38,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
+import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.dht.RandomPartitioner.BigIntegerToken;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.schema.KeyspaceMetadata;
+import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.StorageServiceAccessor;
 
 
 @RunWith(OrderedJUnit4ClassRunner.class)
@@ -53,6 +61,8 @@ public class TokenMetadataTest
     @BeforeClass
     public static void beforeClass() throws Throwable
     {
+        SchemaLoader.prepareServer();
+        SchemaLoader.createKeyspace("Keyspace1", KeyspaceParams.simple(1));
         tmd = StorageService.instance.getTokenMetadata();
         tmd.updateNormalToken(token(ONE), InetAddress.getByName("127.0.0.1"));
         tmd.updateNormalToken(token(SIX), InetAddress.getByName("127.0.0.6"));
@@ -286,5 +296,72 @@ public class TokenMetadataTest
         assertTrue(racks.get(DATA_CENTER).containsKey(RACK2));
         assertTrue(racks.get(DATA_CENTER).get(RACK1).contains(first));
         assertTrue(racks.get(DATA_CENTER).get(RACK2).contains(second));
+    }
+
+    @Test
+    public void testIsMemberOrPending() throws UnknownHostException
+    {
+        // the token difference will be RING_SIZE * 2.
+        final int RING_SIZE = 10;
+        TokenMetadata tmd = new TokenMetadata();
+        TokenMetadata oldTmd = StorageServiceAccessor.setTokenMetadata(tmd);
+
+        Token[] endpointTokens = new Token[RING_SIZE];
+        Token[] keyTokens = new Token[RING_SIZE];
+
+        for (int i = 0; i < RING_SIZE; i++)
+        {
+            endpointTokens[i] = new BigIntegerToken(String.valueOf(RING_SIZE * 2 * i));
+            keyTokens[i] = new BigIntegerToken(String.valueOf(RING_SIZE * 2 * i + RING_SIZE));
+        }
+
+        List<InetAddress> hosts = new ArrayList<InetAddress>();
+        for (int i = 0; i < endpointTokens.length; i++)
+        {
+            InetAddress ep = InetAddress.getByName("127.0.0." + String.valueOf(i + 1));
+            tmd.updateNormalToken(endpointTokens[i], ep);
+            hosts.add(ep);
+        }
+
+        // bootstrap at the end of the ring
+        Token bsToken = new BigIntegerToken(String.valueOf(210));
+        InetAddress bootstrapEndpoint = InetAddress.getByName("127.0.0.11");
+        tmd.addBootstrapToken(bsToken, bootstrapEndpoint);
+
+        for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+        {
+            assertFalse(tmd.isMemberOrPending(bootstrapEndpoint));
+        }
+
+        for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+        {
+            AbstractReplicationStrategy strategy = getStrategy(keyspaceName, tmd);
+            PendingRangeCalculatorService.calculatePendingRanges(strategy, keyspaceName);
+        }
+
+        for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+        {
+            assertTrue(tmd.isMemberOrPending(bootstrapEndpoint));
+        }
+
+        tmd.removeEndpoint(bootstrapEndpoint);
+
+        for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+        {
+            assertFalse(tmd.isMemberOrPending(bootstrapEndpoint));
+        }
+
+        StorageServiceAccessor.setTokenMetadata(oldTmd);
+    }
+
+    private AbstractReplicationStrategy getStrategy(String keyspaceName, TokenMetadata tmd)
+    {
+        KeyspaceMetadata ksmd = Schema.instance.getKSMetaData(keyspaceName);
+        return AbstractReplicationStrategy.createReplicationStrategy(
+                                                                    keyspaceName,
+                                                                    ksmd.params.replication.klass,
+                                                                    tmd,
+                                                                    new SimpleSnitch(),
+                                                                    ksmd.params.replication.options);
     }
 }
