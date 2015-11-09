@@ -2452,6 +2452,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return tokenMetadata.getHostId(address);
     }
 
+    public boolean isRingMemberOrJoining(InetAddress address)
+    {
+        return tokenMetadata.isMemberOrJoining(address);
+    }
+
     /* These methods belong to the MBean interface */
 
     public List<String> getTokens()
