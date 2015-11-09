@@ -21,6 +21,7 @@ package org.apache.cassandra.locator;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Map;
 
 import com.google.common.collect.Iterators;
@@ -47,6 +48,7 @@ public class TokenMetadataTest
 {
     public final static String ONE = "1";
     public final static String SIX = "6";
+    public final static String NINE = "9";
 
     static TokenMetadata tmd;
 
@@ -65,6 +67,21 @@ public class TokenMetadataTest
         assertEquals(actual.toString(), expected.length, actual.size());
         for (int i = 0; i < expected.length; i++)
             assertEquals("Mismatch at index " + i + ": " + actual, token(expected[i]), actual.get(i));
+    }
+
+    @Test
+    public void testIsMemberOrJoining() throws Exception
+    {
+        try {
+            assertTrue(tmd.isMember(InetAddress.getByName("127.0.0.1")));
+            assertTrue(tmd.isMember(InetAddress.getByName("127.0.0.6")));
+            tmd.addBootstrapTokens(Collections.singleton(token(NINE)), InetAddress.getByName("127.0.0.9"));
+            assertFalse(tmd.isMember(InetAddress.getByName("127.0.0.9")));
+            assertTrue(tmd.isMemberOrJoining(InetAddress.getByName("127.0.0.9")));
+        } finally
+        {
+            tmd.removeEndpoint(InetAddress.getByName("127.0.0.9"));
+        }
     }
 
     @Test

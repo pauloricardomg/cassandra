@@ -505,6 +505,22 @@ public class TokenMetadata
         }
     }
 
+    public boolean isMemberOrJoining(InetAddress endpoint)
+    {
+        assert endpoint != null;
+
+        lock.readLock().lock();
+        try
+        {
+            return tokenToEndpointMap.inverse().containsKey(endpoint) ||
+                   bootstrapTokens.inverse().containsKey(endpoint);
+        }
+        finally
+        {
+            lock.readLock().unlock();
+        }
+    }
+
     public boolean isLeaving(InetAddress endpoint)
     {
         assert endpoint != null;
