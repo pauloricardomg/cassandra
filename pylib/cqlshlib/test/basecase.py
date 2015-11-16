@@ -18,7 +18,7 @@ import os
 import sys
 import logging
 from itertools import izip
-from os.path import dirname, join, normpath, islink
+from os.path import dirname, join, normpath
 
 cqlshlog = logging.getLogger('test_cqlsh')
 
