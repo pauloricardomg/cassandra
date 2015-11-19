@@ -17,8 +17,6 @@
  */
 package org.apache.cassandra.service;
 
-import static java.nio.charset.StandardCharsets.ISO_8859_1;
-
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.File;
@@ -1105,7 +1103,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                                                        "Rebuild",
                                                        !replacing && useStrictConsistency,
                                                        DatabaseDescriptor.getEndpointSnitch(),
-                                                       streamStateStore);
+                                                       streamStateStore,
+                                                       false);
             streamer.addSourceFilter(new RangeStreamer.FailureDetectorSourceFilter(FailureDetector.instance));
             if (sourceDc != null)
                 streamer.addSourceFilter(new RangeStreamer.SingleDatacenterFilter(DatabaseDescriptor.getEndpointSnitch(), sourceDc));
