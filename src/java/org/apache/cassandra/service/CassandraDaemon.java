@@ -241,6 +241,22 @@ public class CassandraDaemon
 
         Keyspace.setInitialized();
 
+        if (!Boolean.getBoolean("cassandra.ignore_dc"))
+        {
+            String storedDc = SystemKeyspace.getDatacenter();
+            if (storedDc != null)
+            {
+                String currentDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(
+                        FBUtilities.getBroadcastAddress());
+                if (!storedDc.equals(currentDc))
+                {
+                    logger.error("Cannot start node if snitch's data center ({}) differs from previous data center ({}). Please fix the snitch configuration, " +
+                                 "decommission and rebootstrap this node or use the flag -Dcassandra.ignore_dc=true.", currentDc, storedDc);
+                    System.exit(100);
+                }
+            }
+        }
+
         if (!Boolean.getBoolean("cassandra.ignore_rack"))
         {
             String storedRack = SystemKeyspace.getRack();
@@ -249,8 +265,8 @@ public class CassandraDaemon
                 String currentRack = DatabaseDescriptor.getEndpointSnitch().getRack(FBUtilities.getBroadcastAddress());
                 if (!storedRack.equals(currentRack))
                 {
-                    logger.error("Cannot start node if snitch's rack differs from previous rack. " +
-                                 "Please fix the snitch or decommission and rebootstrap this node.");
+                    logger.error("Cannot start node if snitch's rack ({}) differs from previous rack ({}). Please fix the snitch configuration, " +
+                                 "decommission and rebootstrap this node or use the flag -Dcassandra.ignore_rack=true.", currentRack, storedRack);
                     System.exit(100);
                 }
             }
