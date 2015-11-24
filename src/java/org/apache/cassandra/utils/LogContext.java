@@ -17,6 +17,9 @@
  */
 package org.apache.cassandra.utils;
 
+import java.io.Closeable;
+import java.util.Map;
+
 import org.slf4j.MDC;
 
 public final class LogContext
@@ -46,5 +49,52 @@ public final class LogContext
     public static final void clear()
     {
         MDC.clear();
+    }
+
+    /**
+     * Try-with-resources logging wrapper.
+     *
+     * All logging statements within the wrapper will display
+     * the keyspace and column family given in the constructor.
+     *
+     * This ensures the logging context is cleared after
+     * the block within the wrapper finished.
+     */
+    public static final class Wrapper implements Closeable
+    {
+        public Wrapper(String keyspace, String columnFamily)
+        {
+            setKeyspaceAndColumnFamily(keyspace, columnFamily);
+        }
+
+        public void close()
+        {
+            clear();
+        }
+    }
+
+    /**
+     * Inherits logging context from parent thread
+     */
+    public static abstract class Runnable implements java.lang.Runnable
+    {
+        private final Map mdcContext = MDC.getCopyOfContextMap();
+
+        @Override
+        public final void run() {
+            if (mdcContext != null)
+                MDC.setContextMap(mdcContext);
+            try
+            {
+                runWithLogContext();
+            }
+            finally
+            {
+                if (mdcContext != null)
+                    clear();
+            }
+        }
+
+        protected abstract void runWithLogContext();
     }
 }
