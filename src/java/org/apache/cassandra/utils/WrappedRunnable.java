@@ -19,9 +19,9 @@ package org.apache.cassandra.utils;
 
 import com.google.common.base.Throwables;
 
-public abstract class WrappedRunnable implements Runnable
+public abstract class WrappedRunnable extends LogContext.Runnable
 {
-    public final void run()
+    public final void runWithLogContext()
     {
         try
         {
