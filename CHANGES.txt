@@ -32,6 +32,7 @@ Merged from 3.0:
  * Hadoop integration is incompatible with Cassandra Driver 3.0.0 (CASSANDRA-11001)
  * Add dropped_columns to the list of schema table so it gets handled
    properly (CASSANDRA-11050)
+ * (cqlsh) Display milliseconds when datetime overflows (CASSANDRA-10625)
 Merged from 2.2:
  * Always persist upsampled index summaries (CASSANDRA-10512)
  * (cqlsh) Fix inconsistent auto-complete (CASSANDRA-10733)
@@ -48,7 +49,6 @@ Merged from 2.1:
  * Gossiper#isEnabled is not thread safe (CASSANDRA-11116)
  * Avoid major compaction mixing repaired and unrepaired sstables in DTCS (CASSANDRA-11113)
  * Make it clear what DTCS timestamp_resolution is used for (CASSANDRA-11041)
-
 
 3.3
  * Avoid infinite loop if owned range is smaller than number of
