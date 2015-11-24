@@ -25,6 +25,9 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.service.KeyspaceCommand;
+import org.apache.cassandra.service.TableCommand;
+import org.apache.cassandra.utils.LogContext;
 
 public class MessageDeliveryTask implements Runnable
 {
@@ -63,6 +66,7 @@ public class MessageDeliveryTask implements Runnable
 
         try
         {
+            maybeSetupLogContext(message.payload);
             verbHandler.doVerb(message, id);
         }
         catch (IOException ioe)
@@ -80,9 +84,24 @@ public class MessageDeliveryTask implements Runnable
             handleFailure(t);
             throw t;
         }
+        finally
+        {
+            LogContext.clear();
+        }
 
         if (GOSSIP_VERBS.contains(message.verb))
             Gossiper.instance.setLastProcessedMessageAt(constructionTime);
+    }
+
+    private void maybeSetupLogContext(Object payload)
+    {
+        if (payload instanceof TableCommand)
+        {
+            TableCommand command = (TableCommand) payload;
+            LogContext.setKeyspaceAndColumnFamily(command.getKeyspace(), command.getTable());
+        }
+        else if (payload instanceof KeyspaceCommand)
+            LogContext.setKeyspace(((KeyspaceCommand) payload).getKeyspace());
     }
 
     private void handleFailure(Throwable t)
