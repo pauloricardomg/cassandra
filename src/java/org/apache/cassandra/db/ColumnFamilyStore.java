@@ -888,12 +888,15 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         synchronized (data)
         {
-            logFlush();
-            Flush flush = new Flush(false);
-            flushExecutor.execute(flush);
-            ListenableFutureTask<?> task = ListenableFutureTask.create(flush.postFlush, null);
-            postFlushExecutor.submit(task);
-            return task;
+            try (LogContext.Wrapper wrapper = new LogContext.Wrapper(keyspace.getName(), getColumnFamilyName()))
+            {
+                logFlush();
+                Flush flush = new Flush(false);
+                flushExecutor.execute(flush);
+                ListenableFutureTask<?> task = ListenableFutureTask.create(flush.postFlush, null);
+                postFlushExecutor.submit(task);
+                return task;
+            }
         }
     }
 
@@ -980,7 +983,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * Both synchronises custom secondary indexes and provides ordering guarantees for futures on switchMemtable/flush
      * etc, which expect to be able to wait until the flush (and all prior flushes) requested have completed.
      */
-    private final class PostFlush implements Runnable
+    private final class PostFlush extends LogContext.Runnable
     {
         final boolean flushSecondaryIndexes;
         final OpOrder.Barrier writeBarrier;
@@ -994,7 +997,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             this.lastReplayPosition = lastReplayPosition;
         }
 
-        public void run()
+        public void runWithLogContext()
         {
             writeBarrier.await();
 
@@ -1045,7 +1048,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * there are custom secondary indexes, the post flush clean up is left to update those indexes and mark
      * the CL clean
      */
-    private final class Flush implements Runnable
+    private final class Flush extends LogContext.Runnable
     {
         final OpOrder.Barrier writeBarrier;
         final List<Memtable> memtables;
@@ -1103,7 +1106,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             postFlush = new PostFlush(!truncate, writeBarrier, lastReplayPosition);
         }
 
-        public void run()
+        public void runWithLogContext()
         {
             // mark writes older than the barrier as blocking progress, permitting them to exceed our memory limit
             // if they are stuck waiting on it, then wait for them all to complete
