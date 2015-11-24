@@ -24,11 +24,12 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.TableCommand;
 
 /**
  * A truncate operation descriptor
  */
-public class Truncation
+public class Truncation implements TableCommand
 {
     public static final IVersionedSerializer<Truncation> serializer = new TruncationSerializer();
 
@@ -49,6 +50,16 @@ public class Truncation
     public String toString()
     {
         return "Truncation(" + "keyspace='" + keyspace + '\'' + ", cf='" + columnFamily + "\')";
+    }
+
+    public String getTable()
+    {
+        return keyspace;
+    }
+
+    public String getKeyspace()
+    {
+        return columnFamily;
     }
 }
 

@@ -73,6 +73,11 @@ public abstract class AbstractRangeCommand implements IReadCommand
         return keyspace;
     }
 
+    public String getTable()
+    {
+        return columnFamily;
+    }
+
     public abstract MessageOut<? extends AbstractRangeCommand> createMessage();
     public abstract AbstractRangeCommand forSubRange(AbstractBounds<RowPosition> range);
     public abstract AbstractRangeCommand withUpdatedLimit(int newLimit);

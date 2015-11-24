@@ -24,8 +24,9 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.TableCommand;
 
-public class SnapshotCommand
+public class SnapshotCommand implements TableCommand
 {
     public static final SnapshotCommandSerializer serializer = new SnapshotCommandSerializer();
 
@@ -54,6 +55,16 @@ public class SnapshotCommand
                                   ", column_family='" + column_family + '\'' +
                                   ", snapshot_name=" + snapshot_name +
                                   ", clear_snapshot=" + clear_snapshot + '}';
+    }
+
+    public String getTable()
+    {
+        return column_family;
+    }
+
+    public String getKeyspace()
+    {
+        return keyspace;
     }
 }
 

@@ -111,6 +111,11 @@ public abstract class ReadCommand implements IReadCommand, Pageable
         return ksName;
     }
 
+    public String getTable()
+    {
+        return cfName;
+    }
+
     // maybeGenerateRetryCommand is used to generate a retry for short reads
     public ReadCommand maybeGenerateRetryCommand(RowDataResolver resolver, Row row)
     {

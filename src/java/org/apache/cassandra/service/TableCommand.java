@@ -15,10 +15,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.service;
 
-public interface IReadCommand extends TableCommand
+public interface TableCommand extends KeyspaceCommand
 {
-    public String getKeyspace();
-    public long getTimeout();
+    String getTable();
 }

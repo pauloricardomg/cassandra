@@ -33,13 +33,14 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.KeyspaceCommand;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 // TODO convert this to a Builder pattern instead of encouraging M.add directly,
 // which is less-efficient since we have to keep a mutable HashMap around
-public class Mutation implements IMutation
+public class Mutation implements IMutation, KeyspaceCommand
 {
     public static final MutationSerializer serializer = new MutationSerializer();
     private static final Logger logger = LoggerFactory.getLogger(Mutation.class);
@@ -267,6 +268,11 @@ public class Mutation implements IMutation
             if (!entry.getKey().equals(cfId))
                 mutation.add(entry.getValue());
         return mutation;
+    }
+
+    public String getKeyspace()
+    {
+        return keyspaceName;
     }
 
     public static class MutationSerializer implements IVersionedSerializer<Mutation>

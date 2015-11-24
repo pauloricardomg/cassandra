@@ -32,11 +32,12 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.service.TableCommand;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.UUIDSerializer;
 
-public class Commit
+public class Commit implements TableCommand
 {
     public static final CommitSerializer serializer = new CommitSerializer();
 
@@ -124,6 +125,16 @@ public class Commit
     public String toString()
     {
         return String.format("Commit(%s, %s, %s)", ByteBufferUtil.bytesToHex(key), ballot, update);
+    }
+
+    public String getTable()
+    {
+        return update.metadata().cfName;
+    }
+
+    public String getKeyspace()
+    {
+        return update.metadata().ksName;
     }
 
     public static class CommitSerializer implements IVersionedSerializer<Commit>

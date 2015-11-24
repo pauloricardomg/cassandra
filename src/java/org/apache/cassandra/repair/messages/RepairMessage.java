@@ -25,13 +25,14 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.RepairJobDesc;
+import org.apache.cassandra.service.TableCommand;
 
 /**
  * Base class of all repair related request/response messages.
  *
  * @since 2.0
  */
-public abstract class RepairMessage
+public abstract class RepairMessage implements TableCommand
 {
     public static final IVersionedSerializer<RepairMessage> serializer = new RepairMessageSerializer();
 
@@ -76,6 +77,16 @@ public abstract class RepairMessage
     {
         this.messageType = messageType;
         this.desc = desc;
+    }
+
+    public String getTable()
+    {
+        return desc.columnFamily;
+    }
+
+    public String getKeyspace()
+    {
+        return desc.keyspace;
     }
 
     public MessageOut<RepairMessage> createMessage()
