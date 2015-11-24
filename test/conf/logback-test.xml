@@ -32,7 +32,7 @@
       <maxFileSize>20MB</maxFileSize>
     </triggeringPolicy>
     <encoder>
-      <pattern>%-5level [%thread] %date{ISO8601} %msg%n</pattern>
+      <pattern>%-5level [%thread%X{ks}%X{cf}] %date{ISO8601} %msg%n</pattern>
       <immediateFlush>false</immediateFlush>
     </encoder>
   </appender>
