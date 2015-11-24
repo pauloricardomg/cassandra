@@ -137,35 +137,38 @@ public class CompactionManager implements CompactionManagerMBean
      */
     public List<Future<?>> submitBackground(final ColumnFamilyStore cfs)
     {
-        if (cfs.isAutoCompactionDisabled())
+        try (LogContext.Wrapper wrapper = new LogContext.Wrapper(cfs.keyspace.getName(), cfs.getColumnFamilyName()))
         {
-            logger.trace("Autocompaction is disabled");
-            return Collections.emptyList();
-        }
+            if (cfs.isAutoCompactionDisabled())
+            {
+                logger.trace("Autocompaction is disabled");
+                return Collections.emptyList();
+            }
 
-        int count = compactingCF.count(cfs);
-        if (count > 0 && executor.getActiveCount() >= executor.getMaximumPoolSize())
-        {
-            logger.trace("Background compaction is still running for {}.{} ({} remaining). Skipping",
-                         cfs.keyspace.getName(), cfs.name, count);
-            return Collections.emptyList();
-        }
+            int count = compactingCF.count(cfs);
+            if (count > 0 && executor.getActiveCount() >= executor.getMaximumPoolSize())
+            {
+                logger.trace("Background compaction is still running for {}.{} ({} remaining). Skipping",
+                             cfs.keyspace.getName(), cfs.name, count);
+                return Collections.emptyList();
+            }
 
-        logger.trace("Scheduling a background task check for {}.{} with {}",
-                     cfs.keyspace.getName(),
-                     cfs.name,
-                     cfs.getCompactionStrategy().getName());
-        List<Future<?>> futures = new ArrayList<>();
-        // we must schedule it at least once, otherwise compaction will stop for a CF until next flush
-        if (executor.isShutdown())
-        {
-            logger.info("Executor has shut down, not submitting background task");
-            return Collections.emptyList();
-        }
-        compactingCF.add(cfs);
-        futures.add(executor.submit(new BackgroundCompactionCandidate(cfs)));
+            logger.trace("Scheduling a background task check for {}.{} with {}",
+                         cfs.keyspace.getName(),
+                         cfs.name,
+                         cfs.getCompactionStrategy().getName());
+            List<Future<?>> futures = new ArrayList<>();
+            // we must schedule it at least once, otherwise compaction will stop for a CF until next flush
+            if (executor.isShutdown())
+            {
+                logger.info("Executor has shut down, not submitting background task");
+                return Collections.emptyList();
+            }
+            compactingCF.add(cfs);
+            futures.add(executor.submit(new BackgroundCompactionCandidate(cfs)));
 
-        return futures;
+            return futures;
+        }
     }
 
     public boolean isCompacting(Iterable<ColumnFamilyStore> cfses)
@@ -216,7 +219,7 @@ public class CompactionManager implements CompactionManagerMBean
 
     // the actual sstables to compact are not determined until we run the BCT; that way, if new sstables
     // are created between task submission and execution, we execute against the most up-to-date information
-    class BackgroundCompactionCandidate implements Runnable
+    class BackgroundCompactionCandidate extends LogContext.Runnable
     {
         private final ColumnFamilyStore cfs;
 
@@ -225,7 +228,7 @@ public class CompactionManager implements CompactionManagerMBean
             this.cfs = cfs;
         }
 
-        public void run()
+        public void runWithLogContext()
         {
             try
             {
