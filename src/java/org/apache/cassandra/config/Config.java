@@ -109,6 +109,7 @@ public class Config
     public String listen_interface;
     public Boolean listen_interface_prefer_ipv6 = false;
     public String broadcast_address;
+    public Boolean listen_on_broadcast_address = false;
     public String internode_authenticator;
 
     public Boolean start_rpc = true;

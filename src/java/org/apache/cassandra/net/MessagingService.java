@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
+import javax.xml.crypto.Data;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -430,21 +431,31 @@ public final class MessagingService implements MessagingServiceMBean
         getConnectionPool(ep).reset();
     }
 
+    public void listen() throws ConfigurationException
+    {
+
+        listen(FBUtilities.getLocalAddress());
+        if (DatabaseDescriptor.shouldListenOnBroadcastAddress()
+            && !FBUtilities.getLocalAddress().equals(FBUtilities.getBroadcastAddress()))
+        {
+            listen(FBUtilities.getBroadcastAddress());
+        }
+        listenGate.signalAll();
+    }
+
     /**
      * Listen on the specified port.
      *
      * @param localEp InetAddress whose port to listen on.
      */
-    public void listen(InetAddress localEp) throws ConfigurationException
+    private void listen(InetAddress localEp) throws ConfigurationException
     {
-        callbacks.reset(); // hack to allow tests to stop/restart MS
         for (ServerSocket ss : getServerSockets(localEp))
         {
             SocketThread th = new SocketThread(ss, "ACCEPT-" + localEp);
             th.start();
             socketThreads.add(th);
         }
-        listenGate.signalAll();
     }
 
     private List<ServerSocket> getServerSockets(InetAddress localEp) throws ConfigurationException
@@ -503,7 +514,7 @@ public final class MessagingService implements MessagingServiceMBean
             {
                 throw new RuntimeException(e);
             }
-            logger.info("Starting Messaging Service on port {}", DatabaseDescriptor.getStoragePort());
+            logger.info("Starting Messaging Service on {}:{}", localEp, DatabaseDescriptor.getStoragePort());
             ss.add(socket);
         }
         return ss;

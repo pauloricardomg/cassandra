@@ -1198,6 +1198,11 @@ public class DatabaseDescriptor
         return broadcastAddress;
     }
 
+    public static Boolean shouldListenOnBroadcastAddress()
+    {
+        return conf.listen_on_broadcast_address;
+    }
+
     public static IInternodeAuthenticator getInternodeAuthenticator()
     {
         return internodeAuthenticator;
