@@ -710,14 +710,15 @@ public class StorageProxy implements StorageProxyMBean
                     {
                         logger.warn("Received base materialized view mutation for key %s that does not belong " +
                                     "to this node. There is probably a range movement happening (move or decommission)," +
-                                    "but this node hasn't updated it's ring metadata yet. Adding mutation to " +
+                                    "but this node hasn't updated its ring metadata yet. Adding mutation to " +
                                     "local batchlog to be replayed later.",
                                     mutation.key());
                     }
 
-                    // When the local node is the paired endpoint we just apply the mutation locally
+                    // When local node is the endpoint and there are no pending nodes we can
+                    // Just apply the mutation locally.
                     if (pairedEndpoint.isPresent() && pairedEndpoint.get().equals(FBUtilities.getBroadcastAddress())
-                            && StorageService.instance.isJoined())
+                            && wrapper.handler.pendingEndpoints.isEmpty() && StorageService.instance.isJoined())
                         mutation.apply(writeCommitLog);
                     else
                         wrappers.add(wrapper);
