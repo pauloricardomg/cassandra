@@ -194,6 +194,15 @@ public class StreamCoordinator
         return data;
     }
 
+    public synchronized void refreshSessionInfos()
+    {
+        for (final StreamSession session : getAllStreamSessions())
+        {
+            SessionInfo sessionInfo = session.getSessionInfo();
+            addSessionInfo(sessionInfo);
+        }
+    }
+
     private static class StreamSessionConnector implements Runnable
     {
         private final StreamSession session;

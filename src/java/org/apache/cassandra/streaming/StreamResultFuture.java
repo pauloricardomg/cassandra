@@ -83,7 +83,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                 future.addEventListener(listener);
         }
 
-        logger.info("[Stream #{}] Executing streaming plan for {}", planId,  description);
+        logger.info("[Stream #{}] Executing streaming plan for {}", planId, description);
 
         // Initialize and start all sessions
         for (final StreamSession session : coordinator.getAllStreamSessions())
@@ -142,6 +142,15 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
      */
     public StreamState getCurrentState()
     {
+        return getCurrentState(false);
+    }
+
+    public StreamState getCurrentState(boolean refreshState)
+    {
+        if (refreshState)
+        {
+            coordinator.refreshSessionInfos();
+        }
         return new StreamState(planId, description, coordinator.getAllSessionInfo());
     }
 
@@ -164,18 +173,18 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
     {
         SessionInfo sessionInfo = session.getSessionInfo();
         logger.info("[Stream #{} ID#{}] Prepare completed. Receiving {} files({} bytes), sending {} files({} bytes)",
-                              session.planId(),
-                              session.sessionIndex(),
-                              sessionInfo.getTotalFilesToReceive(),
-                              sessionInfo.getTotalSizeToReceive(),
-                              sessionInfo.getTotalFilesToSend(),
-                              sessionInfo.getTotalSizeToSend());
+                    session.planId(),
+                    session.sessionIndex(),
+                    sessionInfo.getTotalFilesToReceive(),
+                    sessionInfo.getTotalSizeToReceive(),
+                    sessionInfo.getTotalFilesToSend(),
+                    sessionInfo.getTotalSizeToSend());
         StreamEvent.SessionPreparedEvent event = new StreamEvent.SessionPreparedEvent(planId, sessionInfo);
         coordinator.addSessionInfo(sessionInfo);
         fireStreamEvent(event);
     }
 
-    void handleSessionComplete(StreamSession session)
+    synchronized void handleSessionComplete(StreamSession session)
     {
         logger.info("[Stream #{}] Session with {} is complete", session.planId(), session.peer);
         fireStreamEvent(new StreamEvent.SessionCompleteEvent(session));
@@ -197,15 +206,20 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
             listener.handleStreamEvent(event);
     }
 
-    private synchronized void maybeComplete()
+    private void maybeComplete()
     {
         if (!coordinator.hasActiveSessions())
         {
-            StreamState finalState = getCurrentState();
-            if (finalState.hasFailedSession())
+            //we refresh the session infos since there may be concurrent streams completing
+            StreamState finalState = getCurrentState(true);
+                if (finalState.hasFailedSession())
             {
                 logger.warn("[Stream #{}] Stream failed", planId);
-                setException(new StreamException(finalState, "Stream failed"));
+
+                Iterable<SessionInfo> failedSessions = finalState.getFailedSessions();
+                assert failedSessions.iterator().hasNext();
+                setException(new StreamException(finalState, failedSessions,
+                                                 failedSessions.iterator().next().failureCause));
             }
             else
             {
