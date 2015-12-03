@@ -143,6 +143,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public final ConnectionHandler handler;
 
+    private StreamSessionException failureCause = null;
     private int retries;
 
     private AtomicBoolean isAborted = new AtomicBoolean(false);
@@ -526,7 +527,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         if (handler.isOutgoingConnected())
             handler.sendMessage(new SessionFailedMessage());
         // fail session
-        closeSession(State.FAILED);
+        failSession(new StreamSessionException("Streaming error ocurred", e));
     }
 
     /**
@@ -636,6 +637,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public synchronized void sessionFailed()
     {
+        failSession(new StreamSessionException(String.format("Remote peer %s failed session", peer.getHostAddress())));
+    }
+
+    private void failSession(StreamSessionException cause)
+    {
+        //this must be set before closing the session
+        this.failureCause = cause;
         closeSession(State.FAILED);
     }
 
@@ -661,7 +669,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         List<StreamSummary> transferSummaries = Lists.newArrayList();
         for (StreamTask transfer : transfers.values())
             transferSummaries.add(transfer.getSummary());
-        return new SessionInfo(peer, index, connecting, receivingSummaries, transferSummaries, state);
+        return new SessionInfo(peer, index, connecting, receivingSummaries, transferSummaries, state, failureCause);
     }
 
     public synchronized void taskCompleted(StreamReceiveTask completedTask)
@@ -684,12 +692,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public void onRemove(InetAddress endpoint)
     {
-        closeSession(State.FAILED);
+        failSession(new StreamSessionException(String.format("Remote peer %s has left", endpoint.getHostAddress())));
     }
 
     public void onRestart(InetAddress endpoint, EndpointState epState)
     {
-        closeSession(State.FAILED);
+        failSession(new StreamSessionException(String.format("Remote peer %s was restarted", endpoint.getHostAddress())));
     }
 
     private boolean maybeCompleted()

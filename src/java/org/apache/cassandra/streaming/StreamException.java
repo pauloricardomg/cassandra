@@ -17,19 +17,32 @@
  */
 package org.apache.cassandra.streaming;
 
+import java.util.Iterator;
+
 public class StreamException extends Exception
 {
     public final StreamState finalState;
 
-    public StreamException(StreamState finalState, String message)
+    public StreamException(StreamState finalState, Iterable<SessionInfo> failedSessions, Throwable cause)
     {
-        super(message);
+        super(constructFailureMessage(failedSessions), cause);
         this.finalState = finalState;
     }
 
-    public StreamException(StreamState finalState, String message, Throwable cause)
+
+    private static String constructFailureMessage(Iterable<SessionInfo> failedSessions)
     {
-        super(message, cause);
-        this.finalState = finalState;
+        Iterator<SessionInfo> it = failedSessions.iterator();
+        StringBuilder failureMsgBuilder = new StringBuilder();
+        failureMsgBuilder.append(String.format("Failed stream session with"));
+        while (it.hasNext())
+        {
+            SessionInfo session = it.next();
+            failureMsgBuilder.append(String.format(" %s(%s)", session.peer, session.failureCause.getMessage()));
+            if (it.hasNext())
+                failureMsgBuilder.append(",");
+        }
+        failureMsgBuilder.append(".");
+        return failureMsgBuilder.toString();
     }
 }
