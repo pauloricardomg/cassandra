@@ -45,12 +45,25 @@ public final class SessionInfo implements Serializable
     private final Map<String, ProgressInfo> receivingFiles;
     private final Map<String, ProgressInfo> sendingFiles;
 
+    public final StreamSessionException failureCause;
+
     public SessionInfo(InetAddress peer,
                        int sessionIndex,
                        InetAddress connecting,
                        Collection<StreamSummary> receivingSummaries,
                        Collection<StreamSummary> sendingSummaries,
                        StreamSession.State state)
+    {
+        this(peer, sessionIndex, connecting, receivingSummaries, sendingSummaries, state, null);
+    }
+
+    public SessionInfo(InetAddress peer,
+                       int sessionIndex,
+                       InetAddress connecting,
+                       Collection<StreamSummary> receivingSummaries,
+                       Collection<StreamSummary> sendingSummaries,
+                       StreamSession.State state,
+                       StreamSessionException failureCause)
     {
         this.peer = peer;
         this.sessionIndex = sessionIndex;
@@ -60,6 +73,7 @@ public final class SessionInfo implements Serializable
         this.receivingFiles = new ConcurrentHashMap<>();
         this.sendingFiles = new ConcurrentHashMap<>();
         this.state = state;
+        this.failureCause = failureCause;
     }
 
     public boolean isFailed()

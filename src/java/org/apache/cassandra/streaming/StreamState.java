@@ -18,11 +18,16 @@
 package org.apache.cassandra.streaming;
 
 import java.io.Serializable;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
+
+import javax.annotation.Nullable;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 
 /**
  * Current snapshot of streaming progress.
@@ -47,6 +52,17 @@ public class StreamState implements Serializable
             public boolean apply(SessionInfo session)
             {
                 return session.isFailed();
+            }
+        });
+    }
+
+    public Iterable<SessionInfo> getFailedSessions()
+    {
+        return Iterables.filter(sessions, new Predicate<SessionInfo>()
+        {
+            public boolean apply(@Nullable SessionInfo sessionInfo)
+            {
+                return sessionInfo.isFailed();
             }
         });
     }
