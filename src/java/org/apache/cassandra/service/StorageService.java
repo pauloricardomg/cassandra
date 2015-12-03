@@ -1223,7 +1223,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             @Override
             public void onFailure(Throwable e)
             {
-                logger.warn("Error during bootstrap: " + e.getCause().getMessage(), e.getCause());
             }
         });
         try
