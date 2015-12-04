@@ -671,12 +671,12 @@ public class StorageProxy implements StorageProxyMBean
             if (StorageService.instance.isStarting() || StorageService.instance.isJoining() || StorageService.instance.isMoving())
             {
                 BatchlogManager.store(Batch.createLocal(batchUUID, FBUtilities.timestampMicros(),
-                                                        mutations),
-                                      writeCommitLog);
+                                                        mutations), writeCommitLog);
             }
             else
             {
                 List<WriteResponseHandlerWrapper> wrappers = new ArrayList<>(mutations.size());
+                List<Mutation> nonPairedMutations = new LinkedList<>();
                 Token baseToken = StorageService.instance.getTokenMetadata().partitioner.getToken(dataKey);
 
                 ConsistencyLevel consistencyLevel = ConsistencyLevel.ONE;
@@ -685,44 +685,44 @@ public class StorageProxy implements StorageProxyMBean
                 final Collection<InetAddress> batchlogEndpoints = Collections.singleton(FBUtilities.getBroadcastAddress());
                 BatchlogResponseHandler.BatchlogCleanup cleanup = new BatchlogResponseHandler.BatchlogCleanup(mutations.size(),
                                                                                                               () -> asyncRemoveFromBatchlog(batchlogEndpoints, batchUUID));
-
                 // add a handler for each mutation - includes checking availability, but doesn't initiate any writes, yet
                 for (Mutation mutation : mutations)
                 {
                     String keyspaceName = mutation.getKeyspaceName();
                     Token tk = mutation.key().getToken();
                     Optional<InetAddress> pairedEndpoint = ViewUtils.getViewNaturalEndpoint(keyspaceName, baseToken, tk);
+                    Collection<InetAddress> pendingEndpoints = StorageService.instance.getTokenMetadata().pendingEndpointsFor(tk, keyspaceName);
 
-                    //if there are no paired endpoints there are probably range movements going on,
-                    //so we pretend this node is the view replica and write to the local batchlog to replay later
-                    List<InetAddress> naturalEndpoints = Lists.newArrayList(pairedEndpoint.isPresent()?
-                                                                                pairedEndpoint.get() :
-                                                                                FBUtilities.getBroadcastAddress());
-
-                    WriteResponseHandlerWrapper wrapper = wrapViewBatchResponseHandler(mutation,
-                                                                                       consistencyLevel,
-                                                                                       consistencyLevel,
-                                                                                       naturalEndpoints,
-                                                                                       baseComplete,
-                                                                                       WriteType.BATCH,
-                                                                                       cleanup);
-
-                    if (!pairedEndpoint.isPresent() && wrapper.handler.pendingEndpoints.isEmpty())
+                    if (pairedEndpoint.isPresent())
                     {
-                        logger.warn("Received base materialized view mutation for key %s that does not belong " +
-                                    "to this node. There is probably a range movement happening (move or decommission)," +
-                                    "but this node hasn't updated its ring metadata yet. Adding mutation to " +
-                                    "local batchlog to be replayed later.",
-                                    mutation.key());
+                        // When local node is the endpoint and there are no pending nodes we can
+                        // Just apply the mutation locally.
+                        if (pairedEndpoint.get().equals(FBUtilities.getBroadcastAddress())
+                            && pendingEndpoints.isEmpty() && StorageService.instance.isJoined())
+                            mutation.apply(writeCommitLog);
+                        else
+                        {
+                            wrappers.add(wrapViewBatchResponseHandler(mutation,
+                                                                      consistencyLevel,
+                                                                      consistencyLevel,
+                                                                      Collections.singletonList(pairedEndpoint.get()),
+                                                                      baseComplete,
+                                                                      WriteType.BATCH,
+                                                                      cleanup));
+                        }
                     }
-
-                    // When local node is the endpoint and there are no pending nodes we can
-                    // Just apply the mutation locally.
-                    if (pairedEndpoint.isPresent() && pairedEndpoint.get().equals(FBUtilities.getBroadcastAddress())
-                            && wrapper.handler.pendingEndpoints.isEmpty() && StorageService.instance.isJoined())
-                        mutation.apply(writeCommitLog);
                     else
-                        wrappers.add(wrapper);
+                    {
+                        //if there are no paired endpoints there are probably range movements going on,
+                        //so we write to the local batchlog to replay later
+                        if (pendingEndpoints.isEmpty())
+                            logger.warn("Received base materialized view mutation for key %s that does not belong " +
+                                        "to this node. There is probably a range movement happening (move or decommission)," +
+                                        "but this node hasn't updated its ring metadata yet. Adding mutation to " +
+                                        "local batchlog to be replayed later.",
+                                        mutation.key());
+                        nonPairedMutations.add(mutation);
+                    }
                 }
 
                 if (!wrappers.isEmpty())
@@ -733,6 +733,12 @@ public class StorageProxy implements StorageProxyMBean
 
                     // now actually perform the writes and wait for them to complete
                     asyncWriteBatchedMutations(wrappers, localDataCenter, Stage.VIEW_MUTATION);
+                }
+
+                if (!nonPairedMutations.isEmpty())
+                {
+                    BatchlogManager.store(Batch.createLocal(batchUUID, FBUtilities.timestampMicros(), nonPairedMutations),
+                                          writeCommitLog);
                 }
             }
         }
