@@ -514,7 +514,9 @@ public final class MessagingService implements MessagingServiceMBean
             {
                 throw new RuntimeException(e);
             }
-            logger.info("Starting Messaging Service on {}:{}", localEp, DatabaseDescriptor.getStoragePort());
+            String nic = FBUtilities.getNetworkInterface(localEp);
+            logger.info("Starting Messaging Service on {}:{}{}", localEp, DatabaseDescriptor.getStoragePort(),
+                        nic == null? "" : String.format(" (%s)", nic));
             ss.add(socket);
         }
         return ss;
