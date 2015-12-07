@@ -24,6 +24,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.io.compress.CompressionMetadata;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.FileUtils;
@@ -40,6 +43,8 @@ public class CompressedStreamWriter extends StreamWriter
 {
     public static final int CHUNK_SIZE = 10 * 1024 * 1024;
 
+    private static final Logger logger = LoggerFactory.getLogger(CompressedStreamWriter.class);
+
     private final CompressionInfo compressionInfo;
 
     public CompressedStreamWriter(SSTableReader sstable, Collection<Pair<Long, Long>> sections, CompressionInfo compressionInfo, StreamSession session)
@@ -52,6 +57,8 @@ public class CompressedStreamWriter extends StreamWriter
     public void write(WritableByteChannel channel) throws IOException
     {
         long totalSize = totalSize();
+        logger.debug("[Stream #{}] Start streaming file {} to {}, repairedAt = {}, totalSize = {}", session.planId(),
+                     sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, totalSize);
         RandomAccessReader file = sstable.openDataReader();
         FileChannel fc = file.getChannel();
 
@@ -77,6 +84,8 @@ public class CompressedStreamWriter extends StreamWriter
                     session.progress(sstable.descriptor, ProgressInfo.Direction.OUT, progress, totalSize);
                 }
             }
+            logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
+                         session.planId(), sstable.getFilename(), session.peer, progress, totalSize);
         }
         finally
         {
