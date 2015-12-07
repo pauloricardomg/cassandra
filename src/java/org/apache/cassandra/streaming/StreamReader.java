@@ -60,6 +60,7 @@ public class StreamReader
     protected final long repairedAt;
     protected final SSTableFormat.Type format;
     protected final int sstableLevel;
+    protected final int fileSeqNum;
 
     protected Descriptor desc;
 
@@ -73,6 +74,7 @@ public class StreamReader
         this.repairedAt = header.repairedAt;
         this.format = header.format;
         this.sstableLevel = header.sstableLevel;
+        this.fileSeqNum = header.sequenceNumber;
     }
 
     /**
@@ -83,8 +85,9 @@ public class StreamReader
     @SuppressWarnings("resource")
     public SSTableWriter read(ReadableByteChannel channel) throws IOException
     {
-        logger.debug("reading file from {}, repairedAt = {}, level = {}", session.peer, repairedAt, sstableLevel);
         long totalSize = totalSize();
+        logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}",
+                     session.planId(), fileSeqNum, session.peer, repairedAt, totalSize);
 
         Pair<String, String> kscf = Schema.instance.getCF(cfId);
         if (kscf == null)
@@ -107,6 +110,8 @@ public class StreamReader
                 // TODO move this to BytesReadTracker
                 session.progress(desc, ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
             }
+            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}",
+                         session.planId(), fileSeqNum, session.peer, in.getBytesRead(), totalSize);
             return writer;
         } catch (Throwable e)
         {
