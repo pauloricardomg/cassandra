@@ -63,8 +63,9 @@ public class CompressedStreamReader extends StreamReader
     @SuppressWarnings("resource") // channel needs to remain open, streams on top of it can't be closed
     public SSTableMultiWriter read(ReadableByteChannel channel) throws IOException
     {
-        logger.debug("reading file from {}, repairedAt = {}", session.peer, repairedAt);
         long totalSize = totalSize();
+        logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}", session.planId(),
+                     fileSeqNum, session.peer, repairedAt, totalSize);
 
         Pair<String, String> kscf = Schema.instance.getCF(cfId);
         if (kscf == null)
@@ -98,6 +99,8 @@ public class CompressedStreamReader extends StreamReader
                     session.progress(desc, ProgressInfo.Direction.IN, cis.getTotalCompressedBytesRead(), totalSize);
                 }
             }
+            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}", session.planId(), fileSeqNum,
+                         session.peer, cis.getTotalCompressedBytesRead(), totalSize);
             return writer;
         }
         catch (Throwable e)
