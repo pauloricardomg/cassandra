@@ -84,8 +84,9 @@ public class StreamReader
     @SuppressWarnings("resource") // channel needs to remain open, streams on top of it can't be closed
     public SSTableMultiWriter read(ReadableByteChannel channel) throws IOException
     {
-        logger.debug("reading file from {}, repairedAt = {}, level = {}", session.peer, repairedAt, sstableLevel);
         long totalSize = totalSize();
+        logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}",
+                     session.planId(), fileSeqNum, session.peer, repairedAt, totalSize);
 
         Pair<String, String> kscf = Schema.instance.getCF(cfId);
         if (kscf == null)
@@ -108,6 +109,8 @@ public class StreamReader
                 // TODO move this to BytesReadTracker
                 session.progress(writer.getFilename(), ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
             }
+            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}",
+                         session.planId(), fileSeqNum, session.peer, in.getBytesRead(), totalSize);
             return writer;
         }
         catch (Throwable e)
