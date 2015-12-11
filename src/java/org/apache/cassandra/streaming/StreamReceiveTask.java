@@ -35,6 +35,7 @@ import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.SSTableReader;
@@ -60,12 +61,13 @@ public class StreamReceiveTask extends StreamTask
     private final int totalFiles;
     // total size of files to receive
     private final long totalSize;
+    private final StreamLockfile lockManager;
 
     // true if task is done (either completed or aborted)
     private boolean done = false;
 
     //  holds references to SSTables received
-    protected Collection<SSTableWriter> sstables;
+    protected Collection<SSTableReader> sstables;
 
     public StreamReceiveTask(StreamSession session, UUID cfId, int totalFiles, long totalSize)
     {
@@ -73,6 +75,15 @@ public class StreamReceiveTask extends StreamTask
         this.totalFiles = totalFiles;
         this.totalSize = totalSize;
         this.sstables = new ArrayList<>(totalFiles);
+        Pair<String, String> kscf = Schema.instance.getCF(cfId);
+        if (kscf == null)
+            throw new RuntimeException("Table does not exist.");
+
+        ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
+        File lockfiledir = cfs.directories.getWriteableLocationAsFile(totalFiles * 256L);
+        if (lockfiledir == null)
+            throw new IOError(new IOException("All disks full"));
+        lockManager = new StreamLockfile(lockfiledir, session.planId());
     }
 
     /**
@@ -87,7 +98,16 @@ public class StreamReceiveTask extends StreamTask
 
         assert cfId.equals(sstable.metadata.cfId);
 
-        sstables.add(sstable);
+        lockManager.append(sstable);
+        try
+        {
+            sstables.add(sstable.closeAndOpenReader());
+        }
+        catch (Throwable t)
+        {
+            sstable.abort();
+            throw t;
+        }
 
         if (sstables.size() == totalFiles)
         {
@@ -122,30 +142,27 @@ public class StreamReceiveTask extends StreamTask
                 Pair<String, String> kscf = Schema.instance.getCF(task.cfId);
                 if (kscf == null)
                 {
-                    // schema was dropped during streaming
-                    for (SSTableWriter writer : task.sstables)
-                        writer.abort();
                     task.sstables.clear();
                     task.session.taskCompleted(task);
                     return;
                 }
                 ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
 
-                File lockfiledir = cfs.directories.getWriteableLocationAsFile(task.sstables.size() * 256L);
-                if (lockfiledir == null)
-                    throw new IOError(new IOException("All disks full"));
-                StreamLockfile lockfile = new StreamLockfile(lockfiledir, UUID.randomUUID());
-                lockfile.create(task.sstables);
-                List<SSTableReader> readers = new ArrayList<>();
-                for (SSTableWriter writer : task.sstables)
-                    readers.add(writer.closeAndOpenReader());
-                lockfile.delete();
-                task.sstables.clear();
-
+                Collection<SSTableReader> readers = task.sstables;
                 try (Refs<SSTableReader> refs = Refs.ref(readers))
                 {
-                    // add sstables and build secondary indexes
-                    cfs.addSSTables(readers);
+                    // add sstables and trigger compaction afterwards
+                    for (SSTableReader reader : readers)
+                    {
+                        cfs.addSSTable(reader, false);
+                        task.lockManager.skipOnCleanup(reader);
+                    }
+                    CompactionManager.instance.submitBackground(cfs);
+
+                    //Now we may delete lockManager, as sstables are already live
+                    task.lockManager.delete();
+
+                    //build secondary indexes
                     cfs.indexManager.maybeBuildSecondaryIndexes(readers, cfs.indexManager.allIndexesNames());
 
                     //invalidate row and counter cache
@@ -187,20 +204,12 @@ public class StreamReceiveTask extends StreamTask
         }
     }
 
-    /**
-     * Abort this task.
-     * If the task already received all files and
-     * {@link org.apache.cassandra.streaming.StreamReceiveTask.OnCompletionRunnable} task is submitted,
-     * then task cannot be aborted.
-     */
     public synchronized void abort()
     {
-        if (done)
-            return;
-
-        done = true;
-        for (SSTableWriter writer : sstables)
-            writer.abort();
-        sstables.clear();
+        if (this.lockManager.exists())
+        {
+            this.lockManager.cleanup();
+            this.lockManager.delete();
+        }
     }
 }

@@ -208,6 +208,41 @@ public class SSTableUtils
                     new File(reader.descriptor.filenameFor(component)).deleteOnExit();
             return reader;
         }
+
+        public SSTableWriter writeWithoutFinishing(Set<String> keys) throws IOException
+        {
+            Map<String, ColumnFamily> map = new HashMap<String, ColumnFamily>();
+            for (String key : keys)
+            {
+                ColumnFamily cf = ArrayBackedSortedColumns.factory.create(ksname, cfname);
+                cf.addColumn(new BufferCell(Util.cellname(key), ByteBufferUtil.bytes(key), 0));
+                map.put(key, cf);
+            }
+
+            SortedMap<DecoratedKey, ColumnFamily> sorted = new TreeMap<DecoratedKey, ColumnFamily>();
+            for (Map.Entry<String, ColumnFamily> entry : map.entrySet())
+                sorted.put(Util.dk(entry.getKey()), entry.getValue());
+
+            File datafile = (dest == null) ? tempSSTableFile(ksname, cfname, generation) : new File(dest.filenameFor(Component.DATA));
+            SSTableWriter writer = new SSTableWriter(datafile.getAbsolutePath(), sorted.size(), ActiveRepairService.UNREPAIRED_SSTABLE);
+            final Iterator<Map.Entry<DecoratedKey, ColumnFamily>> iter = sorted.entrySet().iterator();
+
+            Appender appender = new Appender()
+            {
+                @Override
+                public boolean append(SSTableWriter writer) throws IOException
+                {
+                    if (!iter.hasNext())
+                        return false;
+                    Map.Entry<DecoratedKey, ColumnFamily> entry = iter.next();
+                    writer.append(entry.getKey(), entry.getValue());
+                    return true;
+                }
+            };
+
+            while (appender.append(writer)) { /* pass */ }
+            return writer;
+        }
     }
 
     public static abstract class Appender

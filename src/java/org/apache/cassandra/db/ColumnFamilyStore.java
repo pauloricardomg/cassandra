@@ -1413,14 +1413,20 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     public void addSSTable(SSTableReader sstable)
     {
-        assert sstable.getColumnFamilyName().equals(name);
-        addSSTables(Arrays.asList(sstable));
+        addSSTable(sstable, true);
     }
 
-    public void addSSTables(Collection<SSTableReader> sstables)
+    public void addSSTable(SSTableReader sstable, boolean triggerCompaction)
+    {
+        assert sstable.getColumnFamilyName().equals(name);
+        addSSTables(Arrays.asList(sstable), triggerCompaction);
+    }
+
+    public void addSSTables(Collection<SSTableReader> sstables, boolean triggerCompaction)
     {
         data.addSSTables(sstables);
-        CompactionManager.instance.submitBackground(this);
+        if (triggerCompaction)
+            CompactionManager.instance.submitBackground(this);
     }
 
     /**

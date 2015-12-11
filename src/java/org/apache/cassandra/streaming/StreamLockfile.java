@@ -21,9 +21,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,8 +30,10 @@ import com.google.common.base.Charsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTable;
+import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -55,10 +56,11 @@ public class StreamLockfile
     private static final Logger logger = LoggerFactory.getLogger(StreamLockfile.class);
 
     private final File lockfile;
+    private final HashSet<String> sstablesToSkipOnCleanup = new HashSet<>();
 
-    public StreamLockfile(File directory, UUID uuid)
+    public StreamLockfile(File directory, UUID cfId)
     {
-        lockfile = new File(directory, uuid.toString() + FILE_EXT);
+        this.lockfile = new File(directory, cfId.toString() + FILE_EXT);
     }
 
     public StreamLockfile(File lockfile)
@@ -67,21 +69,18 @@ public class StreamLockfile
         this.lockfile = lockfile;
     }
 
-    public void create(Collection<SSTableWriter> sstables)
+    public void append(SSTableWriter sstable)
     {
-        List<String> sstablePaths = new ArrayList<>(sstables.size());
-        for (SSTableWriter writer : sstables)
-        {
-            /* write out the file names *without* the 'tmp-file' flag in the file name.
-               this class will not need to clean up tmp files (on restart), CassandraDaemon does that already,
-               just make sure we delete the fully-formed SSTRs. */
-            sstablePaths.add(writer.descriptor.asType(Descriptor.Type.FINAL).baseFilename());
-        }
+        /* write out the file names *without* the 'tmp-file' flag in the file name.
+           this class will not need to clean up tmp files (on restart), CassandraDaemon does that already,
+           just make sure we delete the fully-formed SSTRs. */
+        String sstablePath = sstable.descriptor.asType(Descriptor.Type.FINAL).baseFilename();
 
         try
         {
-            Files.write(lockfile.toPath(), sstablePaths, Charsets.UTF_8,
-                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
+            Files.write(lockfile.toPath(), Collections.singleton(sstablePath), Charsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND,
+                        StandardOpenOption.DSYNC);
         }
         catch (IOException e)
         {
@@ -91,7 +90,16 @@ public class StreamLockfile
 
     public void delete()
     {
-        FileUtils.delete(lockfile);
+        if (exists())
+        {
+            FileUtils.delete(lockfile);
+            sstablesToSkipOnCleanup.clear();
+        }
+    }
+
+    protected boolean exists()
+    {
+        return lockfile.exists();
     }
 
     public void cleanup()
@@ -102,7 +110,11 @@ public class StreamLockfile
             try
             {
                 Descriptor desc = Descriptor.fromFilename(file, true);
-                SSTable.delete(desc, SSTable.componentsFor(desc));
+                String sstableName = desc.filenameFor(Component.DATA);
+                if (!sstablesToSkipOnCleanup.contains(sstableName))
+                {
+                    SSTable.delete(desc, SSTable.componentsFor(desc));
+                }
             }
             catch (Exception e)
             {
@@ -125,4 +137,8 @@ public class StreamLockfile
         }
     }
 
+    public void skipOnCleanup(SSTableReader reader)
+    {
+        this.sstablesToSkipOnCleanup.add(reader.getFilename());
+    }
 }
