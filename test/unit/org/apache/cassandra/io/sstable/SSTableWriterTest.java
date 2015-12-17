@@ -38,7 +38,7 @@ import static org.junit.Assert.assertTrue;
 public class SSTableWriterTest extends SSTableWriterTestBase
 {
     @Test
-    public void testFileRemoval() throws InterruptedException
+    public void testAbortTxnWithOpenEarlyShouldRemoveSSTable() throws InterruptedException
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF);
@@ -71,6 +71,10 @@ public class SSTableWriterTest extends SSTableWriterTestBase
             assertFileCounts(dir.list());
             s.selfRef().release();
             s2.selfRef().release();
+
+            int datafiles = assertFileCounts(dir.list());
+            assertEquals(datafiles, 1);
+
             // These checks don't work on Windows because the writer has the channel still
             // open till .abort() is called (via the builder)
             if (!FBUtilities.isWindows())
@@ -81,11 +85,116 @@ public class SSTableWriterTest extends SSTableWriterTestBase
             writer.abort();
             txn.abort();
             LifecycleTransaction.waitForDeletions();
-            int datafiles = assertFileCounts(dir.list());
+            datafiles = assertFileCounts(dir.list());
             assertEquals(datafiles, 0);
             validateCFS(cfs);
         }
     }
 
 
+    @Test
+    public void testAbortTxnWithClosedWriterShouldRemoveSSTable() throws InterruptedException
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF);
+        truncate(cfs);
+
+        File dir = cfs.getDirectories().getDirectoryForNewSSTables();
+        LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.STREAM);
+        try (SSTableWriter writer = getWriter(cfs, dir, txn))
+        {
+            for (int i = 0; i < 10000; i++)
+            {
+                UpdateBuilder builder = UpdateBuilder.create(cfs.metadata, random(i, 10)).withTimestamp(1);
+                for (int j = 0; j < 100; j++)
+                    builder.newRow("" + j).add("val", ByteBuffer.allocate(1000));
+                writer.append(builder.build().unfilteredIterator());
+            }
+
+            assertFileCounts(dir.list());
+            for (int i = 10000; i < 20000; i++)
+            {
+                UpdateBuilder builder = UpdateBuilder.create(cfs.metadata, random(i, 10)).withTimestamp(1);
+                for (int j = 0; j < 100; j++)
+                    builder.newRow("" + j).add("val", ByteBuffer.allocate(1000));
+                writer.append(builder.build().unfilteredIterator());
+            }
+            SSTableReader sstable = writer.finish(true);
+            int datafiles = assertFileCounts(dir.list());
+            assertEquals(datafiles, 1);
+
+            sstable.selfRef().release();
+            // These checks don't work on Windows because the writer has the channel still
+            // open till .abort() is called (via the builder)
+            if (!FBUtilities.isWindows())
+            {
+                LifecycleTransaction.waitForDeletions();
+                assertFileCounts(dir.list());
+            }
+
+            txn.abort();
+            LifecycleTransaction.waitForDeletions();
+            datafiles = assertFileCounts(dir.list());
+            assertEquals(datafiles, 0);
+            validateCFS(cfs);
+        }
+    }
+
+    @Test
+    public void testAbortTxnWithClosedAndOpenWriterShouldRemoveAllSSTables() throws InterruptedException
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF);
+        truncate(cfs);
+
+        File dir = cfs.getDirectories().getDirectoryForNewSSTables();
+        LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.STREAM);
+
+        SSTableWriter writer1 = getWriter(cfs, dir, txn);
+        SSTableWriter writer2 = getWriter(cfs, dir, txn);
+        try
+        {
+            for (int i = 0; i < 10000; i++)
+            {
+                UpdateBuilder builder = UpdateBuilder.create(cfs.metadata, random(i, 10)).withTimestamp(1);
+                for (int j = 0; j < 100; j++)
+                    builder.newRow("" + j).add("val", ByteBuffer.allocate(1000));
+                writer1.append(builder.build().unfilteredIterator());
+            }
+
+            assertFileCounts(dir.list());
+            for (int i = 10000; i < 20000; i++)
+            {
+                UpdateBuilder builder = UpdateBuilder.create(cfs.metadata, random(i, 10)).withTimestamp(1);
+                for (int j = 0; j < 100; j++)
+                    builder.newRow("" + j).add("val", ByteBuffer.allocate(1000));
+                writer2.append(builder.build().unfilteredIterator());
+            }
+            SSTableReader sstable = writer1.finish(true);
+            txn.update(sstable, false);
+
+            assertFileCounts(dir.list());
+
+            int datafiles = assertFileCounts(dir.list());
+            assertEquals(datafiles, 2);
+
+            // These checks don't work on Windows because the writer has the channel still
+            // open till .abort() is called (via the builder)
+            if (!FBUtilities.isWindows())
+            {
+                LifecycleTransaction.waitForDeletions();
+                assertFileCounts(dir.list());
+            }
+            txn.abort();
+            LifecycleTransaction.waitForDeletions();
+            datafiles = assertFileCounts(dir.list());
+            assertEquals(datafiles, 0);
+            validateCFS(cfs);
+        }
+        finally
+        {
+            writer1.close();
+            writer2.close();
+        }
+    }
 }
