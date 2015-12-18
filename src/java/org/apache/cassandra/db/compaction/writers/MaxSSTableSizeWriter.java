@@ -38,6 +38,7 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
     private final int level;
     private final long estimatedSSTables;
     private final Set<SSTableReader> allSSTables;
+    private final boolean skipBloomFilter;
 
     public MaxSSTableSizeWriter(ColumnFamilyStore cfs,
                                 Directories directories,
@@ -46,7 +47,7 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
                                 long maxSSTableSize,
                                 int level)
     {
-        this(cfs, directories, txn, nonExpiredSSTables, maxSSTableSize, level, false, false);
+        this(cfs, directories, txn, nonExpiredSSTables, maxSSTableSize, level, false, false, false);
     }
 
     @SuppressWarnings("resource")
@@ -57,7 +58,8 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
                                 long maxSSTableSize,
                                 int level,
                                 boolean offline,
-                                boolean keepOriginals)
+                                boolean keepOriginals,
+                                boolean skipBloomFilter)
     {
         super(cfs, directories, txn, nonExpiredSSTables, offline, keepOriginals);
         this.allSSTables = txn.originals();
@@ -67,6 +69,7 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
         expectedWriteSize = Math.min(maxSSTableSize, totalSize);
         estimatedTotalKeys = SSTableReader.getApproximateKeyCount(nonExpiredSSTables);
         estimatedSSTables = Math.max(1, estimatedTotalKeys / maxSSTableSize);
+        this.skipBloomFilter = skipBloomFilter;
     }
 
     @Override
@@ -88,7 +91,8 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
                                                     new MetadataCollector(allSSTables, cfs.metadata.comparator, level),
                                                     SerializationHeader.make(cfs.metadata, nonExpiredSSTables),
                                                     cfs.indexManager.listIndexes(),
-                                                    txn);
+                                                    txn,
+                                                    skipBloomFilter);
 
         sstableWriter.switchWriter(writer);
 

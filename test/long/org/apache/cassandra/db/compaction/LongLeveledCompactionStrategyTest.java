@@ -21,7 +21,12 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
 
+import com.google.common.collect.Iterables;
+
+import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -34,10 +39,24 @@ import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static org.junit.Assert.assertTrue;
+
 public class LongLeveledCompactionStrategyTest
 {
     public static final String KEYSPACE1 = "LongLeveledCompactionStrategyTest";
     public static final String CF_STANDARDLVL = "StandardLeveled";
+
+    /**
+     * Since we use LongLeveledCompactionStrategyTest CF for every test, we want to clean up after the test.
+     */
+    @Before
+    public void truncateSTandardLeveled()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARDLVL);
+        setSkipTopLevelBloomFilterOption(store, false);
+        store.truncateBlocking();
+    }
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
@@ -54,10 +73,8 @@ public class LongLeveledCompactionStrategyTest
     @Test
     public void testParallelLeveledCompaction() throws Exception
     {
-        String ksname = KEYSPACE1;
-        String cfname = "StandardLeveled";
-        Keyspace keyspace = Keyspace.open(ksname);
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore(cfname);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARDLVL);
         store.disableAutoCompaction();
 
         LeveledCompactionStrategy lcs = (LeveledCompactionStrategy)store.getCompactionStrategyManager().getStrategies().get(1);
@@ -115,7 +132,7 @@ public class LongLeveledCompactionStrategyTest
         // Assert all SSTables are lined up correctly.
         LeveledManifest manifest = lcs.manifest;
         int levels = manifest.getLevelCount();
-        for (int level = 0; level < levels; level++)
+        for (int level = 0; level <= levels; level++)
         {
             List<SSTableReader> sstables = manifest.getLevel(level);
             // score check
@@ -132,6 +149,89 @@ public class LongLeveledCompactionStrategyTest
                     assert overlaps.size() == 1 && overlaps.contains(sstable);
                 }
             }
+        }
+    }
+
+    @Test
+    public void testParallelLeveledCompactionWithSkipTopLevelBloomFilterOption() throws Exception
+    {
+        //enable "skip_top_level_bloom_filter" option
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARDLVL);
+        setSkipTopLevelBloomFilterOption(cfs, true);
+        cfs.reload();
+
+        //Populate column family and check all assertions from previous test are fine
+        testParallelLeveledCompaction();
+
+        //Assert sstables from top level DO NOT HAVE bloom filters (lower levels may or may not have)
+        assertTopLevelSStablesDoNotHaveBloomFilter();
+
+        //Reinsert data, to recreate sstables from level L-1 and L-2
+        testParallelLeveledCompaction();
+
+        //Now, all the sstables from lower levels must've been re-generated,
+        //so they all should have bloom filters, while top level sstables must still
+        // not have bloom filters.
+        assertTopLevelSStablesDoNotHaveBloomFilterAndLowerLevelSStablesHave();
+
+        //Reload SSTables from disk
+        cfs.clearUnsafe();
+        cfs.reloadSSTablesUnsafe();
+
+        //Top-level sstables loaded from disk should also not have bloom filters
+        assertTopLevelSStablesDoNotHaveBloomFilter();
+    }
+
+    private void setSkipTopLevelBloomFilterOption(ColumnFamilyStore cfs, Boolean value)
+    {
+        Map<String, String> localOptions = new HashMap<>();
+        localOptions.put("class", "LeveledCompactionStrategy");
+        localOptions.put("sstable_size_in_mb", "1");
+        localOptions.put(LeveledCompactionStrategy.SKIP_TOP_LEVEL_BLOOM_FILTER_OPTION, value.toString());
+        cfs.setCompactionParameters(localOptions);
+    }
+
+    private void assertTopLevelSStablesDoNotHaveBloomFilter()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARDLVL);
+        LeveledCompactionStrategy lcs = (LeveledCompactionStrategy)cfs.getCompactionStrategyManager().getStrategies().get(1);
+
+        assertTrue(Iterables.size(cfs.getSSTables(SSTableSet.CANONICAL)) > 0); //just playing it safe
+
+        int topLevel = lcs.manifest.getLevelCount();
+        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+        {
+            long offHeapSize = sstable.getBloomFilter().offHeapSize();
+            long serializedSize = sstable.getBloomFilter().serializedSize();
+            //System.out.println("* level: " + sstable.getSSTableLevel() + ". offHeapSize: " + offHeapSize);
+
+            //- top level MUST NOT have bloom filter.
+            //- lower levels MAY OR MAY NOT have loaded bloom filters,
+            //  they will only reload when they participate in the next compaction.
+            assertTrue(sstable.getSSTableLevel() == topLevel ? offHeapSize == 0 : offHeapSize >= 0);
+            assertTrue(sstable.getSSTableLevel() == topLevel ? serializedSize == 0 : serializedSize >= 0);
+        }
+    }
+
+    private void assertTopLevelSStablesDoNotHaveBloomFilterAndLowerLevelSStablesHave()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARDLVL);
+        LeveledCompactionStrategy lcs = (LeveledCompactionStrategy)cfs.getCompactionStrategyManager().getStrategies().get(1);
+
+        assertTrue(Iterables.size(cfs.getSSTables(SSTableSet.CANONICAL)) > 0); //just playing it safe
+
+        int topLevel = lcs.manifest.getLevelCount();
+        assertTrue(Iterables.size(cfs.getSSTables(SSTableSet.CANONICAL)) > 0);
+        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+        {
+            long offHeapSize = sstable.getBloomFilter().offHeapSize();
+            long serializedSize = sstable.getBloomFilter().serializedSize();
+            //System.out.println("* level: " + sstable.getSSTableLevel() + ". offHeapSize: " + offHeapSize);
+
+            //- top level MUST NOT have bloom filter.
+            //- lower levels MUST have bloom filter
+            assertTrue(sstable.getSSTableLevel() == topLevel ? offHeapSize == 0 : offHeapSize > 0);
+            assertTrue(sstable.getSSTableLevel() == topLevel ? serializedSize == 0 : serializedSize > 0);
         }
     }
 }

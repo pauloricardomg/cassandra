@@ -34,6 +34,9 @@ public class ValidationMetadata extends MetadataComponent
 {
     public static final IMetadataComponentSerializer serializer = new ValidationMetadataSerializer();
 
+    //a bloomFilterFPChance of -1.0 on the validation metadata means the bloom filter was skipped
+    public static final double SKIP_BLOOM_FILTER_FP_MARKER = -1.0;
+
     public final String partitioner;
     public final double bloomFilterFPChance;
 
