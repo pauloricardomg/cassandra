@@ -697,6 +697,9 @@ class Shell(cmd.Cmd):
         self.tracing_enabled = tracing_enabled
         self.page_size = self.default_page_size
         self.expand_enabled = expand_enabled
+
+        #force OperationTimedOut if schema disagrees after DDL, so user receives warning
+        max_schema_agreement_wait = max(Cluster.max_schema_agreement_wait, client_timeout+1)
         if use_conn:
             self.conn = use_conn
         else:
@@ -705,7 +708,8 @@ class Shell(cmd.Cmd):
                                 auth_provider=self.auth_provider,
                                 ssl_options=sslhandling.ssl_settings(hostname, CONFIG_FILE) if ssl else None,
                                 load_balancing_policy=WhiteListRoundRobinPolicy([self.hostname]),
-                                connect_timeout=connect_timeout)
+                                connect_timeout=connect_timeout,
+                                max_schema_agreement_wait=max_schema_agreement_wait)
         self.owns_connection = not use_conn
         self.set_expanded_cql_version(cqlver)
 
@@ -2120,7 +2124,8 @@ class Shell(cmd.Cmd):
                        auth_provider=auth_provider,
                        ssl_options=self.conn.ssl_options,
                        load_balancing_policy=WhiteListRoundRobinPolicy([self.hostname]),
-                       connect_timeout=self.conn.connect_timeout)
+                       connect_timeout=self.conn.connect_timeout,
+                       max_schema_agreement_wait=self.conn.max_schema_agreement_wait)
 
         if self.current_keyspace:
             session = conn.connect(self.current_keyspace)
