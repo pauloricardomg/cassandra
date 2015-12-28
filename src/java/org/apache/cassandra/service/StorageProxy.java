@@ -900,7 +900,7 @@ public class StorageProxy implements StorageProxyMBean
             logger.trace("Sending batchlog store request {} to {} for {} mutations", batch.id, target, batch.size());
 
             if (canDoLocalRequest(target))
-                performLocally(Stage.MUTATION, () -> BatchlogManager.store(batch), handler);
+                performLocally(Stage.MUTATION, Optional.empty(), () -> BatchlogManager.store(batch), handler);
             else
                 MessagingService.instance().sendRR(message, target, handler);
         }
@@ -1198,7 +1198,7 @@ public class StorageProxy implements StorageProxyMBean
             submitHint(mutation, endpointsToHint, responseHandler);
 
         if (insertLocal)
-            performLocally(stage, mutation::apply, responseHandler);
+            performLocally(stage, Optional.of(mutation), mutation::apply, responseHandler);
 
         if (dcGroups != null)
         {
@@ -1265,9 +1265,9 @@ public class StorageProxy implements StorageProxyMBean
         });
     }
 
-    private static void performLocally(Stage stage, final Runnable runnable, final IAsyncCallbackWithFailure<?> handler)
+    private static void performLocally(Stage stage, Optional<IMutation> mutation, final Runnable runnable, final IAsyncCallbackWithFailure<?> handler)
     {
-        StageManager.getStage(stage).maybeExecuteImmediately(new LocalMutationRunnable()
+        StageManager.getStage(stage).maybeExecuteImmediately(new LocalMutationRunnable(mutation)
         {
             public void runMayThrow()
             {
@@ -2409,6 +2409,17 @@ public class StorageProxy implements StorageProxyMBean
     private static abstract class LocalMutationRunnable implements Runnable
     {
         private final long constructionTime = System.currentTimeMillis();
+        private final Optional<IMutation> mutationOpt;
+
+        public LocalMutationRunnable(Optional<IMutation> mutationOpt)
+        {
+            this.mutationOpt = mutationOpt;
+        }
+
+        public LocalMutationRunnable()
+        {
+            this.mutationOpt = Optional.empty();
+        }
 
         public final void run()
         {
@@ -2416,7 +2427,7 @@ public class StorageProxy implements StorageProxyMBean
             long timeTaken = System.currentTimeMillis() - constructionTime;
             if (timeTaken > mutationTimeout)
             {
-                MessagingService.instance().incrementDroppedMessages(MessagingService.Verb.MUTATION, timeTaken);
+                MessagingService.instance().incrementDroppedMutations(mutationOpt, timeTaken);
                 HintRunnable runnable = new HintRunnable(Collections.singleton(FBUtilities.getBroadcastAddress()))
                 {
                     protected void runMayThrow() throws Exception
