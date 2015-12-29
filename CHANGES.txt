@@ -21,6 +21,7 @@ Merged from 2.2:
  * Optimize pending range computation (CASSANDRA-9258)
  * Skip commit log and saved cache directories in SSTable version startup check (CASSANDRA-10902)
  * drop/alter user should be case sensitive (CASSANDRA-10817)
+ * (cqlsh) encode input correctly when saving history
 Merged from 2.1:
  * Allow simultaneous bootstrapping with strict consistency when no vnodes are used (CASSANDRA-11005)
  * Log a message when major compaction does not result in a single file (CASSANDRA-10847)
