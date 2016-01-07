@@ -24,6 +24,7 @@ import java.nio.channels.ReadableByteChannel;
 
 import com.google.common.base.Throwables;
 
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.RangeAwareSSTableWriter;
 
@@ -65,16 +66,21 @@ public class CompressedStreamReader extends StreamReader
     public SSTableMultiWriter read(ReadableByteChannel channel) throws IOException
     {
         long totalSize = totalSize();
-        logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}", session.planId(),
-                     fileSeqNum, session.peer, repairedAt, totalSize);
 
         Pair<String, String> kscf = Schema.instance.getCF(cfId);
-        if (kscf == null)
+        ColumnFamilyStore cfs = null;
+        if (kscf != null)
+            cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
+
+        if (kscf == null || cfs == null)
         {
             // schema was dropped during streaming
             throw new IOException("CF " + cfId + " was dropped during streaming");
         }
-        ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
+
+        logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}, ks = '{}', table = '{}'.",
+                     session.planId(), fileSeqNum, session.peer, repairedAt, totalSize, cfs.keyspace.getName(),
+                     cfs.getColumnFamilyName());
 
         CompressedInputStream cis = new CompressedInputStream(Channels.newInputStream(channel), compressionInfo,
                                                               inputVersion.compressedChecksumType(), cfs::getCrcCheckChance);
@@ -84,11 +90,13 @@ public class CompressedStreamReader extends StreamReader
         try
         {
             writer = createWriter(cfs, totalSize, repairedAt, format);
+            int sectionIdx = 0;
             for (Pair<Long, Long> section : sections)
             {
                 assert cis.getTotalCompressedBytesRead() <= totalSize;
                 int sectionLength = (int) (section.right - section.left);
 
+                logger.trace("[Stream #{}] Reading section {} with length {} from stream.", session.planId(), sectionIdx++, sectionLength);
                 // skip to beginning of section inside chunk
                 cis.position(section.left);
                 in.reset(0);
@@ -106,6 +114,9 @@ public class CompressedStreamReader extends StreamReader
         }
         catch (Throwable e)
         {
+            if (deserializer != null)
+                logger.warn("[Stream {}] Error while reading partition {} from stream on ks='{}' and table='{}'.",
+                            session.planId(), deserializer.partitionKey(), cfs.keyspace.getName(), cfs.getColumnFamilyName());
             if (writer != null)
             {
                 writer.abort(e);
