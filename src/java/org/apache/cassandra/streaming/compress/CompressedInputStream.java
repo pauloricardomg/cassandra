@@ -63,8 +63,6 @@ public class CompressedInputStream extends InputStream
 
     private long totalCompressedBytesRead;
 
-    private Thread readerThread;
-
     /**
      * @param source Input source to read compressed data from
      * @param info Compression info
@@ -78,8 +76,7 @@ public class CompressedInputStream extends InputStream
         this.dataBuffer = new ArrayBlockingQueue<>(Math.min(info.chunks.length, 1024));
         this.crcCheckChanceSupplier = crcCheckChanceSupplier;
 
-        readerThread = new Thread(new Reader(source, info, dataBuffer));
-        readerThread.start();
+        new Thread(new Reader(source, info, dataBuffer)).start();
     }
 
     public int read() throws IOException
@@ -138,7 +135,7 @@ public class CompressedInputStream extends InputStream
         return totalCompressedBytesRead;
     }
 
-    class Reader extends WrappedRunnable
+    static class Reader extends WrappedRunnable
     {
         private final InputStream source;
         private final Iterator<CompressionMetadata.Chunk> chunks;
@@ -154,7 +151,7 @@ public class CompressedInputStream extends InputStream
         protected void runMayThrow() throws Exception
         {
             byte[] compressedWithCRC;
-            while (!Thread.currentThread().isInterrupted() && chunks.hasNext())
+            while (chunks.hasNext())
             {
                 CompressionMetadata.Chunk chunk = chunks.next();
 
@@ -164,43 +161,16 @@ public class CompressedInputStream extends InputStream
                 int bufferRead = 0;
                 while (bufferRead < readLength)
                 {
-                    int r;
-                    try
-                    {
-                        r = source.read(compressedWithCRC, bufferRead, readLength - bufferRead);
-                        if (r < 0)
-                        {
-                            dataBuffer.put(POISON_PILL);
-                            return; // throw exception where we consume dataBuffer
-                        }
-                    }
-                    catch (IOException e)
+                    int r = source.read(compressedWithCRC, bufferRead, readLength - bufferRead);
+                    if (r < 0)
                     {
                         dataBuffer.put(POISON_PILL);
-                        throw e;
+                        return; // throw exception where we consume dataBuffer
                     }
                     bufferRead += r;
                 }
                 dataBuffer.put(compressedWithCRC);
             }
-            synchronized(CompressedInputStream.this)
-            {
-                readerThread = null;
-            }
         }
     }
-
-    @Override
-    public void close() throws IOException
-    {
-        synchronized(this)
-        {
-            if (readerThread != null)
-            {
-                readerThread.interrupt();
-                readerThread = null;
-            }
-        }
-    }
-
 }
