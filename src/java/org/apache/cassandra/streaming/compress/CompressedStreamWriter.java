@@ -66,11 +66,17 @@ public class CompressedStreamWriter extends StreamWriter
             long progress = 0L;
             // calculate chunks to transfer. we want to send continuous chunks altogether.
             List<Pair<Long, Long>> sections = getTransferSections(compressionInfo.chunks);
+
+            int sectionIdx = 0;
+
             // stream each of the required sections of the file
             for (final Pair<Long, Long> section : sections)
             {
                 // length of the section to stream
                 long length = section.right - section.left;
+
+                logger.trace("[Stream #{}] Writing section {} with length {} to stream.", session.planId(), sectionIdx++, length);
+
                 // tracks write progress
                 long bytesTransferred = 0;
                 while (bytesTransferred < length)

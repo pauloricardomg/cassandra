@@ -86,26 +86,33 @@ public class StreamReader
     public SSTableWriter read(ReadableByteChannel channel) throws IOException
     {
         long totalSize = totalSize();
-        logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}",
-                     session.planId(), fileSeqNum, session.peer, repairedAt, totalSize);
 
         Pair<String, String> kscf = Schema.instance.getCF(cfId);
-        if (kscf == null)
+        ColumnFamilyStore cfs = null;
+        if (kscf != null)
+            cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
+
+        if (kscf == null || cfs == null)
         {
             // schema was dropped during streaming
             throw new IOException("CF " + cfId + " was dropped during streaming");
         }
-        ColumnFamilyStore cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
+
+        logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}, ks = '{}', table = '{}'.",
+                     session.planId(), fileSeqNum, session.peer, repairedAt, totalSize, cfs.keyspace.getName(),
+                     cfs.getColumnFamilyName());
 
         DataInputStream dis = new DataInputStream(new LZFInputStream(Channels.newInputStream(channel)));
         BytesReadTracker in = new BytesReadTracker(dis);
         SSTableWriter writer = null;
+        DecoratedKey key = null;
         try
         {
             writer = createWriter(cfs, totalSize, repairedAt, format);
             while (in.getBytesRead() < totalSize)
             {
-                writeRow(writer, in, cfs);
+                key = StorageService.getPartitioner().decorateKey(ByteBufferUtil.readWithShortLength(in));
+                writeRow(key, writer, in, cfs);
 
                 // TODO move this to BytesReadTracker
                 session.progress(desc, ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
@@ -115,6 +122,9 @@ public class StreamReader
             return writer;
         } catch (Throwable e)
         {
+            if (key != null)
+                logger.warn("[Stream {}] Error while reading partition {} from stream on ks='{}' and table='{}'.",
+                            session.planId(), key, cfs.keyspace.getName(), cfs.getColumnFamilyName());
             if (writer != null)
             {
                 try
@@ -172,9 +182,8 @@ public class StreamReader
         return size;
     }
 
-    protected void writeRow(SSTableWriter writer, DataInput in, ColumnFamilyStore cfs) throws IOException
+    protected void writeRow(DecoratedKey key, SSTableWriter writer, DataInput in, ColumnFamilyStore cfs) throws IOException
     {
-        DecoratedKey key = StorageService.getPartitioner().decorateKey(ByteBufferUtil.readWithShortLength(in));
         writer.appendFromStream(key, cfs.metadata, in, inputVersion);
     }
 }
