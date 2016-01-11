@@ -35,7 +35,6 @@ import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.streaming.StreamManager.StreamRateLimiter;
-import org.apache.cassandra.streaming.compress.CompressedStreamWriter;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -45,7 +44,7 @@ public class StreamWriter
 {
     private static final int DEFAULT_CHUNK_SIZE = 64 * 1024;
 
-    private static final Logger logger = LoggerFactory.getLogger(CompressedStreamWriter.class);
+    private static final Logger logger = LoggerFactory.getLogger(StreamWriter.class);
 
     protected final SSTableReader sstable;
     protected final Collection<Pair<Long, Long>> sections;
