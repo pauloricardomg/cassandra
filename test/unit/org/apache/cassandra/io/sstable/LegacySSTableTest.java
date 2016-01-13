@@ -94,7 +94,7 @@ public class LegacySSTableTest
      */
     protected Descriptor getDescriptor(String ver)
     {
-        File directory = new File(LEGACY_SSTABLE_ROOT + File.separator + ver + File.separator + KSNAME);
+        File directory = new File(LEGACY_SSTABLE_ROOT + File.separator + ver + File.separator + KSNAME + File.separator + CFNAME);
         return new Descriptor(ver, directory, KSNAME, CFNAME, 0, Descriptor.Type.FINAL, SSTableFormat.Type.LEGACY);
     }
 
@@ -106,7 +106,7 @@ public class LegacySSTableTest
     public void buildTestSSTable() throws IOException
     {
         // write the output in a version specific directory
-        Descriptor dest = getDescriptor(Descriptor.Version.current_version);
+        Descriptor dest = getDescriptor(DatabaseDescriptor.getSSTableFormat().info.getLatestVersion().getVersion());
         assert dest.directory.mkdirs() : "Could not create " + dest.directory + ". Might it already exist?";
 
         SSTableReader ssTable = SSTableUtils.prepare().ks(KSNAME).cf(CFNAME).dest(dest).write(TEST_DATA);
