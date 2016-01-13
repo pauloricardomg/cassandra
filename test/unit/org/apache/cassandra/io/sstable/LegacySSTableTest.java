@@ -123,11 +123,16 @@ public class LegacySSTableTest
 
         for (File version : LEGACY_SSTABLE_ROOT.listFiles())
             if (Version.validate(version.getName()) && SSTableFormat.Type.LEGACY.info.getVersion(version.getName()).isCompatible())
+            {
                 testStreaming(version.getName());
+                Keyspace.open(KSNAME).getColumnFamilyStore(CFNAME).clearUnsafe();
+            }
+
     }
 
     private void testStreaming(String version) throws Exception
     {
+        System.out.println("Testing version " + version);
         SSTableReader sstable = SSTableReader.open(getDescriptor(version));
         IPartitioner p = StorageService.getPartitioner();
         List<Range<Token>> ranges = new ArrayList<>();
