@@ -70,7 +70,12 @@ public class SerializationHeader
         this.typeMap = typeMap;
     }
 
-    public static SerializationHeader forKeyCache(CFMetaData metadata)
+    public static SerializationHeader makeWithoutStats(CFMetaData metadata)
+    {
+        return new SerializationHeader(true, metadata, metadata.partitionColumns(), EncodingStats.NO_STATS);
+    }
+
+    public static SerializationHeader makeWithClusteringOnly(CFMetaData metadata)
     {
         // We don't save type information in the key cache (we could change
         // that but it's easier right now), so instead we simply use BytesType
