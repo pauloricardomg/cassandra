@@ -107,7 +107,7 @@ public class StreamReader
 
         DataInputStream dis = new DataInputStream(new LZFInputStream(Channels.newInputStream(channel)));
         BytesReadTracker in = new BytesReadTracker(dis);
-        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, header.toHeader(cfs.metadata));
+        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, getHeader(cfs.metadata));
         SSTableMultiWriter writer = null;
         try
         {
@@ -139,6 +139,11 @@ public class StreamReader
         }
     }
 
+    protected SerializationHeader getHeader(CFMetaData metadata)
+    {
+        return header != null? header.toHeader(metadata) : null; //pre-3.0 sstable have no SerializationHeader
+    }
+
     protected SSTableMultiWriter createWriter(ColumnFamilyStore cfs, long totalSize, long repairedAt, SSTableFormat.Type format) throws IOException
     {
         Directories.DataDirectory localDir = cfs.getDirectories().getWriteableLocation(totalSize);
@@ -146,8 +151,7 @@ public class StreamReader
             throw new IOException("Insufficient disk space to store " + totalSize + " bytes");
         desc = Descriptor.fromFilename(cfs.getSSTablePath(cfs.getDirectories().getLocationForDisk(localDir), format));
 
-
-        return cfs.createSSTableMultiWriter(desc, estimatedKeys, repairedAt, sstableLevel, header.toHeader(cfs.metadata), session.getTransaction(cfId));
+        return cfs.createSSTableMultiWriter(desc, estimatedKeys, repairedAt, sstableLevel, getHeader(cfs.metadata), session.getTransaction(cfId));
     }
 
     protected void drain(InputStream dis, long bytesRead) throws IOException
@@ -198,7 +202,6 @@ public class StreamReader
 
         public StreamDeserializer(CFMetaData metadata, DataInputPlus in, Version version, SerializationHeader header)
         {
-            assert version.storeRows() : "We don't allow streaming from pre-3.0 nodes";
             this.metadata = metadata;
             this.in = in;
             this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
