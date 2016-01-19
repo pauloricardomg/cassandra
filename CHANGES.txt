@@ -28,6 +28,10 @@
  * (Hadoop) Close Clusters and Sessions in Hadoop Input/Output classes (CASSANDRA-10837)
  * Fix sstableloader not working with upper case keyspace name (CASSANDRA-10806)
 Merged from 2.2:
+=======
+2.2.6
+ * (cqlsh) Support utf-8/cp65001 encoding on Windows (CASSANDRA-11030)
+ * Fix paging on DISTINCT queries repeats result when first row in partition changes (CASSANDRA-10010)
 2.2.5
  * maxPurgeableTimestamp needs to check memtables too (CASSANDRA-9949)
  * Apply change to compaction throughput in real time (CASSANDRA-10025)
