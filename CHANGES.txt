@@ -6,7 +6,7 @@
  * Stripe view locks by key and table ID to reduce contention (CASSANDRA-10981)
  * Add nodetool gettimeout and settimeout commands (CASSANDRA-10953)
  * Add 3.0 metadata to sstablemetadata output (CASSANDRA-10838)
-
+ * Add --skip-flush option to nodetool snapshot
 
 3.3
  * Avoid bootstrap hanging when existing nodes have no data to stream (CASSANDRA-11010)
