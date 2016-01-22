@@ -57,15 +57,4 @@ public interface DataInputPlus extends DataInput
         if (skipped != n)
             throw new EOFException("EOF after " + skipped + " bytes out of " + n);
     }
-
-    /**
-     * Wrapper around an InputStream that provides no buffering but can decode varints
-     */
-    public class DataInputStreamPlus extends DataInputStream implements DataInputPlus
-    {
-        public DataInputStreamPlus(InputStream is)
-        {
-            super(is);
-        }
-    }
 }

@@ -21,11 +21,10 @@ package org.apache.cassandra;
 
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataInputPlus.DataInputStreamPlus;
+import org.apache.cassandra.io.util.DataInputStreamPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.io.util.BufferedDataOutputStreamPlus;
-import org.apache.cassandra.io.util.NIODataInputStream;
 import org.apache.cassandra.net.MessagingService;
 
 import java.io.File;
@@ -72,7 +71,7 @@ public class AbstractSerializationsTester
     {
         File f = new File("test/data/serialization/" + version + '/' + name);
         assert f.exists() : f.getPath();
-        return new DataInputPlus.DataInputStreamPlus(new FileInputStream(f));
+        return new DataInputStreamPlus(new FileInputStream(f));
     }
 
     @SuppressWarnings("resource")

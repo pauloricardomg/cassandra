@@ -33,11 +33,12 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.io.compress.CompressionMetadata;
+import org.apache.cassandra.io.util.DataInputStreamPlus;
 import org.apache.cassandra.streaming.ProgressInfo;
 import org.apache.cassandra.streaming.StreamReader;
 import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.streaming.messages.FileMessageHeader;
-import org.apache.cassandra.utils.BytesReadTracker;
+import org.apache.cassandra.io.util.TrackedInputStream;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -82,7 +83,8 @@ public class CompressedStreamReader extends StreamReader
 
         CompressedInputStream cis = new CompressedInputStream(Channels.newInputStream(channel), compressionInfo,
                                                               inputVersion.compressedChecksumType(), cfs::getCrcCheckChance);
-        BytesReadTracker in = new BytesReadTracker(new DataInputStream(cis));
+        TrackedInputStream in = new TrackedInputStream(cis);
+
         StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, getHeader(cfs.metadata));
         SSTableMultiWriter writer = null;
         try
@@ -119,7 +121,7 @@ public class CompressedStreamReader extends StreamReader
             {
                 writer.abort(e);
             }
-            drain(cis, in.getBytesRead());
+            drain(in, in.getBytesRead());
             if (e instanceof IOException)
                 throw (IOException) e;
             else

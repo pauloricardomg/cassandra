@@ -15,20 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.io.util;
 
-import java.io.Closeable;
-import java.io.IOException;
 
-public interface FileDataInput extends RewindableDataInput, Closeable
+import java.io.DataInputStream;
+import java.io.InputStream;
+
+/**
+ * Wrapper around an InputStream that provides no buffering but can decode varints
+ */
+public class DataInputStreamPlus extends DataInputStream implements DataInputPlus
 {
-    String getPath();
-
-    boolean isEOF() throws IOException;
-
-    long bytesRemaining() throws IOException;
-
-    void seek(long pos) throws IOException;
-
-    long getFilePointer();
+    public DataInputStreamPlus(InputStream is)
+    {
+        super(is);
+    }
 }
