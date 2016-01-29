@@ -168,7 +168,7 @@ public class DataIntegrityMetadata
             }
         }
 
-        // checksumIncrementalResult indicates if the checksum we compute for this buffer should itself be
+        // checksumIncrementalResult indicates if the checksum we compute for this writeBuffer should itself be
         // included in the full checksum, translating to if the partial checksum is serialized along with the
         // data it checksums (in which case the file checksum as calculated by external tools would mismatch if
         // we did not include it), or independently.

@@ -54,10 +54,10 @@ public abstract class UnbufferedDataOutputStreamPlus extends DataOutputStreamPlu
     */
 
     /**
-     * Writes the entire contents of the byte array <code>buffer</code> to
+     * Writes the entire contents of the byte array <code>writeBuffer</code> to
      * this RandomAccessFile starting at the current file pointer.
      *
-     * @param buffer the buffer to be written.
+     * @param buffer the writeBuffer to be written.
      * @throws IOException If an error occurs trying to write to this RandomAccessFile.
      */
     public void write(byte[] buffer) throws IOException
@@ -66,13 +66,13 @@ public abstract class UnbufferedDataOutputStreamPlus extends DataOutputStreamPlu
     }
 
     /**
-     * Writes <code>count</code> bytes from the byte array <code>buffer</code>
+     * Writes <code>count</code> bytes from the byte array <code>writeBuffer</code>
      * starting at <code>offset</code> to this RandomAccessFile starting at
      * the current file pointer..
      *
      * @param buffer the bytes to be written
-     * @param offset offset in buffer to get bytes
-     * @param count  number of bytes in buffer to write
+     * @param offset offset in writeBuffer to get bytes
+     * @param count  number of bytes in writeBuffer to write
      * @throws IOException               If an error occurs attempting to write to this
      *                                   RandomAccessFile.
      * @throws IndexOutOfBoundsException If offset or count are outside of bounds.

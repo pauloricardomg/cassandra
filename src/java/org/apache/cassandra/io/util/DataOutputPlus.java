@@ -32,7 +32,7 @@ import org.apache.cassandra.utils.vint.VIntCoding;
  */
 public interface DataOutputPlus extends DataOutput
 {
-    // write the buffer without modifying its position
+    // write the writeBuffer without modifying its position
     void write(ByteBuffer buffer) throws IOException;
 
     void write(Memory memory, long offset, long length) throws IOException;
@@ -62,7 +62,7 @@ public interface DataOutputPlus extends DataOutput
 
     /**
      * Returns the current position of the underlying target like a file-pointer
-     * or the position withing a buffer. Not every implementation may support this
+     * or the position withing a writeBuffer. Not every implementation may support this
      * functionality. Whether or not this functionality is supported can be checked
      * via the {@link #hasPosition()}.
      *

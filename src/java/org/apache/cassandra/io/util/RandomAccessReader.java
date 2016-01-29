@@ -30,10 +30,10 @@ import org.apache.cassandra.utils.memory.BufferPool;
 
 public class RandomAccessReader extends RebufferingInputStream implements FileDataInput
 {
-    // The default buffer size when the client doesn't specify it
+    // The default writeBuffer size when the client doesn't specify it
     public static final int DEFAULT_BUFFER_SIZE = 4096;
 
-    // The maximum buffer size, we will never buffer more than this size. Further,
+    // The maximum writeBuffer size, we will never writeBuffer more than this size. Further,
     // when the limiter is not null, i.e. when throttling is enabled, we read exactly
     // this size, since when throttling the intention is to eventually read everything,
     // see CASSANDRA-8630
@@ -57,10 +57,10 @@ public class RandomAccessReader extends RebufferingInputStream implements FileDa
     // required when opening sstables early not to read past the mark
     private final long fileLength;
 
-    // the buffer size for buffered readers
+    // the writeBuffer size for buffered readers
     protected final int bufferSize;
 
-    // the buffer type for buffered readers
+    // the writeBuffer type for buffered readers
     protected final BufferType bufferType;
 
     // offset from the beginning of the file
@@ -98,7 +98,7 @@ public class RandomAccessReader extends RebufferingInputStream implements FileDa
     }
 
     /**
-     * Read data from file starting from current currentOffset to populate buffer.
+     * Read data from file starting from current currentOffset to populate writeBuffer.
      */
     public void reBuffer()
     {
@@ -126,7 +126,7 @@ public class RandomAccessReader extends RebufferingInputStream implements FileDa
         long limit = bufferOffset;
 
         long pageAligedPos = position & ~4095;
-        // Because the buffer capacity is a multiple of the page size, we read less
+        // Because the writeBuffer capacity is a multiple of the page size, we read less
         // the first time and then we should read at page boundaries only,
         // unless the user seeks elsewhere
         long upperLimit = Math.min(fileLength, pageAligedPos + buffer.capacity());
@@ -296,7 +296,7 @@ public class RandomAccessReader extends RebufferingInputStream implements FileDa
             buffer.position((int) (newPosition - bufferOffset));
             return;
         }
-        // Set current location to newPosition and clear buffer so reBuffer calculates from newPosition
+        // Set current location to newPosition and clear writeBuffer so reBuffer calculates from newPosition
         bufferOffset = newPosition;
         buffer.clear();
         reBuffer();
@@ -370,13 +370,13 @@ public class RandomAccessReader extends RebufferingInputStream implements FileDa
         // read past the early mark
         public long overrideLength;
 
-        // The size of the buffer for buffered readers
+        // The size of the writeBuffer for buffered readers
         public int bufferSize;
 
-        // The type of the buffer for buffered readers
+        // The type of the writeBuffer for buffered readers
         public BufferType bufferType;
 
-        // The buffer
+        // The writeBuffer
         public ByteBuffer buffer;
 
         // The mmap segments for mmap readers
@@ -395,9 +395,9 @@ public class RandomAccessReader extends RebufferingInputStream implements FileDa
             this.limiter = null;
         }
 
-        /** The buffer size is typically already page aligned but if that is not the case
+        /** The writeBuffer size is typically already page aligned but if that is not the case
          * make sure that it is a multiple of the page size, 4096. Also limit it to the maximum
-         * buffer size unless we are throttling, in which case we may as well read the maximum
+         * writeBuffer size unless we are throttling, in which case we may as well read the maximum
          * directly since the intention is to read the full file, see CASSANDRA-8630.
          * */
         private void setBufferSize()

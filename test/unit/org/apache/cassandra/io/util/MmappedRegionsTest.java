@@ -212,7 +212,7 @@ public class MmappedRegionsTest
             assertEquals(SIZE * (i / SIZE), region.bottom());
             assertEquals(SIZE + (SIZE * (i / SIZE)), region.top());
 
-            // check we can access the buffer
+            // check we can access the writeBuffer
             assertNotNull(region.buffer.duplicate().getInt());
         }
 

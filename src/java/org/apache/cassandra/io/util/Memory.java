@@ -227,11 +227,11 @@ public class Memory implements AutoCloseable
             throw new IllegalStateException();
     }
     /**
-     * Transfers count bytes from buffer to Memory
+     * Transfers count bytes from writeBuffer to Memory
      *
      * @param memoryOffset start offset in the memory
-     * @param buffer the data buffer
-     * @param bufferOffset start offset of the buffer
+     * @param buffer the data writeBuffer
+     * @param bufferOffset start offset of the writeBuffer
      * @param count number of bytes to transfer
      */
     public void setBytes(long memoryOffset, byte[] buffer, int bufferOffset, int count)
@@ -312,11 +312,11 @@ public class Memory implements AutoCloseable
     }
 
     /**
-     * Transfers count bytes from Memory starting at memoryOffset to buffer starting at bufferOffset
+     * Transfers count bytes from Memory starting at memoryOffset to writeBuffer starting at bufferOffset
      *
      * @param memoryOffset start offset in the memory
-     * @param buffer the data buffer
-     * @param bufferOffset start offset of the buffer
+     * @param buffer the data writeBuffer
+     * @param bufferOffset start offset of the writeBuffer
      * @param count number of bytes to transfer
      */
     public void getBytes(long memoryOffset, byte[] buffer, int bufferOffset, int count)
@@ -408,7 +408,7 @@ public class Memory implements AutoCloseable
         return MemoryUtil.getByteBuffer(peer + offset, length);
     }
 
-    // MUST provide a buffer created via MemoryUtil.getHollowDirectByteBuffer()
+    // MUST provide a writeBuffer created via MemoryUtil.getHollowDirectByteBuffer()
     public void setByteBuffer(ByteBuffer buffer, long offset, int length)
     {
         checkBounds(offset, offset + length);

@@ -215,7 +215,7 @@ public abstract class SegmentedFile extends SharedCloseableImpl
         }
 
         /**
-            Return the buffer size for a given record size. For spinning disks always add one page.
+            Return the writeBuffer size for a given record size. For spinning disks always add one page.
             For solid state disks only add one page if the chance of crossing to the next page is more
             than a predifined value, @see Config.disk_optimization_page_cross_chance.
          */

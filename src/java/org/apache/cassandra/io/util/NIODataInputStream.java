@@ -30,7 +30,7 @@ import com.google.common.base.Preconditions;
  * Created to work around the fact that when BIS + DIS delegate to NIO for socket IO they will allocate large
  * thread local direct byte buffers when a large array is used to read.
  *
- * There may also be some performance improvement due to using a DBB as the underlying buffer for IO and the removal
+ * There may also be some performance improvement due to using a DBB as the underlying writeBuffer for IO and the removal
  * of some indirection and delegation when it comes to reading out individual values, but that is not the goal.
  *
  * Closing NIODataInputStream will invoke close on the ReadableByteChannel provided at construction.

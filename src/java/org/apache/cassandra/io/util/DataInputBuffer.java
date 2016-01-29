@@ -39,7 +39,7 @@ public class DataInputBuffer extends RebufferingInputStream
 
     /**
      * @param buffer
-     * @param duplicate Whether or not to duplicate the buffer to ensure thread safety
+     * @param duplicate Whether or not to duplicate the writeBuffer to ensure thread safety
      */
     public DataInputBuffer(ByteBuffer buffer, boolean duplicate)
     {

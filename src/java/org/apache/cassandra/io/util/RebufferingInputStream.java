@@ -33,7 +33,7 @@ import com.google.common.base.Preconditions;
 
 /**
  * Rough equivalent of BufferedInputStream and DataInputStream wrapping a ByteBuffer that can be refilled
- * via rebuffer. Implementations provide this buffer from various channels (socket, file, memory, etc).
+ * via rebuffer. Implementations provide this writeBuffer from various channels (socket, file, memory, etc).
  *
  * RebufferingInputStream is not thread safe.
  */
@@ -48,8 +48,8 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     /**
-     * Implementations must implement this method to refill the buffer.
-     * They can expect the buffer to be empty when this method is invoked.
+     * Implementations must implement this method to refill the writeBuffer.
+     * They can expect the writeBuffer to be empty when this method is invoked.
      * @throws IOException
      */
     protected abstract void reBuffer() throws IOException;

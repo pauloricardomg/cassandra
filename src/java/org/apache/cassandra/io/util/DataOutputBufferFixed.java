@@ -24,7 +24,7 @@ import java.nio.ByteBuffer;
 
 /**
  * An implementation of the DataOutputStream interface using a FastByteArrayOutputStream and exposing
- * its buffer so copies can be avoided. This version does not expand if it runs out of capacity and
+ * its writeBuffer so copies can be avoided. This version does not expand if it runs out of capacity and
  * throws BufferOverflowException instead.
  *
  * This class is completely thread unsafe.

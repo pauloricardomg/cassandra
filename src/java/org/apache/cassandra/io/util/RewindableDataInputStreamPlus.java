@@ -18,9 +18,6 @@
 
 package org.apache.cassandra.io.util;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -43,100 +40,12 @@ import java.io.InputStream;
  * There is no limit to the amount of buffered bytes, so the <code>readlimit</code> parameter of
  * {@link this#mark(int)} is currently ignored.
  */
-public class RewindableDataInputStreamPlus extends FilterInputStream implements RewindableDataInput
+public class RewindableDataInputStreamPlus extends DataInputStreamPlus implements RewindableDataInput
 {
-    private final DataInputStreamPlus dataReader;
-    ByteArrayOutputStream buffer;
-    private int bufferSize;
-    private int remaining = 0;
-    private boolean marked = false;
-    private ByteArrayInputStream cached = null;
-
-    public RewindableDataInputStreamPlus(InputStream in, int bufferSize)
+    public RewindableDataInputStreamPlus(InputStream in)
     {
         super(in);
-        this.bufferSize = bufferSize;
-        dataReader = new DataInputStreamPlus(this);
-    }
-
-    public void readFully(byte[] b) throws IOException
-    {
-        dataReader.readFully(b);
-    }
-
-    public void readFully(byte[] b, int off, int len) throws IOException
-    {
-        dataReader.readFully(b, off, len);
-    }
-
-    public int skipBytes(int n) throws IOException
-    {
-        return dataReader.skipBytes(n);
-    }
-
-    public boolean readBoolean() throws IOException
-    {
-        return dataReader.readBoolean();
-    }
-
-    public byte readByte() throws IOException
-    {
-        return dataReader.readByte();
-    }
-
-    public int readUnsignedByte() throws IOException
-    {
-        return dataReader.readUnsignedByte();
-    }
-
-    public short readShort() throws IOException
-    {
-        return dataReader.readShort();
-    }
-
-    public int readUnsignedShort() throws IOException
-    {
-        return dataReader.readUnsignedShort();
-    }
-
-    public char readChar() throws IOException
-    {
-        return dataReader.readChar();
-    }
-
-    public int readInt() throws IOException
-    {
-        return dataReader.readInt();
-    }
-
-    public long readLong() throws IOException
-    {
-        return dataReader.readLong();
-    }
-
-    public float readFloat() throws IOException
-    {
-        return dataReader.readFloat();
-    }
-
-    public double readDouble() throws IOException
-    {
-        return dataReader.readDouble();
-    }
-
-    public String readLine() throws IOException
-    {
-        return dataReader.readLine();
-    }
-
-    public String readUTF() throws IOException
-    {
-        return dataReader.readUTF();
-    }
-
-    public int available() throws IOException
-    {
-        return remaining + super.available();
+        assert in.markSupported();
     }
 
     /**
@@ -146,41 +55,7 @@ public class RewindableDataInputStreamPlus extends FilterInputStream implements 
     public DataPosition mark()
     {
         mark(0);
-        return new BufferedDataInputPlusMark();
-    }
-
-    /**
-     * Marks the current position of a stream to return to this position later via the {@link this#reset(DataPosition)} method.
-     * @param readlimit this parameter is currently ignored, so there is no limit to buffered bytes.
-     */
-    public synchronized void mark(int readlimit)
-    {
-        if (marked)
-            throw new IllegalStateException("Stream is already marked. Reset must be called before marking again.");
-        this.marked = true;
-        this.buffer = new ByteArrayOutputStream();
-    }
-
-    public boolean markSupported()
-    {
-        return true;
-    }
-
-    /**
-     * Rewinds to the previously marked position via the {@link this#mark()} method.
-     * @throws IOException if an error ocurs while resetting
-     */
-    public synchronized void reset() throws IOException
-    {
-        if (!marked)
-            throw new IllegalStateException("Stream is not marked. Mark must be called before calling reset.");
-        this.marked = false;
-        if (buffer.size() > 0) //reset is no-op if buffer is empty
-        {
-            this.cached = new ByteArrayInputStream(buffer.toByteArray());
-            this.remaining = buffer.size();
-            this.buffer.reset();
-        }
+        return new RewindableDataInputPlusMark();
     }
 
     /**
@@ -195,80 +70,17 @@ public class RewindableDataInputStreamPlus extends FilterInputStream implements 
 
     public long bytesPastMark(DataPosition mark)
     {
-        return remaining;
-    }
-
-    protected static class BufferedDataInputPlusMark implements DataPosition
-    {
-    }
-
-    public long skip(long n) throws IOException
-    {
-        long skippedFrombuffer = remaining;
-        if (remaining > 0)
-            consumeBuffer(remaining);
-        return skippedFrombuffer + super.skip(n - skippedFrombuffer);
-    }
-
-    public int read() throws IOException
-    {
-        int result;
-        if (remaining > 0)
+        try
         {
-            result = cached.read();
-            consumeBuffer(1);
-        } else
-            result = super.read();
-        if (marked)
-        {
-            buffer.write(result);
+            return available();
         }
-        return result;
-    }
-
-    public int read(byte[] b) throws IOException
-    {
-        return read(b, 0, b.length);
-    }
-
-    private void consumeBuffer(int readLength)
-    {
-        assert remaining > 0;
-        remaining -= readLength;
-        if (remaining == 0)
+        catch (IOException e)
         {
-            cached.reset(); //reset == close - IOException
-            cached = null; //let gc do its job
+            return 0;
         }
     }
 
-    public int read(byte[] b, int off, int len) throws IOException
+    protected static class RewindableDataInputPlusMark implements DataPosition
     {
-        int cacheReadLen = Math.min(remaining, len);
-        int result = 0;
-        if (cacheReadLen > 0)
-        {
-            result += cached.read(b, off, cacheReadLen);
-            consumeBuffer(len);
-            off = off + cacheReadLen;
-            len = len - cacheReadLen;
-        }
-
-        if (len > 0)
-        {
-            result += super.read(b, off, len);
-            if (marked)
-                buffer.write(b, off, len);
-        }
-        return result;
-    }
-
-    public void close() throws IOException
-    {
-        super.close();
-        if (cached != null)
-            cached.close();
-        if (buffer != null)
-            buffer.close();
     }
 }

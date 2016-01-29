@@ -46,12 +46,12 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
     // absolute path to the given file
     private final String filePath;
 
-    // Offset for start of buffer relative to underlying file
+    // Offset for start of writeBuffer relative to underlying file
     protected long bufferOffset;
 
     protected final FileChannel fchannel;
 
-    // whether to do trickling fsync() to avoid sudden bursts of dirty buffer flushing by kernel causing read
+    // whether to do trickling fsync() to avoid sudden bursts of dirty writeBuffer flushing by kernel causing read
     // latency spikes
     private boolean trickleFsync;
     private int trickleFsyncByteInterval;
@@ -257,7 +257,7 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
 
     /**
      * Returns the current file pointer of the underlying on-disk file.
-     * Note that since write works by buffering data, the value of this will increase by buffer
+     * Note that since write works by buffering data, the value of this will increase by writeBuffer
      * size and not every write to the writer will modify this value.
      * Furthermore, for compressed files, this value refers to compressed data, while the
      * writer getFilePointer() refers to uncompressedFile
@@ -303,7 +303,7 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
     }
 
     /**
-     * Drops all buffered data that's past the limits of our new file mark + buffer capacity, or syncs and truncates
+     * Drops all buffered data that's past the limits of our new file mark + writeBuffer capacity, or syncs and truncates
      * the underlying file to the marked position
      */
     public void resetAndTruncate(DataPosition mark)
@@ -321,7 +321,7 @@ public class SequentialWriter extends BufferedDataOutputStreamPlus implements Tr
             return;
         }
 
-        // synchronize current buffer with disk - we don't want any data loss
+        // synchronize current writeBuffer with disk - we don't want any data loss
         syncInternal();
 
         // truncate file to given position

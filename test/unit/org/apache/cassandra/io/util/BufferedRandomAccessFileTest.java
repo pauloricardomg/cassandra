@@ -50,7 +50,7 @@ public class BufferedRandomAccessFileTest
 
         w.sync();
 
-        // reading small amount of data from file, this is handled by initial buffer
+        // reading small amount of data from file, this is handled by initial writeBuffer
         RandomAccessReader r = RandomAccessReader.open(channel);
 
         byte[] buffer = new byte[data.length];
@@ -61,7 +61,7 @@ public class BufferedRandomAccessFileTest
 
         r.close();
 
-        // writing buffer bigger than page size, which will trigger reBuffer()
+        // writing writeBuffer bigger than page size, which will trigger reBuffer()
         byte[] bigData = new byte[RandomAccessReader.DEFAULT_BUFFER_SIZE + 10];
 
         for (int i = 0; i < bigData.length; i++)
@@ -76,7 +76,7 @@ public class BufferedRandomAccessFileTest
 
         r = RandomAccessReader.open(channel); // re-opening file in read-only mode
 
-        // reading written buffer
+        // reading written writeBuffer
         r.seek(initialPosition); // back to initial (before write) position
         data = new byte[bigData.length];
         long sizeRead = 0;
@@ -98,7 +98,7 @@ public class BufferedRandomAccessFileTest
         assertEquals(fileContent.limit(), w.length());
         assert ByteBufferUtil.string(fileContent).equals("Hello" + new String(bigData));
 
-        // read the same buffer but using readFully(int)
+        // read the same writeBuffer but using readFully(int)
         data = new byte[bigData.length];
         r.seek(initialPosition);
         r.readFully(data);
@@ -159,7 +159,7 @@ public class BufferedRandomAccessFileTest
         SequentialWriter w = SequentialWriter.open(tmpFile);
         assertEquals(0, w.length());
 
-        // write a chunk smaller then our buffer, so will not be flushed
+        // write a chunk smaller then our writeBuffer, so will not be flushed
         // to disk
         byte[] lessThenBuffer = generateByteArray(RandomAccessReader.DEFAULT_BUFFER_SIZE / 2);
         w.write(lessThenBuffer);
@@ -169,7 +169,7 @@ public class BufferedRandomAccessFileTest
         w.sync();
         assertEquals(lessThenBuffer.length, w.length());
 
-        // write more then the buffer can hold and check length
+        // write more then the writeBuffer can hold and check length
         byte[] biggerThenBuffer = generateByteArray(RandomAccessReader.DEFAULT_BUFFER_SIZE * 2);
         w.write(biggerThenBuffer);
         assertEquals(biggerThenBuffer.length + lessThenBuffer.length, w.length());
@@ -321,7 +321,7 @@ public class BufferedRandomAccessFileTest
     @Test
     public void testIsEOF() throws IOException
     {
-        for (int bufferSize : Arrays.asList(1, 2, 3, 5, 8, 64))  // smaller, equal, bigger buffer sizes
+        for (int bufferSize : Arrays.asList(1, 2, 3, 5, 8, 64))  // smaller, equal, bigger writeBuffer sizes
         {
             final byte[] target = new byte[32];
 
@@ -430,7 +430,7 @@ public class BufferedRandomAccessFileTest
 
         expectException(() -> r.read(), NullPointerException.class);
 
-        //Used to throw ClosedChannelException, but now that it extends BDOSP it just NPEs on the buffer
+        //Used to throw ClosedChannelException, but now that it extends BDOSP it just NPEs on the writeBuffer
         //Writing to a BufferedOutputStream that is closed generates no error
         //Going to allow the NPE to throw to catch as a bug any use after close. Notably it won't throw NPE for a
         //write of a 0 length, but that is kind of a corner case

@@ -40,6 +40,8 @@ import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.SSTableSimpleIterator;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.Version;
+import org.apache.cassandra.io.util.CachedInputStream;
+import org.apache.cassandra.io.util.MemoryCachedInputStream;
 import org.apache.cassandra.io.util.RewindableDataInputStreamPlus;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataInputStreamPlus;
@@ -206,7 +208,7 @@ public class StreamReader
         public StreamDeserializer(CFMetaData metadata, InputStream in, Version version, SerializationHeader header)
         {
             this.metadata = metadata;
-            this.in = version.correspondingMessagingVersion() < MessagingService.VERSION_30? new RewindableDataInputStreamPlus(in, BUFFER_SIZE)
+            this.in = version.correspondingMessagingVersion() < MessagingService.VERSION_30? new RewindableDataInputStreamPlus(new MemoryCachedInputStream(in))
                                                                                            : new DataInputStreamPlus(in);
             this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
             this.header = header;

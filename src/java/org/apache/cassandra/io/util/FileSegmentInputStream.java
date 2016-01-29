@@ -21,7 +21,7 @@ package org.apache.cassandra.io.util;
 import java.nio.ByteBuffer;
 
 /**
- * This is the same as DataInputBuffer, i.e. a stream for a fixed byte buffer,
+ * This is the same as DataInputBuffer, i.e. a stream for a fixed byte writeBuffer,
  * except that we also implement FileDataInput by using an offset and a file path.
  */
 public class FileSegmentInputStream extends DataInputBuffer implements FileDataInput

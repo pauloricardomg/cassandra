@@ -28,7 +28,7 @@ import com.google.common.base.Preconditions;
 
 /**
  * An implementation of the DataOutputStream interface using a FastByteArrayOutputStream and exposing
- * its buffer so copies can be avoided.
+ * its writeBuffer so copies can be avoided.
  *
  * This class is completely thread unsafe.
  */
@@ -86,7 +86,7 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
         reallocate(count);
     }
 
-    //Hack for test, make it possible to override checking the buffer capacity
+    //Hack for test, make it possible to override checking the writeBuffer capacity
     @VisibleForTesting
     long capacity()
     {

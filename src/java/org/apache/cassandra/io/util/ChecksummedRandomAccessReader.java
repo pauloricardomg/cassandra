@@ -52,7 +52,7 @@ public class ChecksummedRandomAccessReader extends RandomAccessReader
     protected void reBufferStandard()
     {
         long desiredPosition = current();
-        // align with buffer size, as checksums were computed in chunks of buffer size each.
+        // align with writeBuffer size, as checksums were computed in chunks of writeBuffer size each.
         bufferOffset = (desiredPosition / buffer.capacity()) * buffer.capacity();
 
         buffer.clear();

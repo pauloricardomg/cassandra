@@ -49,9 +49,9 @@ public class BufferedDataOutputStreamPlus extends DataOutputStreamPlus
     //directly shouldn't happen because they intercept via doFlush for things
     //like compression or checksumming
     //Another hack for this value is that it also indicates that flushing early
-    //should not occur, flushes aligned with buffer size are desired
+    //should not occur, flushes aligned with writeBuffer size are desired
     //Unless... it's the last flush. Compression and checksum formats
-    //expect block (same as buffer size) alignment for everything except the last block
+    //expect block (same as writeBuffer size) alignment for everything except the last block
     protected boolean strictFlushing = false;
 
     public BufferedDataOutputStreamPlus(RandomAccessFile ras)
@@ -139,7 +139,7 @@ public class BufferedDataOutputStreamPlus extends DataOutputStreamPlus
 
     /*
      * Makes a defensive copy of the incoming ByteBuffer and don't modify the position or limit
-     * even temporarily so it is thread-safe WRT to the incoming buffer
+     * even temporarily so it is thread-safe WRT to the incoming writeBuffer
      * (non-Javadoc)
      * @see org.apache.cassandra.io.util.DataOutputPlus#write(java.nio.ByteBuffer)
      */
@@ -174,7 +174,7 @@ public class BufferedDataOutputStreamPlus extends DataOutputStreamPlus
         }
     }
 
-    // writes anything we can't fit into the buffer
+    // writes anything we can't fit into the writeBuffer
     @DontInline
     private void writeExcessSlow() throws IOException
     {
