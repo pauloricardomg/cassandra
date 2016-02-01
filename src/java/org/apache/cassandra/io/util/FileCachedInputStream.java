@@ -77,11 +77,6 @@ public class FileCachedInputStream extends CachedInputStream
     {
     }
 
-    protected boolean shouldWriteToBuffer()
-    {
-        return isMarked() && this.position > maxReset;
-    }
-
     public BufferedOutputStream getWriteBuffer()
     {
         return (BufferedOutputStream)this.writeBuffer;
@@ -106,5 +101,10 @@ public class FileCachedInputStream extends CachedInputStream
         {
             bufferFile.delete();
         }
+    }
+
+    protected long getMaxCachedPosition()
+    {
+        return maxReset;
     }
 }

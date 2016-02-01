@@ -22,19 +22,29 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.BufferOverflowException;
 
 public abstract class CachedInputStream extends FilterInputStream
 {
+    public static final long UNLIMITED_CAPACITY = -1;
+
     private InputStream readBuffer = null;
     protected OutputStream writeBuffer = null;
     protected long markedPosition = -1;
     protected long position = 0;
+    private final long capacity;
 
     private long remaining = 0;
 
     public CachedInputStream(InputStream in)
     {
+        this(in, UNLIMITED_CAPACITY);
+    }
+
+    public CachedInputStream(InputStream in, long capacity)
+    {
         super(in);
+        this.capacity = capacity;
     }
 
     public abstract OutputStream createWriteBuffer();
@@ -50,7 +60,7 @@ public abstract class CachedInputStream extends FilterInputStream
      */
     public synchronized void mark(int readlimit)
     {
-        if (isMarked())
+        if (isMarked()) //TODO support mark of already marked stream
             throw new IllegalStateException("Stream is already marked. Reset must be called before marking again.");
         this.markedPosition = position;
         if (this.writeBuffer == null)
@@ -96,48 +106,106 @@ public abstract class CachedInputStream extends FilterInputStream
     public long skip(long n) throws IOException
     {
         long skippedFrombuffer = remaining;
+        if (skippedFrombuffer > 0)
+            consumeReadBuffer(skippedFrombuffer);
+
         incPosition(n);
-        if (remaining > 0)
-            consumeReadBuffer(remaining);
-
         return skippedFrombuffer + super.skip(n - skippedFrombuffer);
-    }
-
-    public int read() throws IOException
-    {
-        int result;
-        if (remaining > 0)
-        {
-            result = readBuffer.read();
-            consumeReadBuffer(1);
-        }
-        else
-            result = super.read();
-
-        incPosition(1);
-        if (shouldWriteToBuffer())
-        {
-            writeBuffer.write(result);
-        }
-        return result;
-    }
-
-    /**
-     * May be overriden by subclasses
-     */
-    protected boolean shouldWriteToBuffer()
-    {
-        return this.isMarked();
-    }
-
-    public boolean isMarked()
-    {
-        return markedPosition != -1;
     }
 
     public int read(byte[] b) throws IOException
     {
         return read(b, 0, b.length);
+    }
+
+    public int read(byte[] b, int off, int len) throws IOException
+    {
+        int result = 0;
+
+        // first try to read from cache
+
+        int cacheReadLen = (int)Math.min(remaining, (long)len);
+        if (cacheReadLen > 0)
+        {
+            result += readBuffer.read(b, off, cacheReadLen);
+            consumeReadBuffer(cacheReadLen);
+            if (shouldWriteToBuffer(cacheReadLen) && isEphemeralCache())
+                writeBuffer.write(b, off, cacheReadLen);
+            off = off + cacheReadLen;
+            len = len - cacheReadLen;
+            incPosition(cacheReadLen);
+        }
+
+        // read remaining from parent stream
+        if (len > 0)
+        {
+            maybeMarkParentStream(len);
+            result += super.read(b, off, len);
+            if (shouldWriteToBuffer(len))
+            {
+                writeBuffer.write(b, off, len);
+            }
+            incPosition(len);
+        }
+        return result;
+    }
+
+    public void maybeMarkParentStream(int readLength)
+    {
+        if (isMarked() && isWriteBufferFull(readLength))
+        {
+            if (in.markSupported())
+                in.mark(0);
+            else
+                throw new BufferOverflowException();
+        }
+    }
+
+    public int read() throws IOException
+    {
+        int result;
+
+
+        boolean shouldWriteToBuffer = shouldWriteToBuffer(1);
+        if (remaining > 0)
+        {
+            result = readBuffer.read();
+            consumeReadBuffer(1);
+            shouldWriteToBuffer &= isEphemeralCache(); //persistent caches do not need to be rewritten
+        }
+        else
+        {
+            maybeMarkParentStream(1);
+            result = super.read();
+        }
+
+        if (shouldWriteToBuffer)
+        {
+            writeBuffer.write(result);
+        }
+
+        incPosition(1);
+        return result;
+    }
+
+    public boolean shouldWriteToBuffer(int len)
+    {
+        return isMarked() && !isWriteBufferFull(len);
+    }
+
+    public boolean isEphemeralCache()
+    {
+        return false; //may be overriden by ephemeral implementations
+    }
+
+    public boolean isWriteBufferFull(int len)
+    {
+        return capacity != UNLIMITED_CAPACITY && getWriteBufferSize() + len > capacity;
+    }
+
+    public boolean isMarked()
+    {
+        return markedPosition != -1;
     }
 
     private void consumeReadBuffer(long readLength)
@@ -166,28 +234,6 @@ public abstract class CachedInputStream extends FilterInputStream
         }
     }
 
-    public int read(byte[] b, int off, int len) throws IOException
-    {
-        int cacheReadLen = (int)Math.min(remaining, (long)len);
-        int result = 0;
-        if (cacheReadLen > 0)
-        {
-            result += readBuffer.read(b, off, cacheReadLen);
-            consumeReadBuffer(len);
-            off = off + cacheReadLen;
-            len = len - cacheReadLen;
-        }
-
-        incPosition(len);
-        if (len > 0)
-        {
-            result += super.read(b, off, len);
-            if (shouldWriteToBuffer())
-                writeBuffer.write(b, off, len);
-        }
-        return result;
-    }
-
     public void incPosition(long len)
     {
         position += len;
@@ -206,5 +252,10 @@ public abstract class CachedInputStream extends FilterInputStream
     protected void cleanup()
     {
         //may be overriden by implementations
+    }
+
+    protected long getWriteBufferSize()
+    {
+        return position - markedPosition;
     }
 }

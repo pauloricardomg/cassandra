@@ -52,4 +52,9 @@ public class MemoryCachedInputStream extends CachedInputStream
     {
         return new ByteArrayOutputStream();
     }
+
+    public boolean isEphemeralCache()
+    {
+        return true;
+    }
 }

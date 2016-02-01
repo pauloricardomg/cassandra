@@ -54,25 +54,33 @@ public class RewindableDataInputStreamPlusTest
     @Test
     public void testMarkAndResetSimple() throws Exception
     {
-        internalTestMarkAndResetSimple(SourceStreamType.FILE);
         internalTestMarkAndResetSimple(SourceStreamType.MEMORY);
+        internalTestMarkAndResetSimple(SourceStreamType.FILE);
         internalTestMarkAndResetSimple(SourceStreamType.BYTEARRAY);
     }
 
     @Test
     public void testMarkAndResetUnsignedRead() throws Exception
     {
-        internalTestMarkAndResetUnsignedRead(SourceStreamType.FILE);
         internalTestMarkAndResetUnsignedRead(SourceStreamType.MEMORY);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.FILE);
         internalTestMarkAndResetUnsignedRead(SourceStreamType.BYTEARRAY);
     }
 
     @Test
-    public void testMarkAndResetSkipBytesAndReadFully() throws Exception
+    public void testMarkAndResetSkipBytes() throws Exception
     {
-        internalTestMarkAndResetSkipBytesAndReadFully(SourceStreamType.FILE);
-        internalTestMarkAndResetSkipBytesAndReadFully(SourceStreamType.MEMORY);
-        internalTestMarkAndResetSkipBytesAndReadFully(SourceStreamType.BYTEARRAY);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.MEMORY);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.FILE);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.BYTEARRAY);
+    }
+
+    @Test
+    public void testMarkAndResetReadFully() throws Exception
+    {
+        internalTestMarkAndResetReadFully(SourceStreamType.MEMORY);
+        internalTestMarkAndResetReadFully(SourceStreamType.FILE);
+        internalTestMarkAndResetReadFully(SourceStreamType.BYTEARRAY);
     }
 
     public void internalTestMarkAndResetSimple(SourceStreamType type) throws Exception
@@ -247,7 +255,7 @@ public class RewindableDataInputStreamPlusTest
         }
     }
 
-    public void internalTestMarkAndResetSkipBytesAndReadFully(SourceStreamType type) throws Exception
+    public void internalTestMarkAndResetSkipBytes(SourceStreamType type) throws Exception
     {
         String testStr = "1234567890";
         byte[] testData = testStr.getBytes();
@@ -285,6 +293,61 @@ public class RewindableDataInputStreamPlusTest
 
             if (type.isFile())
                 assertEquals(8, file.length()); // 5 + 3 bytes
+        }
+        finally
+        {
+            reader.close();
+            if (type.isFile())
+                assertFalse(file.exists());
+        }
+    }
+
+    public void internalTestMarkAndResetReadFully(SourceStreamType type) throws Exception
+    {
+        String testStr = "1234567890";
+        byte[] testData = testStr.getBytes();
+
+        InputStream cached = getInputStream(type, testData);
+        RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached);
+
+        try
+        {
+            reader.mark();
+            // read first 5 bytes and rewind
+            byte[] out = new byte[5];
+            reader.readFully(out, 0, 5);
+            assertEquals("12345", new String(out));
+            reader.reset();
+
+            // read half from cache, half from parent stream
+            reader.mark();
+            out = new byte[7];
+            reader.readFully(out);
+            assertEquals("1234567", new String(out));
+            reader.reset();
+
+            out = new byte[7];
+            reader.readFully(out);
+            assertEquals("1234567", new String(out));
+
+            // mark and read 3 more bytes
+            reader.mark();
+            out = new byte[3];
+            reader.readFully(out);
+            assertEquals("890", new String(out));
+            assertEquals(0, reader.available());
+            reader.reset();
+
+            //reset and read only the next byte "8" in the third position
+            reader.readFully(out, 2, 1);
+            assertEquals("898", new String(out));
+
+            //now we read the remainder via readline
+            assertEquals(2, reader.available());
+            assertEquals("90", reader.readLine());
+
+            if (type.isFile())
+                assertEquals(10, file.length()); // all bytes were cached
         }
         finally
         {

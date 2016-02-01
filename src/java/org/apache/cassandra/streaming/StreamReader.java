@@ -132,7 +132,7 @@ public class StreamReader
                 logger.warn("[Stream {}] Error while reading partition {} from stream on ks='{}' and table='{}'.",
                             session.planId(), deserializer.partitionKey(), cfs.keyspace.getName(), cfs.getColumnFamilyName());
             if (writer != null)
-            {
+            {;
                 writer.abort(e);
             }
             drain(in, in.getBytesRead());
