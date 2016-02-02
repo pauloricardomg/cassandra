@@ -18,11 +18,14 @@
 
 package org.apache.cassandra.io.util;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.BufferOverflowException;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -34,12 +37,25 @@ import static org.junit.Assert.fail;
 
 public class RewindableDataInputStreamPlusTest
 {
+    class NonMarkableByteArrayInputStream extends ByteArrayInputStream
+    {
+        NonMarkableByteArrayInputStream(byte[] buf)
+        {
+            super(buf);
+        }
+
+        public boolean markSupported()
+        {
+            return false;
+        }
+    }
+
 
     enum SourceStreamType
     {
-        BYTEARRAY, MEMORY, FILE;
+        BYTEARRAY, MEMORY, FILE, HYBRID_0, HYBRID_1, HYBRID_2, HYBRID_3, HYBRID_5, HYBRID_8, HYBRID_21, BUFFERED;
 
-        boolean isFile() { return this == FILE; }
+        boolean isFile() { return this == FILE || this == HYBRID_0; }
     }
 
     private File file;
@@ -48,7 +64,6 @@ public class RewindableDataInputStreamPlusTest
     public void setup() throws Exception
     {
         this.file = new File("/tmp/bla");
-        this.file.createNewFile();
     }
 
     @Test
@@ -57,6 +72,14 @@ public class RewindableDataInputStreamPlusTest
         internalTestMarkAndResetSimple(SourceStreamType.MEMORY);
         internalTestMarkAndResetSimple(SourceStreamType.FILE);
         internalTestMarkAndResetSimple(SourceStreamType.BYTEARRAY);
+        internalTestMarkAndResetSimple(SourceStreamType.HYBRID_0);
+        internalTestMarkAndResetSimple(SourceStreamType.HYBRID_1);
+        internalTestMarkAndResetSimple(SourceStreamType.HYBRID_2);
+        internalTestMarkAndResetSimple(SourceStreamType.HYBRID_3);
+        internalTestMarkAndResetSimple(SourceStreamType.HYBRID_5);
+        internalTestMarkAndResetSimple(SourceStreamType.HYBRID_8);
+        internalTestMarkAndResetSimple(SourceStreamType.HYBRID_21);
+        internalTestMarkAndResetSimple(SourceStreamType.BUFFERED);
     }
 
     @Test
@@ -65,6 +88,14 @@ public class RewindableDataInputStreamPlusTest
         internalTestMarkAndResetUnsignedRead(SourceStreamType.MEMORY);
         internalTestMarkAndResetUnsignedRead(SourceStreamType.FILE);
         internalTestMarkAndResetUnsignedRead(SourceStreamType.BYTEARRAY);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.HYBRID_0);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.HYBRID_1);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.HYBRID_2);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.HYBRID_3);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.HYBRID_5);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.HYBRID_8);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.HYBRID_21);
+        internalTestMarkAndResetUnsignedRead(SourceStreamType.BUFFERED);
     }
 
     @Test
@@ -73,6 +104,14 @@ public class RewindableDataInputStreamPlusTest
         internalTestMarkAndResetSkipBytes(SourceStreamType.MEMORY);
         internalTestMarkAndResetSkipBytes(SourceStreamType.FILE);
         internalTestMarkAndResetSkipBytes(SourceStreamType.BYTEARRAY);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.HYBRID_0);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.HYBRID_1);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.HYBRID_2);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.HYBRID_3);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.HYBRID_5);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.HYBRID_8);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.HYBRID_21);
+        internalTestMarkAndResetSkipBytes(SourceStreamType.BUFFERED);
     }
 
     @Test
@@ -81,6 +120,112 @@ public class RewindableDataInputStreamPlusTest
         internalTestMarkAndResetReadFully(SourceStreamType.MEMORY);
         internalTestMarkAndResetReadFully(SourceStreamType.FILE);
         internalTestMarkAndResetReadFully(SourceStreamType.BYTEARRAY);
+        internalTestMarkAndResetReadFully(SourceStreamType.HYBRID_0);
+        internalTestMarkAndResetReadFully(SourceStreamType.HYBRID_1);
+        internalTestMarkAndResetReadFully(SourceStreamType.HYBRID_2);
+        internalTestMarkAndResetReadFully(SourceStreamType.HYBRID_3);
+        internalTestMarkAndResetReadFully(SourceStreamType.HYBRID_5);
+        internalTestMarkAndResetReadFully(SourceStreamType.HYBRID_8);
+        internalTestMarkAndResetReadFully(SourceStreamType.HYBRID_21);
+        internalTestMarkAndResetReadFully(SourceStreamType.BUFFERED);
+    }
+
+    @Test
+    public void testConstrainedRewindableDataInputWithoutMarkableParentStream() throws Exception
+    {
+        internalTestConstrainedCachedInputStream(false);
+    }
+
+    @Test
+    public void testConstrainedRewindableDataInputWithMarkableParentStream() throws Exception
+    {
+        internalTestConstrainedCachedInputStream(true);
+    }
+
+
+    public void internalTestConstrainedCachedInputStream(boolean parentMarkable) throws Exception
+    {
+        byte[] testData;
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos))
+        {
+            // boolean
+            out.writeBoolean(true);
+            // short
+            out.writeShort(1);
+            testData = baos.toByteArray();
+        }
+
+        for (int capacity = 0; capacity <= 2; capacity++)
+        {
+
+            //Test reading without mark/reset
+            InputStream sourceStream = parentMarkable? new ByteArrayInputStream(testData) : new NonMarkableByteArrayInputStream(testData);
+            CachedInputStream cachedIs = CachedInputStream.newMemoryCachedInputStream(sourceStream, capacity);
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cachedIs))
+            {
+                assertTrue(reader.readBoolean());
+                assertEquals(1, reader.readShort());
+            }
+
+            //Test caching at most 1 byte (throw IOException otherwise)
+            sourceStream = parentMarkable? new ByteArrayInputStream(testData) : new NonMarkableByteArrayInputStream(testData);
+            cachedIs = CachedInputStream.newMemoryCachedInputStream(sourceStream, capacity);
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cachedIs))
+            {
+                reader.mark();
+                assertTrue(reader.readBoolean());
+                try {
+                    reader.reset();
+                    if (!parentMarkable && capacity == 0)
+                        fail("Should have thrown IOException");
+                }
+                catch (IOException e)
+                {
+                    if (parentMarkable || capacity > 0)
+                        fail("Should have NOT thrown IOException");
+                }
+
+                if (parentMarkable || capacity > 0)
+                {
+                    assertTrue(reader.readBoolean());
+                    assertEquals(1, reader.readShort());
+                }
+            }
+
+            //Test caching at most 2 bytes (throw IOException otherwise)
+            sourceStream = parentMarkable? new ByteArrayInputStream(testData) : new NonMarkableByteArrayInputStream(testData);
+            cachedIs = CachedInputStream.newMemoryCachedInputStream(sourceStream, capacity);
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cachedIs))
+            {
+                //cache boolean and first byte of short
+                reader.mark();
+                assertTrue(reader.readBoolean());
+                assertEquals(0x0, reader.readByte());
+
+                try {
+                    reader.reset();
+                    if (!parentMarkable && capacity <= 1)
+                        fail("Should have thrown IOException");
+                }
+                catch (IOException e)
+                {
+                    if (parentMarkable || capacity > 1)
+                        fail("Should have NOT thrown IOException");
+                }
+
+                if (parentMarkable || capacity > 1)
+                {
+                    assertTrue(reader.readBoolean());
+                    //cache short
+                    reader.mark();
+                    assertEquals(0x0, reader.readByte());
+                    reader.reset();
+                    assertEquals(1, reader.readShort());
+                }
+            }
+        }
     }
 
     public void internalTestMarkAndResetSimple(SourceStreamType type) throws Exception
@@ -88,8 +233,7 @@ public class RewindableDataInputStreamPlusTest
         byte[] testData;
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream out = new DataOutputStream(baos);
-        try
+        try (DataOutputStream out = new DataOutputStream(baos))
         {
             // boolean
             out.writeBoolean(true);
@@ -112,22 +256,17 @@ public class RewindableDataInputStreamPlusTest
             out.writeUTF("abc");
             testData = baos.toByteArray();
         }
-        finally
-        {
-            out.close();
-        }
 
-        InputStream cached = getInputStream(type, testData);
-        RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached);
+        InputStream cached = getCachedInputStream(type, testData);
 
-        try
+        try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
         {
             try {
                 //should mark before resetting
                 reader.reset(null);
                 if (cached instanceof CachedInputStream)
-                    fail("Should have thrown IllegalStateException");
-            } catch (IllegalStateException e) {}
+                    fail("Should have thrown IOException");
+            } catch (IOException e) {}
 
             assertTrue(reader.readBoolean());
 
@@ -148,8 +287,8 @@ public class RewindableDataInputStreamPlusTest
                 //should mark before resetting
                 reader.reset(null);
                 if (cached instanceof CachedInputStream)
-                    fail("Should have thrown IllegalStateException");
-            } catch (IllegalStateException e) {}
+                    fail("Should have thrown IOException");
+            } catch (IOException e) {}
 
             //read again previous sequence
             assertEquals(0x1, reader.readByte());
@@ -178,22 +317,34 @@ public class RewindableDataInputStreamPlusTest
             if (type.isFile())
                 assertEquals(19, file.length()); // 1 (byte) + 2 (char) + 4 (int) + 8 (long) + 4 (float)
         }
-        finally
-        {
-            reader.close();
-            if (type.isFile())
-                assertFalse(file.exists());
-        }
+        assertFalse(file.exists());
     }
 
-    public InputStream getInputStream(SourceStreamType type, byte[] testData)
+    public InputStream getCachedInputStream(SourceStreamType type, byte[] testData)
     {
+        InputStream sourceStream = new ByteArrayInputStream(testData);
         switch (type)
         {
             case FILE:
-                return new FileCachedInputStream(new ByteArrayInputStream(testData), file);
+                return CachedInputStream.newFileCachedInputStream(sourceStream, file);
             case MEMORY:
-                return new MemoryCachedInputStream(new ByteArrayInputStream(testData));
+                return CachedInputStream.newMemoryCachedInputStream(sourceStream);
+            case HYBRID_0:
+                return CachedInputStream.newHybridCachedInputStream(sourceStream, 0, file);
+            case HYBRID_1:
+                return CachedInputStream.newHybridCachedInputStream(sourceStream, 1, file);
+            case HYBRID_2:
+                return CachedInputStream.newHybridCachedInputStream(sourceStream, 2, file);
+            case HYBRID_3:
+                return CachedInputStream.newHybridCachedInputStream(sourceStream, 3, file);
+            case HYBRID_5:
+                return CachedInputStream.newHybridCachedInputStream(sourceStream, 5, file);
+            case HYBRID_8:
+                return CachedInputStream.newHybridCachedInputStream(sourceStream, 8, file);
+            case HYBRID_21:
+                return CachedInputStream.newHybridCachedInputStream(sourceStream, 21, file);
+            case BUFFERED:
+                return new BufferedInputStream(sourceStream, 1);
             default:
                 return new ByteArrayInputStream(testData);
         }
@@ -204,8 +355,7 @@ public class RewindableDataInputStreamPlusTest
         byte[] testData;
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream out = new DataOutputStream(baos);
-        try
+        try (DataOutputStream out = new DataOutputStream(baos))
         {
             // byte
             out.writeByte(0x1);
@@ -213,15 +363,9 @@ public class RewindableDataInputStreamPlusTest
             out.writeShort(2);
             testData = baos.toByteArray();
         }
-        finally
-        {
-            out.close();
-        }
 
-        InputStream cached = getInputStream(type, testData);
-        RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached);
-
-        try
+        InputStream cached = getCachedInputStream(type, testData);
+        try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
         {
             reader.mark();
             assertEquals(1, reader.readUnsignedByte());
@@ -247,12 +391,7 @@ public class RewindableDataInputStreamPlusTest
             if (type.isFile())
                 assertEquals(3, file.length()); // 1 (byte) + 2 (short)
         }
-        finally
-        {
-            reader.close();
-            if (type.isFile())
-                assertFalse(file.exists());
-        }
+        assertFalse(file.exists());
     }
 
     public void internalTestMarkAndResetSkipBytes(SourceStreamType type) throws Exception
@@ -260,10 +399,8 @@ public class RewindableDataInputStreamPlusTest
         String testStr = "1234567890";
         byte[] testData = testStr.getBytes();
 
-        InputStream cached = getInputStream(type, testData);
-        RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached);
-
-        try
+        InputStream cached = getCachedInputStream(type, testData);
+        try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
         {
             reader.mark();
             // read first 5 bytes and rewind
@@ -294,12 +431,7 @@ public class RewindableDataInputStreamPlusTest
             if (type.isFile())
                 assertEquals(8, file.length()); // 5 + 3 bytes
         }
-        finally
-        {
-            reader.close();
-            if (type.isFile())
-                assertFalse(file.exists());
-        }
+        assertFalse(file.exists());
     }
 
     public void internalTestMarkAndResetReadFully(SourceStreamType type) throws Exception
@@ -307,10 +439,8 @@ public class RewindableDataInputStreamPlusTest
         String testStr = "1234567890";
         byte[] testData = testStr.getBytes();
 
-        InputStream cached = getInputStream(type, testData);
-        RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached);
-
-        try
+        InputStream cached = getCachedInputStream(type, testData);
+        try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
         {
             reader.mark();
             // read first 5 bytes and rewind
@@ -349,11 +479,6 @@ public class RewindableDataInputStreamPlusTest
             if (type.isFile())
                 assertEquals(10, file.length()); // all bytes were cached
         }
-        finally
-        {
-            reader.close();
-            if (type.isFile())
-                assertFalse(file.exists());
-        }
+        assertFalse(file.exists());
     }
 }

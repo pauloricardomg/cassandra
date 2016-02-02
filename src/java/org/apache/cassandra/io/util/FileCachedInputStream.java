@@ -43,10 +43,8 @@ public class FileCachedInputStream extends CachedInputStream
         this.bufferFile = bufferFile;
     }
 
-    public InputStream internalReset()
+    public InputStream internalReset() throws IOException
     {
-        try
-        {
             getWriteBuffer().flush();
             SyncUtil.sync(currentFileOutputStream);
 
@@ -58,11 +56,6 @@ public class FileCachedInputStream extends CachedInputStream
             lastReset = position;
 
             return new BufferedInputStream(in);
-        }
-        catch (IOException ioe)
-        {
-            throw new RuntimeException(ioe);
-        }
     }
 
     protected void internalMark()
@@ -82,17 +75,12 @@ public class FileCachedInputStream extends CachedInputStream
         return (BufferedOutputStream)this.writeBuffer;
     }
 
-    public OutputStream createWriteBuffer()
+    public OutputStream createWriteBuffer() throws IOException
     {
-        try
-        {
-            currentFileOutputStream = new FileOutputStream(bufferFile);
-            return new BufferedOutputStream(currentFileOutputStream);
-        }
-        catch (FileNotFoundException fnfe)
-        {
-            throw new RuntimeException(fnfe);
-        }
+        if (bufferFile.exists())
+            bufferFile.createNewFile();
+        currentFileOutputStream = new FileOutputStream(bufferFile);
+        return new BufferedOutputStream(currentFileOutputStream);
     }
 
     protected void cleanup()
@@ -101,10 +89,5 @@ public class FileCachedInputStream extends CachedInputStream
         {
             bufferFile.delete();
         }
-    }
-
-    protected long getMaxCachedPosition()
-    {
-        return maxReset;
     }
 }

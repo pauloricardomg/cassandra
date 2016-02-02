@@ -18,11 +18,11 @@
 
 package org.apache.cassandra.io.util;
 
+import java.io.File;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.BufferOverflowException;
 
 public abstract class CachedInputStream extends FilterInputStream
 {
@@ -35,6 +35,9 @@ public abstract class CachedInputStream extends FilterInputStream
     private final long capacity;
 
     private long remaining = 0;
+    private long parentMarkedPosition = -1;
+    private boolean isMarkInvalidated = false;
+    private IOException markException = null;
 
     public CachedInputStream(InputStream in)
     {
@@ -47,9 +50,9 @@ public abstract class CachedInputStream extends FilterInputStream
         this.capacity = capacity;
     }
 
-    public abstract OutputStream createWriteBuffer();
+    public abstract OutputStream createWriteBuffer() throws IOException;
 
-    public abstract InputStream internalReset();
+    public abstract InputStream internalReset() throws IOException;
 
     public abstract void resetWriteBuffer();
 
@@ -64,7 +67,15 @@ public abstract class CachedInputStream extends FilterInputStream
             throw new IllegalStateException("Stream is already marked. Reset must be called before marking again.");
         this.markedPosition = position;
         if (this.writeBuffer == null)
-            writeBuffer = createWriteBuffer();
+        {
+            try {
+                writeBuffer = createWriteBuffer();
+            }
+            catch (IOException e)
+            {
+                markException = e;
+            }
+        }
         internalMark();
     }
 
@@ -86,16 +97,35 @@ public abstract class CachedInputStream extends FilterInputStream
     public synchronized void reset() throws IOException
     {
         if (!isMarked())
-            throw new IllegalStateException("Stream is not marked. Mark must be called before calling reset.");
-        if (position > markedPosition) //reset is no-op if posititon <= markedPosition
+            throw new IOException("Stream is not marked. Mark must be called before calling reset.");
+
+        if (markException != null)
+            throw markException;
+
+        if (isMarkInvalidated)
+            throw new IOException(String.format("Mark was invalidated because cache buffer was full. Capacity: %d bytes.",
+                                                capacity));
+
+        if (parentMarkedPosition != -1)
+            in.reset();
+
+        if (position > markedPosition && parentMarkedPosition != markedPosition) //reset is no-op if posititon <= markedPosition
         {
             closeReadBuffer();
             this.readBuffer = internalReset();
-            this.remaining = position - markedPosition;
-            position = markedPosition;
-            markedPosition = -1;
+            this.remaining = (isParentMarked() ? parentMarkedPosition : position) - markedPosition;
             resetWriteBuffer();
         }
+
+        position = markedPosition;
+        markedPosition = -1;
+        this.parentMarkedPosition = -1;
+        this.isMarkInvalidated = false;
+    }
+
+    public boolean isParentMarked()
+    {
+        return this.parentMarkedPosition != -1;
     }
 
     public int available() throws IOException
@@ -123,7 +153,6 @@ public abstract class CachedInputStream extends FilterInputStream
         int result = 0;
 
         // first try to read from cache
-
         int cacheReadLen = (int)Math.min(remaining, (long)len);
         if (cacheReadLen > 0)
         {
@@ -152,12 +181,18 @@ public abstract class CachedInputStream extends FilterInputStream
 
     public void maybeMarkParentStream(int readLength)
     {
-        if (isMarked() && isWriteBufferFull(readLength))
+        if (!isMarkInvalidated && !isParentMarked()
+                && isMarked() && isWriteBufferFull(readLength))
         {
             if (in.markSupported())
+            {
+                this.parentMarkedPosition = position;
                 in.mark(0);
+            }
             else
-                throw new BufferOverflowException();
+            {
+                this.isMarkInvalidated = true;
+            }
         }
     }
 
@@ -190,7 +225,7 @@ public abstract class CachedInputStream extends FilterInputStream
 
     public boolean shouldWriteToBuffer(int len)
     {
-        return isMarked() && !isWriteBufferFull(len);
+        return isMarked() && !isWriteBufferFull(len) && writeBuffer != null;
     }
 
     public boolean isEphemeralCache()
@@ -257,5 +292,26 @@ public abstract class CachedInputStream extends FilterInputStream
     protected long getWriteBufferSize()
     {
         return position - markedPosition;
+    }
+
+    public static CachedInputStream newHybridCachedInputStream(InputStream sourceStream, long memoryCapacityInBytes,
+                                                               File bufferFile)
+    {
+        return new MemoryCachedInputStream(new FileCachedInputStream(sourceStream, bufferFile), memoryCapacityInBytes);
+    }
+
+    public static CachedInputStream newMemoryCachedInputStream(InputStream sourceStream, long capacity)
+    {
+        return new MemoryCachedInputStream(sourceStream, capacity);
+    }
+
+    public static CachedInputStream newMemoryCachedInputStream(InputStream sourceStream)
+    {
+        return new MemoryCachedInputStream(sourceStream);
+    }
+
+    public static CachedInputStream newFileCachedInputStream(InputStream sourceStream, File bufferFile)
+    {
+        return new FileCachedInputStream(sourceStream, bufferFile);
     }
 }

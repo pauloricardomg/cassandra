@@ -33,6 +33,10 @@ public class MemoryCachedInputStream extends CachedInputStream
         super(in);
     }
 
+    public MemoryCachedInputStream(InputStream in, long capacity){
+        super(in, capacity);
+    }
+
     public InputStream internalReset()
     {
         return new ByteArrayInputStream(getWriteBuffer().toByteArray());

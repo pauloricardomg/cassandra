@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.io.util;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -40,7 +41,7 @@ import java.io.InputStream;
  * There is no limit to the amount of buffered bytes, so the <code>readlimit</code> parameter of
  * {@link this#mark(int)} is currently ignored.
  */
-public class RewindableDataInputStreamPlus extends DataInputStreamPlus implements RewindableDataInput
+public class RewindableDataInputStreamPlus extends DataInputStreamPlus implements RewindableDataInput, Closeable
 {
     public RewindableDataInputStreamPlus(InputStream in)
     {
@@ -54,7 +55,7 @@ public class RewindableDataInputStreamPlus extends DataInputStreamPlus implement
      */
     public DataPosition mark()
     {
-        mark(0);
+        mark(1000);
         return new RewindableDataInputPlusMark();
     }
 
