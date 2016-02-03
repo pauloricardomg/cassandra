@@ -37,19 +37,20 @@ public class MemoryCachedInputStream extends CachedInputStream
         super(in, capacity);
     }
 
-    public InputStream internalReset()
+    public InputStream createReadBuffer() throws IOException
     {
         return new ByteArrayInputStream(getWriteBuffer().toByteArray());
     }
 
-    public void resetWriteBuffer()
+    public synchronized void reset() throws IOException
     {
+        super.reset();
         getWriteBuffer().reset();
     }
 
-    public ByteArrayOutputStream getWriteBuffer()
+    public ByteArrayOutputStream getWriteBuffer() throws IOException
     {
-        return (ByteArrayOutputStream)this.writeBuffer;
+        return (ByteArrayOutputStream) getWriteBufferIfOpen();
     }
 
     public OutputStream createWriteBuffer()

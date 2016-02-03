@@ -43,10 +43,19 @@ import java.io.InputStream;
  */
 public class RewindableDataInputStreamPlus extends DataInputStreamPlus implements RewindableDataInput, Closeable
 {
-    public RewindableDataInputStreamPlus(InputStream in)
+    private static final int DEFAULT_MAX_READ_AHEAD_BYTES = 1024; //only nee
+    private final int maxReadAhead;
+
+    public RewindableDataInputStreamPlus(InputStream in, int maxReadAhead)
     {
         super(in);
         assert in.markSupported();
+        this.maxReadAhead = maxReadAhead;
+    }
+
+    public RewindableDataInputStreamPlus(InputStream in)
+    {
+        this(in, DEFAULT_MAX_READ_AHEAD_BYTES);
     }
 
     /**
@@ -55,7 +64,7 @@ public class RewindableDataInputStreamPlus extends DataInputStreamPlus implement
      */
     public DataPosition mark()
     {
-        mark(1000);
+        mark(DEFAULT_MAX_READ_AHEAD_BYTES);
         return new RewindableDataInputPlusMark();
     }
 

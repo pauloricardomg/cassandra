@@ -26,18 +26,21 @@ import java.io.OutputStream;
 
 public abstract class CachedInputStream extends FilterInputStream
 {
-    public static final long UNLIMITED_CAPACITY = -1;
+    protected static final long UNLIMITED_CAPACITY = -1;
 
+    protected final long capacity;
+
+    private OutputStream writeBuffer = null;
     private InputStream readBuffer = null;
-    protected OutputStream writeBuffer = null;
-    protected long markedPosition = -1;
-    protected long position = 0;
-    private final long capacity;
 
-    private long remaining = 0;
-    private long parentMarkedPosition = -1;
-    private boolean isMarkInvalidated = false;
+    protected long parentMarkPos = -1;
+    protected long markPos = -1;
+    protected long pos = 0;
+
+    private long available = 0;
     private IOException markException = null;
+
+    private volatile boolean closed = false;
 
     public CachedInputStream(InputStream in)
     {
@@ -50,43 +53,43 @@ public abstract class CachedInputStream extends FilterInputStream
         this.capacity = capacity;
     }
 
-    public abstract OutputStream createWriteBuffer() throws IOException;
-
-    public abstract InputStream internalReset() throws IOException;
-
-    public abstract void resetWriteBuffer();
-
-    /**
-     * Marks the current position of a stream to return to this position later via the {@link this#reset()} method.
-     *
-     * @param readlimit this parameter is currently ignored, so there is no limit to buffered bytes.
-     */
-    public synchronized void mark(int readlimit)
-    {
-        if (isMarked()) //TODO support mark of already marked stream
-            throw new IllegalStateException("Stream is already marked. Reset must be called before marking again.");
-        this.markedPosition = position;
-        if (this.writeBuffer == null)
-        {
-            try {
-                writeBuffer = createWriteBuffer();
-            }
-            catch (IOException e)
-            {
-                markException = e;
-            }
-        }
-        internalMark();
-    }
-
-    protected void internalMark()
-    {
-        //no-op, may be overriden my implementations
-    }
+    /* InputStream methods */
 
     public boolean markSupported()
     {
         return true;
+    }
+
+    /**
+     * Marks the current position of a stream to return to this position later via the {@link this#reset()} method.
+     *
+     * @param readlimit this parameter is ignored, so there is no limit to buffered bytes.
+     */
+    public synchronized void mark(int readlimit)
+    {
+        if (isMarked())
+            throw new IllegalStateException("Stream is already marked. Reset must be called before marking again.");
+
+        if (!isClosed())
+        {
+            this.markPos = pos;
+            if (available > 0)
+            {
+                readBuffer.mark(readlimit);
+            }
+            if (this.writeBuffer == null)
+            {
+                try
+                {
+                    this.writeBuffer = createWriteBuffer();
+                }
+                catch (IOException e)
+                {
+                    this.markPos = -1; //invalidate mark
+                    this.markException = e; //exception will be thrown on reset() call
+                }
+            }
+        }
     }
 
     /**
@@ -96,51 +99,92 @@ public abstract class CachedInputStream extends FilterInputStream
      */
     public synchronized void reset() throws IOException
     {
-        if (!isMarked())
-            throw new IOException("Stream is not marked. Mark must be called before calling reset.");
+        checkClosed();
 
         if (markException != null)
-            throw markException;
-
-        if (isMarkInvalidated)
-            throw new IOException(String.format("Mark was invalidated because cache buffer was full. Capacity: %d bytes.",
-                                                capacity));
-
-        if (parentMarkedPosition != -1)
-            in.reset();
-
-        if (position > markedPosition && parentMarkedPosition != markedPosition) //reset is no-op if posititon <= markedPosition
         {
-            closeReadBuffer();
-            this.readBuffer = internalReset();
-            this.remaining = (isParentMarked() ? parentMarkedPosition : position) - markedPosition;
-            resetWriteBuffer();
+            IOException exception = markException;
+            markException = null;
+            throw exception;
         }
 
-        position = markedPosition;
-        markedPosition = -1;
-        this.parentMarkedPosition = -1;
-        this.isMarkInvalidated = false;
+        if (!isMarked())
+            throw new IOException("Stream is not marked or was invalidated. Mark must be called before calling reset.");
+
+        if (parentMarkPos != -1)
+            getInIfOpen().reset();
+
+        if (pos > markPos && parentMarkPos != markPos)
+        {
+            if (available > 0)
+            {
+                this.readBuffer.reset();
+                this.available += pos - markPos;
+            }
+            if (available == 0)
+            {
+                closeReadBuffer();
+                this.readBuffer = createReadBuffer();
+                this.available = (isParentMarked() ? parentMarkPos : pos) - markPos;
+            }
+        }
+
+        this.pos = markPos;
+        this.markPos = -1;
+        this.parentMarkPos = -1;
     }
 
-    public boolean isParentMarked()
-    {
-        return this.parentMarkedPosition != -1;
-    }
+
 
     public int available() throws IOException
     {
-        return (int)remaining + super.available();
+        return (int) available + super.available();
     }
 
     public long skip(long n) throws IOException
     {
-        long skippedFrombuffer = remaining;
-        if (skippedFrombuffer > 0)
-            consumeReadBuffer(skippedFrombuffer);
+        long skipped = 0;
 
-        incPosition(n);
-        return skippedFrombuffer + super.skip(n - skippedFrombuffer);
+        if (isMarked())
+            while (read() != -1 && ++skipped < n);
+        else
+        {
+            if (available > 0)
+            {
+                skipped += getReadBufferIfOpen().skip(Math.min(available, n));
+                available -= skipped;
+            }
+            skipped += super.skip(Math.max(n - skipped, 0));
+            pos += skipped;
+        }
+
+        return skipped;
+    }
+
+    public int read() throws IOException
+    {
+        int result;
+
+        boolean shouldWriteToBuffer = shouldWriteToBuffer(1);
+        if (available > 0)
+        {
+            result = getReadBufferIfOpen().read();
+            available--;
+            shouldWriteToBuffer &= isEphemeralCache(); //persistent caches do not need to be rewritten
+        }
+        else
+        {
+            maybeMarkParentStream(1);
+            result = super.read();
+        }
+
+        if (shouldWriteToBuffer)
+        {
+            getWriteBufferIfOpen().write(result);
+        }
+
+        pos += 1;
+        return result;
     }
 
     public int read(byte[] b) throws IOException
@@ -153,146 +197,146 @@ public abstract class CachedInputStream extends FilterInputStream
         int result = 0;
 
         // first try to read from cache
-        int cacheReadLen = (int)Math.min(remaining, (long)len);
+        int cacheReadLen = (int)Math.min(available, (long)len);
         if (cacheReadLen > 0)
         {
-            result += readBuffer.read(b, off, cacheReadLen);
-            consumeReadBuffer(cacheReadLen);
+            result += getReadBufferIfOpen().read(b, off, cacheReadLen);
+            available -= cacheReadLen;
             if (shouldWriteToBuffer(cacheReadLen) && isEphemeralCache())
-                writeBuffer.write(b, off, cacheReadLen);
+                getWriteBufferIfOpen().write(b, off, cacheReadLen);
             off = off + cacheReadLen;
             len = len - cacheReadLen;
-            incPosition(cacheReadLen);
+            pos += cacheReadLen;
         }
 
-        // read remaining from parent stream
+        // read available from parent stream
         if (len > 0)
         {
             maybeMarkParentStream(len);
             result += super.read(b, off, len);
             if (shouldWriteToBuffer(len))
             {
-                writeBuffer.write(b, off, len);
+                getWriteBufferIfOpen().write(b, off, len);
             }
-            incPosition(len);
+            pos += len;
         }
         return result;
     }
 
-    public void maybeMarkParentStream(int readLength)
+    public synchronized void close() throws IOException
     {
-        if (!isMarkInvalidated && !isParentMarked()
-                && isMarked() && isWriteBufferFull(readLength))
+        if (!isClosed())
         {
-            if (in.markSupported())
-            {
-                this.parentMarkedPosition = position;
-                in.mark(0);
-            }
-            else
-            {
-                this.isMarkInvalidated = true;
-            }
+            closed = true;
+            super.close();
+            closeReadBuffer();
+            closeWriteBuffer();
         }
     }
 
-    public int read() throws IOException
+    /* Abstract methods */
+
+    public abstract OutputStream createWriteBuffer() throws IOException;
+
+    public abstract InputStream createReadBuffer() throws IOException;
+
+    /* Protected methods */
+
+    protected boolean isClosed()
     {
-        int result;
-
-
-        boolean shouldWriteToBuffer = shouldWriteToBuffer(1);
-        if (remaining > 0)
-        {
-            result = readBuffer.read();
-            consumeReadBuffer(1);
-            shouldWriteToBuffer &= isEphemeralCache(); //persistent caches do not need to be rewritten
-        }
-        else
-        {
-            maybeMarkParentStream(1);
-            result = super.read();
-        }
-
-        if (shouldWriteToBuffer)
-        {
-            writeBuffer.write(result);
-        }
-
-        incPosition(1);
-        return result;
+        return this.closed;
     }
 
-    public boolean shouldWriteToBuffer(int len)
-    {
-        return isMarked() && !isWriteBufferFull(len) && writeBuffer != null;
+    protected InputStream getInIfOpen() throws IOException {
+        checkClosed();
+        return in;
     }
 
-    public boolean isEphemeralCache()
+    protected OutputStream getWriteBufferIfOpen() throws IOException {
+        checkClosed();
+        return writeBuffer;
+    }
+
+    protected InputStream getReadBufferIfOpen() throws IOException {
+        checkClosed();
+        return readBuffer;
+    }
+
+    protected boolean isEphemeralCache()
     {
         return false; //may be overriden by ephemeral implementations
     }
 
-    public boolean isWriteBufferFull(int len)
+
+    protected long getMarkedLength()
     {
-        return capacity != UNLIMITED_CAPACITY && getWriteBufferSize() + len > capacity;
+        return pos - markPos;
     }
 
-    public boolean isMarked()
+    /* Private methods */
+
+    private boolean isParentMarked()
     {
-        return markedPosition != -1;
+        return this.parentMarkPos != -1;
     }
 
-    private void consumeReadBuffer(long readLength)
+    private void maybeMarkParentStream(int readLength)
     {
-        assert remaining > 0;
-        remaining -= readLength;
-        if (remaining == 0)
+        if (!isParentMarked()
+                && isMarked() && isWriteBufferFull(readLength))
         {
-            closeReadBuffer();
+            if (in.markSupported())
+            {
+                this.parentMarkPos = pos;
+                in.mark(0);
+            }
+            else
+            {
+                this.markPos = -1; //invalidate mark
+            }
         }
     }
 
-    private void closeReadBuffer()
+    private boolean shouldWriteToBuffer(int len) throws IOException
+    {
+        return isMarked() && !isWriteBufferFull(len) && getWriteBufferIfOpen() != null;
+    }
+
+    private boolean isWriteBufferFull(int len)
+    {
+        return capacity != UNLIMITED_CAPACITY && getMarkedLength() + len > capacity;
+    }
+
+    private boolean isMarked()
+    {
+        return markPos != -1;
+    }
+
+    private void closeReadBuffer() throws IOException
     {
         if (readBuffer != null)
         {
-            try
-            {
-                readBuffer.close(); //reset == close - IOException
-            }
-            catch (IOException e)
-            {
-                e.printStackTrace();
-            }
-            readBuffer = null; //let gc do its job
-        }
-    }
-
-    public void incPosition(long len)
-    {
-        position += len;
-    }
-
-    public void close() throws IOException
-    {
-        super.close();
-        if (readBuffer != null)
             readBuffer.close();
+            readBuffer = null;
+        }
+    }
+
+    private void closeWriteBuffer() throws IOException
+    {
         if (writeBuffer != null)
+        {
             writeBuffer.close();
-        cleanup();
+            writeBuffer = null;
+        }
     }
 
-    protected void cleanup()
+    private void checkClosed() throws IOException
     {
-        //may be overriden by implementations
+        if (isClosed())
+            throw new IOException("Stream closed");
     }
 
-    protected long getWriteBufferSize()
-    {
-        return position - markedPosition;
-    }
+    /* Static builders */
 
     public static CachedInputStream newHybridCachedInputStream(InputStream sourceStream, long memoryCapacityInBytes,
                                                                File bufferFile)

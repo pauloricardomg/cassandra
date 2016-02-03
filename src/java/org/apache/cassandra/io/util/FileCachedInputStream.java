@@ -22,7 +22,6 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -33,61 +32,46 @@ import org.apache.cassandra.utils.SyncUtil;
 public class FileCachedInputStream extends CachedInputStream
 {
     private final File bufferFile;
-    private FileOutputStream currentFileOutputStream;
-    private long toSkip;
-    private long lastReset;
-    private long maxReset;
+    private FileOutputStream fileOutputStream;
 
     public FileCachedInputStream(InputStream in, File bufferFile){
         super(in);
         this.bufferFile = bufferFile;
     }
 
-    public InputStream internalReset() throws IOException
+    public OutputStream createWriteBuffer() throws IOException
     {
-            getWriteBuffer().flush();
-            SyncUtil.sync(currentFileOutputStream);
+        if (bufferFile.exists())
+            bufferFile.delete();
+
+        if (!bufferFile.getParentFile().exists())
+            bufferFile.getParentFile().mkdirs();
+
+        bufferFile.createNewFile();
+        fileOutputStream = new FileOutputStream(bufferFile);
+        return new BufferedOutputStream(fileOutputStream);
+    }
+
+    public InputStream createReadBuffer() throws IOException
+    {
+            getWriteBufferIfOpen().flush();
+            SyncUtil.sync(fileOutputStream);
 
             FileInputStream in = new FileInputStream(bufferFile);
-            in.skip(toSkip);
-
-            toSkip += position - markedPosition;
-            maxReset = Math.max(maxReset, position);
-            lastReset = position;
+            in.skip(bufferFile.length() - getMarkedLength());
 
             return new BufferedInputStream(in);
     }
 
-    protected void internalMark()
+    public synchronized void close() throws IOException
     {
-        if (position < lastReset)
+        if (!isClosed())
         {
-            toSkip -= lastReset - position;
-        }
-    }
-
-    public void resetWriteBuffer()
-    {
-    }
-
-    public BufferedOutputStream getWriteBuffer()
-    {
-        return (BufferedOutputStream)this.writeBuffer;
-    }
-
-    public OutputStream createWriteBuffer() throws IOException
-    {
-        if (bufferFile.exists())
-            bufferFile.createNewFile();
-        currentFileOutputStream = new FileOutputStream(bufferFile);
-        return new BufferedOutputStream(currentFileOutputStream);
-    }
-
-    protected void cleanup()
-    {
-        if (bufferFile.exists())
-        {
-            bufferFile.delete();
+            super.close();
+            if (bufferFile.exists())
+            {
+                bufferFile.delete();
+            }
         }
     }
 }
