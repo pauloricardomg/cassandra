@@ -15,20 +15,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.io.util;
 
-import java.io.Closeable;
-import java.io.IOException;
-
-public interface FileDataInput extends RewindableDataInput, Closeable
+public interface BytesReadTracker
 {
-    String getPath();
+    public long getBytesRead();
 
-    boolean isEOF() throws IOException;
+    /**
+     * reset counter to @param count
+     */
+    public void reset(long count);
 
-    long bytesRemaining() throws IOException;
-
-    void seek(long pos) throws IOException;
-
-    long getFilePointer();
 }

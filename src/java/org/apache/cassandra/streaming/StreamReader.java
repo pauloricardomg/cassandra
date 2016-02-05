@@ -40,10 +40,13 @@ import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.SSTableSimpleIterator;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.Version;
+import org.apache.cassandra.io.util.CachedInputStream;
+import org.apache.cassandra.io.util.RewindableDataInputStreamPlus;
 import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.streaming.messages.FileMessageHeader;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.BytesReadTracker;
+import org.apache.cassandra.io.util.TrackedInputStream;
 import org.apache.cassandra.utils.Pair;
 
 
@@ -105,9 +108,9 @@ public class StreamReader
                      session.planId(), fileSeqNum, session.peer, repairedAt, totalSize, cfs.keyspace.getName(),
                      cfs.getColumnFamilyName());
 
-        DataInputStream dis = new DataInputStream(new LZFInputStream(Channels.newInputStream(channel)));
-        BytesReadTracker in = new BytesReadTracker(dis);
-        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, header.toHeader(cfs.metadata));
+        TrackedInputStream in = new TrackedInputStream(new LZFInputStream(Channels.newInputStream(channel)));
+        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, getHeader(cfs.metadata),
+                                                                 totalSize, session.planId());
         SSTableMultiWriter writer = null;
         try
         {
@@ -115,7 +118,7 @@ public class StreamReader
             while (in.getBytesRead() < totalSize)
             {
                 writePartition(deserializer, writer);
-                // TODO move this to BytesReadTracker
+                // TODO move this to TrackedInputStream
                 session.progress(desc, ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
             }
             logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}",
@@ -128,15 +131,20 @@ public class StreamReader
                 logger.warn("[Stream {}] Error while reading partition {} from stream on ks='{}' and table='{}'.",
                             session.planId(), deserializer.partitionKey(), cfs.keyspace.getName(), cfs.getColumnFamilyName());
             if (writer != null)
-            {
+            {;
                 writer.abort(e);
             }
-            drain(dis, in.getBytesRead());
+            drain(in, in.getBytesRead());
             if (e instanceof IOException)
                 throw (IOException) e;
             else
                 throw Throwables.propagate(e);
         }
+    }
+
+    protected SerializationHeader getHeader(CFMetaData metadata)
+    {
+        return header != null? header.toHeader(metadata) : null; //pre-3.0 sstable have no SerializationHeader
     }
 
     protected SSTableMultiWriter createWriter(ColumnFamilyStore cfs, long totalSize, long repairedAt, SSTableFormat.Type format) throws IOException
@@ -146,8 +154,7 @@ public class StreamReader
             throw new IOException("Insufficient disk space to store " + totalSize + " bytes");
         desc = Descriptor.fromFilename(cfs.getSSTablePath(cfs.getDirectories().getLocationForDisk(localDir), format));
 
-
-        return cfs.createSSTableMultiWriter(desc, estimatedKeys, repairedAt, sstableLevel, header.toHeader(cfs.metadata), session.getTransaction(cfId));
+        return cfs.createSSTableMultiWriter(desc, estimatedKeys, repairedAt, sstableLevel, getHeader(cfs.metadata), session.getTransaction(cfId));
     }
 
     protected void drain(InputStream dis, long bytesRead) throws IOException
@@ -185,6 +192,11 @@ public class StreamReader
 
     public static class StreamDeserializer extends UnmodifiableIterator<Unfiltered> implements UnfilteredRowIterator
     {
+        public static final int MAX_MEMORY_BUFFER_SIZE = 10; //TODO make it a system property for testing
+        public static final String BUFFER_FILE_PREFIX = "buf-";
+        public static final String BUFFER_FILE_SUFFIX = ".dat";
+        public static final String TMP_FOLDER_NAME = "tmp";
+
         private final CFMetaData metadata;
         private final DataInputPlus in;
         private final SerializationHeader header;
@@ -196,11 +208,26 @@ public class StreamReader
         private Row staticRow;
         private IOException exception;
 
-        public StreamDeserializer(CFMetaData metadata, DataInputPlus in, Version version, SerializationHeader header)
+        public StreamDeserializer(CFMetaData metadata, InputStream in, Version version, SerializationHeader header,
+                                  long totalSize, UUID sessionId)
         {
-            assert version.storeRows() : "We don't allow streaming from pre-3.0 nodes";
             this.metadata = metadata;
-            this.in = in;
+            if (version.correspondingMessagingVersion() < MessagingService.VERSION_30)
+            {
+                ColumnFamilyStore cfs = Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName);
+                if (cfs == null)
+                {
+                    // schema was dropped during streaming
+                    throw new RuntimeException(String.format("CF %s.%s was dropped during streaming", metadata.ksName, metadata.cfName));
+                }
+
+                File dataDir = cfs.getDirectories().getWriteableLocationAsFile(totalSize);
+                File bufferFile = new File(dataDir, String.format("%s%s%s%s-%s%s", TMP_FOLDER_NAME, File.separator,
+                                                                  BUFFER_FILE_PREFIX, sessionId, metadata.cfId,
+                                                                  BUFFER_FILE_SUFFIX));
+                this.in = new RewindableDataInputStreamPlus(CachedInputStream.newHybridCachedInputStream(in, MAX_MEMORY_BUFFER_SIZE, bufferFile));
+            } else
+                this.in = new DataInputPlus.DataInputStreamPlus(in);
             this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
             this.header = header;
         }
