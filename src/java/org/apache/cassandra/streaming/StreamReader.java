@@ -40,10 +40,13 @@ import org.apache.cassandra.io.sstable.SSTableSimpleIterator;
 import org.apache.cassandra.io.sstable.format.RangeAwareSSTableWriter;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.Version;
+import org.apache.cassandra.io.util.RewindableInputStream;
+import org.apache.cassandra.io.util.RewindableDataInputStreamPlus;
 import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.streaming.messages.FileMessageHeader;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.BytesReadTracker;
+import org.apache.cassandra.io.util.TrackedInputStream;
 import org.apache.cassandra.utils.Pair;
 
 
@@ -103,9 +106,9 @@ public class StreamReader
                      session.planId(), fileSeqNum, session.peer, repairedAt, totalSize, cfs.keyspace.getName(),
                      cfs.getColumnFamilyName());
 
-        DataInputStream dis = new DataInputStream(new LZFInputStream(Channels.newInputStream(channel)));
-        BytesReadTracker in = new BytesReadTracker(dis);
-        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, header.toHeader(cfs.metadata));
+        TrackedInputStream in = new TrackedInputStream(new LZFInputStream(Channels.newInputStream(channel)));
+        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, getHeader(cfs.metadata),
+                                                                 totalSize, session.planId());
         SSTableMultiWriter writer = null;
         try
         {
@@ -129,12 +132,17 @@ public class StreamReader
             {
                 writer.abort(e);
             }
-            drain(dis, in.getBytesRead());
+            drain(in, in.getBytesRead());
             if (e instanceof IOException)
                 throw (IOException) e;
             else
                 throw Throwables.propagate(e);
         }
+    }
+
+    protected SerializationHeader getHeader(CFMetaData metadata)
+    {
+        return header != null? header.toHeader(metadata) : null; //pre-3.0 sstable have no SerializationHeader
     }
 
     protected SSTableMultiWriter createWriter(ColumnFamilyStore cfs, long totalSize, long repairedAt, SSTableFormat.Type format) throws IOException
@@ -143,7 +151,7 @@ public class StreamReader
         if (localDir == null)
             throw new IOException("Insufficient disk space to store " + totalSize + " bytes");
 
-        RangeAwareSSTableWriter writer = new RangeAwareSSTableWriter(cfs, estimatedKeys, repairedAt, format, sstableLevel, totalSize, session.getTransaction(cfId), header);
+        RangeAwareSSTableWriter writer = new RangeAwareSSTableWriter(cfs, estimatedKeys, repairedAt, format, sstableLevel, totalSize, session.getTransaction(cfId), getHeader(cfs.metadata));
         StreamHook.instance.reportIncomingFile(cfs, writer, session, fileSeqNum);
         return writer;
     }
@@ -183,6 +191,11 @@ public class StreamReader
 
     public static class StreamDeserializer extends UnmodifiableIterator<Unfiltered> implements UnfilteredRowIterator
     {
+        public static final int MAX_MEMORY_BUFFER_SIZE = Integer.parseInt(System.getProperty("cassandra.legacy_stream_reader_max_mem_buffer_size",
+                                                                                             "1024"));
+        public static final String BUFFER_FILE_PREFIX = "buf";
+        public static final String BUFFER_FILE_SUFFIX = "dat";
+
         private final CFMetaData metadata;
         private final DataInputPlus in;
         private final SerializationHeader header;
@@ -194,11 +207,16 @@ public class StreamReader
         private Row staticRow;
         private IOException exception;
 
-        public StreamDeserializer(CFMetaData metadata, DataInputPlus in, Version version, SerializationHeader header)
+        public StreamDeserializer(CFMetaData metadata, InputStream in, Version version, SerializationHeader header,
+                                  long totalSize, UUID sessionId)
         {
-            assert version.storeRows() : "We don't allow streaming from pre-3.0 nodes";
             this.metadata = metadata;
-            this.in = in;
+            if (version.correspondingMessagingVersion() < MessagingService.VERSION_30)
+            {
+                File bufferFile = getTempBufferFile(metadata, totalSize, sessionId);
+                this.in = new RewindableDataInputStreamPlus(new RewindableInputStream(in, MAX_MEMORY_BUFFER_SIZE, bufferFile));
+            } else
+                this.in = new DataInputPlus.DataInputStreamPlus(in);
             this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
             this.header = header;
         }
@@ -289,6 +307,22 @@ public class StreamReader
 
         public void close()
         {
+        }
+
+        private static File getTempBufferFile(CFMetaData metadata, long totalSize, UUID sessionId)
+        {
+            ColumnFamilyStore cfs = Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName);
+            if (cfs == null)
+            {
+                // schema was dropped during streaming
+                throw new RuntimeException(String.format("CF %s.%s was dropped during streaming", metadata.ksName, metadata.cfName));
+            }
+
+            //We play it safe here by asking for a directory with 2*totalSize to make sure the disk will have
+            //sufficient space to hold both the received sstable and the buffer file, which can have the same
+            // size as the sstable in the worst case
+            File tmpDir = cfs.getDirectories().getTemporaryWriteableDirectoryAsFile(2 * totalSize);
+            return new File(tmpDir, String.format("%s-%s.%s", BUFFER_FILE_PREFIX, sessionId, BUFFER_FILE_SUFFIX));
         }
     }
 }
