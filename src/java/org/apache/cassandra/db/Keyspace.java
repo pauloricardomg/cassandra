@@ -87,6 +87,21 @@ public class Keyspace
         initialized = true;
     }
 
+    /**
+     * Opens keyspace if exists, otherwise throw IOException
+     * @param keyspaceName the name of the keyspace to open
+     * @return the keyspace if it exists
+     * @throws IOException if the specified keyspace does not exist
+     */
+    public static Keyspace openIfExists(String keyspaceName)
+    {
+        if (!Schema.instance.getKeyspaces().contains(keyspaceName))
+        {
+            throw new KeyspaceNotDefinedException("Keyspace " + keyspaceName + " does not exist");
+        }
+        return open(keyspaceName);
+    }
+
     public static Keyspace open(String keyspaceName)
     {
         assert initialized || keyspaceName.equals(SystemKeyspace.NAME);
