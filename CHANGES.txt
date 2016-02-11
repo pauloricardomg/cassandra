@@ -14,6 +14,7 @@ Merged from 2.2:
  * Fix SELECT on tuple relations for mixed ASC/DESC clustering order (CASSANDRA-7281)
  * (cqlsh) Support utf-8/cp65001 encoding on Windows (CASSANDRA-11030)
  * Fix paging on DISTINCT queries repeats result when first row in partition changes (CASSANDRA-10010)
+ * Check keyspace existence on RepairMessageVerbHandler (CASSANDRA-11014)
 Merged from 2.1:
  * Properly release sstable ref when doing offline scrub (CASSANDRA-10697)
  * Improve nodetool status performance for large cluster (CASSANDRA-7238)

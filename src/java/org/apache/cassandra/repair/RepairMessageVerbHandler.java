@@ -66,7 +66,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     for (UUID cfId : prepareMessage.cfIds)
                     {
                         Pair<String, String> kscf = Schema.instance.getCF(cfId);
-                        ColumnFamilyStore columnFamilyStore = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
+                        ColumnFamilyStore columnFamilyStore = Keyspace.openIfExists(kscf.left).getColumnFamilyStore(kscf.right);
                         columnFamilyStores.add(columnFamilyStore);
                     }
                     ActiveRepairService.instance.registerParentRepairSession(prepareMessage.parentRepairSession,
@@ -80,7 +80,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
 
                 case SNAPSHOT:
                     logger.debug("Snapshotting {}", desc);
-                    ColumnFamilyStore cfs = Keyspace.open(desc.keyspace).getColumnFamilyStore(desc.columnFamily);
+                    ColumnFamilyStore cfs = Keyspace.openIfExists(desc.keyspace).getColumnFamilyStore(desc.columnFamily);
                     final Collection<Range<Token>> repairingRange = desc.ranges;
                     Set<SSTableReader> snapshottedSSSTables = cfs.snapshot(desc.sessionId.toString(), new Predicate<SSTableReader>()
                     {
@@ -112,7 +112,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     ValidationRequest validationRequest = (ValidationRequest) message.payload;
                     logger.debug("Validating {}", validationRequest);
                     // trigger read-only compaction
-                    ColumnFamilyStore store = Keyspace.open(desc.keyspace).getColumnFamilyStore(desc.columnFamily);
+                    ColumnFamilyStore store = Keyspace.openIfExists(desc.keyspace).getColumnFamilyStore(desc.columnFamily);
 
                     Validator validator = new Validator(desc, message.from, validationRequest.gcBefore);
                     CompactionManager.instance.submitValidation(store, validator);
