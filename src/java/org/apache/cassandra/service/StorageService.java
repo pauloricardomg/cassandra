@@ -2760,7 +2760,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             ArrayList<Keyspace> t = new ArrayList<>(keyspaceNames.length);
             for (String keyspaceName : keyspaceNames)
-                t.add(getValidKeyspace(keyspaceName));
+                t.add(Keyspace.openIfExists(keyspaceName));
             keyspaces = t;
         }
 
@@ -2796,7 +2796,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (tag == null || tag.equals(""))
             throw new IOException("You must supply a snapshot name.");
 
-        Keyspace keyspace = getValidKeyspace(keyspaceName);
+        Keyspace keyspace = Keyspace.openIfExists(keyspaceName);
         ColumnFamilyStore columnFamilyStore = keyspace.getColumnFamilyStore(tableName);
         if (columnFamilyStore.snapshotExists(tag))
             throw new IOException("Snapshot " + tag + " already exists.");
@@ -2836,7 +2836,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 if (tag == null || tag.equals(""))
                     throw new IOException("You must supply a snapshot name.");
 
-                Keyspace keyspace = getValidKeyspace(keyspaceName);
+                Keyspace keyspace = Keyspace.openIfExists(keyspaceName);
                 ColumnFamilyStore columnFamilyStore = keyspace.getColumnFamilyStore(tableName);
                 // As there can be multiple column family from same keyspace check if snapshot exist for that specific
                 // columnfamily and not for whole keyspace
@@ -2866,15 +2866,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 entry.getKey().snapshot(tag, table);
         }
 
-    }
-
-    private Keyspace getValidKeyspace(String keyspaceName) throws IOException
-    {
-        if (!Schema.instance.getKeyspaces().contains(keyspaceName))
-        {
-            throw new IOException("Keyspace " + keyspaceName + " does not exist");
-        }
-        return Keyspace.open(keyspaceName);
     }
 
     /**
@@ -2962,8 +2953,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      */
     public Iterable<ColumnFamilyStore> getValidColumnFamilies(boolean allowIndexes, boolean autoAddIndexes, String keyspaceName, String... cfNames) throws IOException
     {
-        Keyspace keyspace = getValidKeyspace(keyspaceName);
-        return keyspace.getValidColumnFamilies(allowIndexes, autoAddIndexes, cfNames);
+        return Keyspace.openIfExists(keyspaceName).getValidColumnFamilies(allowIndexes, autoAddIndexes, cfNames);
     }
 
     /**
