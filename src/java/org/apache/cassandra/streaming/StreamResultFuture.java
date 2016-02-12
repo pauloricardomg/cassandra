@@ -28,6 +28,8 @@ import com.google.common.util.concurrent.Futures;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+
 /**
  * A future on the result ({@link StreamState}) of a streaming plan.
  *
@@ -126,6 +128,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
 
     private void attachSocket(InetAddress from, int sessionIndex, Socket socket, boolean isForOutgoing, int version) throws IOException
     {
+        if (!isForOutgoing)
+            socket.setSoTimeout(DatabaseDescriptor.getStreamingSocketTimeout());
         StreamSession session = coordinator.getOrCreateSessionById(from, sessionIndex, socket.getInetAddress());
         session.init(this);
         session.handler.initiateOnReceivingSide(socket, isForOutgoing, version);
