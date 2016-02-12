@@ -41,6 +41,7 @@ Merged from 2.1:
  * test_bulk_round_trip_blogposts is failing occasionally (CASSANDRA-10938)
  * (cqlsh) Support timezone conversion using pytz (CASSANDRA-10397)
  * cqlsh: change default encoding to UTF-8 (CASSANDRA-11124)
+ * Fix streaming_socket_timeout_in_ms not enforced (CASSANDRA-11286)
 
 
 2.2.5

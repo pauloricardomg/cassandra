@@ -170,11 +170,8 @@ public class ConnectionHandler
 
         protected static ReadableByteChannel getReadChannel(Socket socket) throws IOException
         {
-            ReadableByteChannel in = socket.getChannel();
-            // socket channel is null when encrypted(SSL)
-            return in == null
-                 ? Channels.newChannel(socket.getInputStream())
-                 : in;
+            //we do this instead of socket.getChannel() so socketSoTimeout is respected
+            return Channels.newChannel(socket.getInputStream());
         }
 
         @SuppressWarnings("resource")
