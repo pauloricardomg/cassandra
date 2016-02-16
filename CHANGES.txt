@@ -15,6 +15,7 @@ Merged from 2.1:
  * Avoid major compaction mixing repaired and unrepaired sstables in DTCS (CASSANDRA-11113)
  * Make it clear what DTCS timestamp_resolution is used for (CASSANDRA-11041)
  * test_bulk_round_trip_blogposts is failing occasionally (CASSANDRA-10938)
+ * Protect from keyspace dropped during repair (CASSANDRA-11065)
 
 
 2.2.5
