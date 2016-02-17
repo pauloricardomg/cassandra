@@ -56,6 +56,7 @@ Merged from 2.2:
  * Fix paging on DISTINCT queries repeats result when first row in partition changes
    (CASSANDRA-10010)
  * (cqlsh) Support timezone conversion using pytz (CASSANDRA-10397)
+ * cqlsh: change default encoding to UTF-8 (CASSANDRA-11124)
 Merged from 2.1:
  * Use logback setting for 'cassandra -v' command (CASSANDRA-10767)
  * Fix sstableloader to unthrottle streaming by default (CASSANDRA-9714)
