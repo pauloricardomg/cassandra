@@ -6,6 +6,7 @@
  * Resolve some eclipse-warnings (CASSANDRA-11086)
  * (cqlsh) Show static columns in a different color (CASSANDRA-11059)
  * Allow to remove TTLs on table with default_time_to_live (CASSANDRA-11207)
+ * Add option to disable top level bloom filter on LCS (CASSANDRA-9830)
 
 
 3.5
