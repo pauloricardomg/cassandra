@@ -57,6 +57,7 @@ Merged from 2.1:
  * Stripe view locks by key and table ID to reduce contention (CASSANDRA-10981)
  * Add nodetool gettimeout and settimeout commands (CASSANDRA-10953)
  * Add 3.0 metadata to sstablemetadata output (CASSANDRA-10838)
+ * Add option to disable top level bloom filter on LCS (CASSANDRA-9830)
 Merged from 3.0:
  * MV should only query complex columns included in the view (CASSANDRA-11069)
  * Failed aggregate creation breaks server permanently (CASSANDRA-11064)

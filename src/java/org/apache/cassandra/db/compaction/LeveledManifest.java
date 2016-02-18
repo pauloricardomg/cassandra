@@ -69,10 +69,15 @@ public class LeveledManifest
     private final SizeTieredCompactionStrategyOptions options;
     private final int [] compactionCounter;
 
-    LeveledManifest(ColumnFamilyStore cfs, int maxSSTableSizeInMB, SizeTieredCompactionStrategyOptions options)
+    /* Users may opt to disable loading bloom filter on top level sstables to reduce memory usage, when there are
+       few key misses during reads. Bloom filters are still relevant to skip lower level sstables. (CASSANDRA-9830) */
+    private final Boolean disableTopLevelBloomFilter;
+
+    LeveledManifest(ColumnFamilyStore cfs, int maxSSTableSizeInMB, Boolean disableTopLevelBloomFilter, SizeTieredCompactionStrategyOptions options)
     {
         this.cfs = cfs;
         this.maxSSTableSizeInBytes = maxSSTableSizeInMB * 1024L * 1024L;
+        this.disableTopLevelBloomFilter = disableTopLevelBloomFilter;
         this.options = options;
 
         generations = new List[MAX_LEVEL_COUNT];
@@ -90,14 +95,15 @@ public class LeveledManifest
         return create(cfs, maxSSTableSize, sstables, new SizeTieredCompactionStrategyOptions());
     }
 
-    public static LeveledManifest create(ColumnFamilyStore cfs, int maxSSTableSize, Iterable<SSTableReader> sstables, SizeTieredCompactionStrategyOptions options)
+    public static LeveledManifest create(ColumnFamilyStore cfs, int maxSSTableSize, Iterable<SSTableReader> sstables,
+                                         SizeTieredCompactionStrategyOptions options)
     {
-        LeveledManifest manifest = new LeveledManifest(cfs, maxSSTableSize, options);
+        LeveledManifest manifest = new LeveledManifest(cfs, maxSSTableSize, false, options);
 
         // ensure all SSTables are in the manifest
         for (SSTableReader ssTableReader : sstables)
         {
-            manifest.add(ssTableReader);
+            manifest.add(ssTableReader, true);
         }
         for (int i = 1; i < manifest.getAllLevelSize().length; i++)
         {
@@ -108,6 +114,11 @@ public class LeveledManifest
 
     public synchronized void add(SSTableReader reader)
     {
+        add(reader, false);
+    }
+
+    public synchronized void add(SSTableReader reader, boolean batchAdd)
+    {
         int level = reader.getSSTableLevel();
 
         assert level < generations.length : "Invalid level " + level + " out of " + (generations.length - 1);
@@ -117,6 +128,10 @@ public class LeveledManifest
             // adding the sstable does not cause overlap in the level
             logger.trace("Adding {} to L{}", reader, level);
             generations[level].add(reader);
+            if (!batchAdd && this.disableTopLevelBloomFilter)
+                //we avoid releasing bloom filter on batch add
+                //since we may not know the number of levels upfront
+                maybeReleaseTopLevelBloomFilter(reader);
         }
         else
         {
@@ -140,7 +155,22 @@ public class LeveledManifest
         }
     }
 
-
+    private void maybeReleaseTopLevelBloomFilter(SSTableReader reader)
+    {
+        if (reader.getSSTableLevel() > 0 && reader.getSSTableLevel() == getLevelCount() &&
+            !reader.getBloomFilter().isAlwaysPresent())
+        {
+            try
+            {
+                logger.trace("Releasing bloom filter of top level sstable {}.", reader);
+                reader.releaseBloomFilter();
+            }
+            catch (IOException e)
+            {
+                logger.warn("Could not release bloom filter.", e);
+            }
+        }
+    }
 
     public synchronized void replace(Collection<SSTableReader> removed, Collection<SSTableReader> added)
     {
@@ -167,7 +197,14 @@ public class LeveledManifest
             logger.trace("Adding [{}]", toString(added));
 
         for (SSTableReader ssTableReader : added)
-            add(ssTableReader);
+            add(ssTableReader, true);
+
+        //we only release bloom filter after finishing replacement
+        //to make sure the final number of levels is known
+        if (this.disableTopLevelBloomFilter)
+            for (SSTableReader ssTableReader : added)
+                maybeReleaseTopLevelBloomFilter(ssTableReader);
+
         lastCompactedKeys[minLevel] = SSTableReader.sstableOrdering.max(added).last;
     }
 
@@ -523,7 +560,8 @@ public class LeveledManifest
     /**
      * @return sstables from @param sstables that contain keys between @param start and @param end, inclusive.
      */
-    private static Set<SSTableReader> overlapping(Token start, Token end, Iterable<SSTableReader> sstables)
+    @VisibleForTesting
+    public static Set<SSTableReader> overlapping(Token start, Token end, Iterable<SSTableReader> sstables)
     {
         assert start.compareTo(end) <= 0;
         Set<SSTableReader> overlapped = new HashSet<>();
