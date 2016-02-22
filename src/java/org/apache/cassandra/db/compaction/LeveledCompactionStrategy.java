@@ -77,7 +77,6 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             }
         }
         maxSSTableSizeInMB = configuredMaxSSTableSize;
-       ;
 
         this.skipTopLevelBloomFilter = Boolean.parseBoolean(options.getOrDefault(SKIP_TOP_LEVEL_BLOOM_FILTER_OPTION,
                                                                             DEFAULT_SKIP_TOP_LEVEL_BLOOM_FILTER));
