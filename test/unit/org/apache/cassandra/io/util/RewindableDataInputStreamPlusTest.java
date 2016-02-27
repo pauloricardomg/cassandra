@@ -22,7 +22,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.InputStream;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -32,14 +31,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-public class RewindableInputStreamTest
+public class RewindableDataInputStreamPlusTest
 {
+
+    private final int INITIAL_BUFFER_SIZE = 1;
+
     private File file;
 
     @Before
     public void setup() throws Exception
     {
-        System.setProperty("cassandra.rewindable_is_initial_mem_buffer_size", "1");
         this.file = new File(System.getProperty("java.io.tmpdir"), "subdir/test.buffer");
     }
 
@@ -75,9 +76,8 @@ public class RewindableInputStreamTest
 
         for (int capacity = 0; capacity <= 36; capacity++)
         {
-            InputStream cached = new RewindableInputStream(new ByteArrayInputStream(testData), capacity, file);
-
-            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
             {
                 try {
                     //should mark before resetting
@@ -169,9 +169,8 @@ public class RewindableInputStreamTest
 
         for (int capacity = 0; capacity <= 36; capacity++)
         {
-            InputStream cached = new RewindableInputStream(new ByteArrayInputStream(testData), capacity, file);
-
-            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
             {
                 //read a big amount before resetting
                 reader.mark();
@@ -227,9 +226,8 @@ public class RewindableInputStreamTest
 
         for (int capacity = 0; capacity <= 4; capacity++)
         {
-            InputStream cached = new RewindableInputStream(new ByteArrayInputStream(testData), capacity, file);
-
-            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
             {
                 reader.mark();
                 assertEquals(1, reader.readUnsignedByte());
@@ -259,9 +257,8 @@ public class RewindableInputStreamTest
 
         for (int capacity = 0; capacity <= 11; capacity++)
         {
-            InputStream cached = new RewindableInputStream(new ByteArrayInputStream(testData), capacity, file);
-
-            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
             {
                 reader.mark();
                 // read first 5 bytes and rewind
@@ -311,9 +308,8 @@ public class RewindableInputStreamTest
 
         for (int capacity = 0; capacity <= 11; capacity++)
         {
-            InputStream cached = new RewindableInputStream(new ByteArrayInputStream(testData), capacity, file);
-
-            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(cached))
+            try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
             {
                 reader.mark();
                 // read first 5 bytes and rewind

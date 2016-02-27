@@ -62,7 +62,6 @@ public class RewindableInputStream extends FilterInputStream
     private final File bufferFile;
     public BufferedOutputStream diskWriteBuffer = null;
     private BufferedInputStream diskReadBuffer = null;
-    private FileOutputStream fileOutputStream = null;
 
     private AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -101,7 +100,6 @@ public class RewindableInputStream extends FilterInputStream
         {
             diskAvailable = pos - diskMarkPos;
             getIfNotClosed(diskWriteBuffer).flush();
-            SyncUtil.sync(getIfNotClosed(fileOutputStream));
             FileInputStream in = new FileInputStream(bufferFile);
             getIfNotClosed(in).skip(bufferFile.length() - diskAvailable);
             diskReadBuffer = new BufferedInputStream(in);
@@ -168,8 +166,7 @@ public class RewindableInputStream extends FilterInputStream
                 bufferFile.getParentFile().mkdirs();
             bufferFile.createNewFile();
 
-            this.fileOutputStream = new FileOutputStream(bufferFile);
-            this.diskWriteBuffer = new BufferedOutputStream(this.fileOutputStream);
+            this.diskWriteBuffer = new BufferedOutputStream(new FileOutputStream(bufferFile));
         }
     }
 

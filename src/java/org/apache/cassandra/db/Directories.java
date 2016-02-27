@@ -347,6 +347,8 @@ public class Directories
     public File getTemporaryWriteableDirectoryAsFile(long writeSize)
     {
         File location = getLocationForDisk(getWriteableLocation(writeSize));
+        if (location == null)
+            return null;
         return new File(location, TMP_SUBDIR);
     }
 

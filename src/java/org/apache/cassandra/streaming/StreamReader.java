@@ -40,13 +40,13 @@ import org.apache.cassandra.io.sstable.SSTableSimpleIterator;
 import org.apache.cassandra.io.sstable.format.RangeAwareSSTableWriter;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.Version;
-import org.apache.cassandra.io.util.RewindableInputStream;
 import org.apache.cassandra.io.util.RewindableDataInputStreamPlus;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.streaming.messages.FileMessageHeader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.io.util.TrackedInputStream;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 
@@ -127,7 +127,7 @@ public class StreamReader
         {
             if (deserializer != null)
                 logger.warn("[Stream {}] Error while reading partition {} from stream on ks='{}' and table='{}'.",
-                            session.planId(), deserializer.partitionKey(), cfs.keyspace.getName(), cfs.getColumnFamilyName());
+                            session.planId(), deserializer.partitionKey(), cfs.keyspace.getName(), cfs.getTableName());
             if (writer != null)
             {
                 writer.abort(e);
@@ -137,6 +137,11 @@ public class StreamReader
                 throw (IOException) e;
             else
                 throw Throwables.propagate(e);
+        }
+        finally
+        {
+            if (deserializer != null)
+                deserializer.cleanup();
         }
     }
 
@@ -191,8 +196,10 @@ public class StreamReader
 
     public static class StreamDeserializer extends UnmodifiableIterator<Unfiltered> implements UnfilteredRowIterator
     {
-        public static final int MAX_MEMORY_BUFFER_SIZE = Integer.parseInt(System.getProperty("cassandra.legacy_stream_reader_max_mem_buffer_size",
-                                                                                             "1024"));
+        public static final int INITIAL_BUFFER_SIZE = Integer.parseInt(System.getProperty("cassandra.dtest.rdisp_initial_buffer_size",
+                                                                                                  "32768"));
+        public static final int MAX_BUFFER_SIZE = Integer.parseInt(System.getProperty("cassandra.dtest.rdisp_max_buffer_size",
+                                                                                             "1048576"));
         public static final String BUFFER_FILE_PREFIX = "buf";
         public static final String BUFFER_FILE_SUFFIX = "dat";
 
@@ -211,10 +218,11 @@ public class StreamReader
                                   long totalSize, UUID sessionId)
         {
             this.metadata = metadata;
+            // streaming pre-3.0 sstables require mark/reset support from source stream
             if (version.correspondingMessagingVersion() < MessagingService.VERSION_30)
             {
                 File bufferFile = getTempBufferFile(metadata, totalSize, sessionId);
-                this.in = new RewindableDataInputStreamPlus(new RewindableInputStream(in, MAX_MEMORY_BUFFER_SIZE, bufferFile));
+                this.in = new RewindableDataInputStreamPlus(in, INITIAL_BUFFER_SIZE, MAX_BUFFER_SIZE, bufferFile);
             } else
                 this.in = new DataInputPlus.DataInputStreamPlus(in);
             this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
@@ -309,6 +317,25 @@ public class StreamReader
         {
         }
 
+        /* We have a separate cleanup method because sometimes close is called before exhausting the
+           StreamDeserializer (for instance, when enclosed in an try-with-resources wrapper, such as in
+           BigTableWriter.append()).
+         */
+        public void cleanup()
+        {
+            if (in instanceof RewindableDataInputStreamPlus)
+            {
+                try
+                {
+                    ((RewindableDataInputStreamPlus) in).close(false);
+                }
+                catch (IOException e)
+                {
+                    logger.warn("Error while closing RewindableDataInputStreamPlus.", e);
+                }
+            }
+        }
+
         private static File getTempBufferFile(CFMetaData metadata, long totalSize, UUID sessionId)
         {
             ColumnFamilyStore cfs = Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName);
@@ -322,6 +349,9 @@ public class StreamReader
             //sufficient space to hold both the received sstable and the buffer file, which can have the same
             // size as the sstable in the worst case
             File tmpDir = cfs.getDirectories().getTemporaryWriteableDirectoryAsFile(2 * totalSize);
+            if (tmpDir == null)
+                throw new RuntimeException(String.format("No sufficient disk space to stream legacy sstable from {}.{}. " +
+                                                         "Required disk space: %s.", FBUtilities.prettyPrintMemory(2 * totalSize)));
             return new File(tmpDir, String.format("%s-%s.%s", BUFFER_FILE_PREFIX, sessionId, BUFFER_FILE_SUFFIX));
         }
     }
