@@ -43,6 +43,8 @@ import org.apache.cassandra.utils.Pair;
  */
 public class StreamWriter
 {
+    public static final long SLEEP_DELAY = Long.getLong("cassandra.dtest.sleep_during_stream_write", 0L);
+
     private static final int DEFAULT_CHUNK_SIZE = 64 * 1024;
 
     private static final Logger logger = LoggerFactory.getLogger(StreamWriter.class);
@@ -76,8 +78,8 @@ public class StreamWriter
     public void write(WritableByteChannel channel) throws IOException
     {
         long totalSize = totalSize();
-        logger.debug("[Stream #{}] Start streaming file {} to {}, repairedAt = {}, totalSize = {}", session.planId(),
-                     sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, totalSize);
+        logger.debug("[Stream #{}] Start streaming file {} to {}, repairedAt = {}, totalSize = {} (SLEEP={})", session.planId(),
+                     sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, totalSize, SLEEP_DELAY);
         RandomAccessReader file = sstable.openDataReader();
         ChecksumValidator validator = new File(sstable.descriptor.filenameFor(Component.CRC)).exists()
                                     ? DataIntegrityMetadata.checksumValidator(sstable.descriptor)
@@ -88,6 +90,9 @@ public class StreamWriter
         compressedOutput = new LZFOutputStream(Channels.newOutputStream(channel));
         long progress = 0L;
 
+        boolean shouldSleep = SLEEP_DELAY > 0;
+
+        int sectionIdx = 0;
         try
         {
             // stream each of the required sections of the file
@@ -102,6 +107,9 @@ public class StreamWriter
 
                 // length of the section to read
                 long length = section.right - start;
+
+                logger.debug("[Stream #{}] Writing section {} with length {} to stream.", session.planId(), sectionIdx++, length);
+
                 // tracks write progress
                 long bytesRead = 0;
                 while (bytesRead < length)
@@ -115,6 +123,21 @@ public class StreamWriter
 
                 // make sure that current section is send
                 compressedOutput.flush();
+
+                //sleep only after sending first chunk
+                if (shouldSleep)
+                {
+                    try
+                    {
+                        logger.info("Sleeping {}", SLEEP_DELAY);
+                        Thread.sleep(SLEEP_DELAY);
+                    }
+                    catch (InterruptedException e)
+                    {
+                        logger.warn("Interrupted while doing test sleep");
+                    }
+                    shouldSleep = false;
+                }
             }
             logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
                          session.planId(), sstable.getFilename(), session.peer, progress, totalSize);
