@@ -26,6 +26,9 @@ import com.codahale.metrics.*;
 import com.codahale.metrics.Timer;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Memtable;
@@ -42,6 +45,8 @@ import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
  */
 public class TableMetrics
 {
+
+    private static final Logger logger = LoggerFactory.getLogger(TableMetrics.class);
 
     public static final long[] EMPTY = new long[0];
 
@@ -322,8 +327,8 @@ public class TableMetrics
                                                                          return reader.getEstimatedColumnCount();
                                                                      }
                                                                  });
-            }
-        });
+                                                             }
+                                                         });
         sstablesPerReadHistogram = createTableHistogram("SSTablesPerReadHistogram", cfs.keyspace.metric.sstablesPerReadHistogram, true);
         compressionRatio = createTableGauge("CompressionRatio", new Gauge<Double>()
         {
@@ -444,7 +449,7 @@ public class TableMetrics
             public Long getValue()
             {
                 long count = 0L;
-                for (SSTableReader sstable: cfs.getSSTables(SSTableSet.LIVE))
+                for (SSTableReader sstable : cfs.getSSTables(SSTableSet.LIVE))
                     count += sstable.getBloomFilterFalsePositiveCount();
                 return count;
             }
@@ -533,7 +538,10 @@ public class TableMetrics
             {
                 long total = 0;
                 for (SSTableReader sst : cfs.getSSTables(SSTableSet.CANONICAL))
+                {
+                    logger.info("#9830 level: {} disk_size: {}", sst.getSSTableMetadata().sstableLevel, sst.getBloomFilterSerializedSize());
                     total += sst.getBloomFilterSerializedSize();
+                }
                 return total;
             }
         });
@@ -543,7 +551,10 @@ public class TableMetrics
             {
                 long total = 0;
                 for (SSTableReader sst : cfs.getSSTables(SSTableSet.LIVE))
+                {
+                    logger.info("#9830 level: {} off_heap_size: {}", sst.getSSTableMetadata().sstableLevel, sst.getBloomFilterOffHeapSize());
                     total += sst.getBloomFilterOffHeapSize();
+                }
                 return total;
             }
         });
@@ -571,27 +582,27 @@ public class TableMetrics
         keyCacheHitRate = Metrics.register(factory.createMetricName("KeyCacheHitRate"),
                                            aliasFactory.createMetricName("KeyCacheHitRate"),
                                            new RatioGauge()
-        {
-            @Override
-            public Ratio getRatio()
-            {
-                return Ratio.of(getNumerator(), getDenominator());
-            }
+                                           {
+                                               @Override
+                                               public Ratio getRatio()
+                                               {
+                                                   return Ratio.of(getNumerator(), getDenominator());
+                                               }
 
-            protected double getNumerator()
-            {
-                long hits = 0L;
-                for (SSTableReader sstable : cfs.getSSTables(SSTableSet.LIVE))
-                    hits += sstable.getKeyCacheHit();
-                return hits;
-            }
+                                               protected double getNumerator()
+                                               {
+                                                   long hits = 0L;
+                                                   for (SSTableReader sstable : cfs.getSSTables(SSTableSet.LIVE))
+                                                       hits += sstable.getKeyCacheHit();
+                                                   return hits;
+                                               }
 
-            protected double getDenominator()
-            {
-                long requests = 0L;
-                for (SSTableReader sstable : cfs.getSSTables(SSTableSet.LIVE))
-                    requests += sstable.getKeyCacheRequest();
-                return Math.max(requests, 1); // to avoid NaN.
+                                               protected double getDenominator()
+                                               {
+                                                   long requests = 0L;
+                                                   for (SSTableReader sstable : cfs.getSSTables(SSTableSet.LIVE))
+                                                       requests += sstable.getKeyCacheRequest();
+                                                   return Math.max(requests, 1); // to avoid NaN.
             }
         });
         tombstoneScannedHistogram = createTableHistogram("TombstoneScannedHistogram", cfs.keyspace.metric.tombstoneScannedHistogram, false);
