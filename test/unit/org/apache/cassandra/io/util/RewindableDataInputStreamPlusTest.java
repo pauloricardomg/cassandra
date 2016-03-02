@@ -22,6 +22,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.IOException;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -74,10 +75,12 @@ public class RewindableDataInputStreamPlusTest
             testData = baos.toByteArray();
         }
 
-        for (int capacity = 0; capacity <= 36; capacity++)
+        for (int memCapacity = 0; memCapacity <= 16; memCapacity++)
         {
+            int diskCapacity = 16 - memCapacity;
             try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
-                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
+                                                                                          INITIAL_BUFFER_SIZE, memCapacity, file,
+                                                                                          diskCapacity))
             {
                 try {
                     //should mark before resetting
@@ -97,6 +100,7 @@ public class RewindableDataInputStreamPlusTest
 
                 assertEquals(0x1, reader.readByte());
                 assertEquals('a', reader.readChar());
+                assertEquals(3, reader.bytesPastMark(null));
                 reader.reset(null);
 
                 try {
@@ -115,6 +119,7 @@ public class RewindableDataInputStreamPlusTest
                 assertEquals(1, reader.readInt());
                 assertEquals(1L, reader.readLong());
                 assertEquals(1.0f, reader.readFloat(), 0);
+                assertEquals(16, reader.bytesPastMark(null));
                 reader.reset(null);
 
                 //read again previous sequence
@@ -123,14 +128,59 @@ public class RewindableDataInputStreamPlusTest
                 assertEquals(1.0f, reader.readFloat(), 0);
                 //finish reading again previous sequence
 
+                //mark again
+                reader.mark();
+                assertEquals(1.0d, reader.readDouble(), 0);
+                assertEquals(8, reader.bytesPastMark(null));
+                reader.reset(null);
+
+                //read again previous sequence
+                assertEquals(1.0d, reader.readDouble(), 0);
+                //finish reading again previous sequence
+
                 //mark and reset
                 reader.mark();
                 reader.reset(null);
 
-                assertEquals(1.0d, reader.readDouble(), 0);
                 assertEquals("abc", reader.readUTF());
+
+                //check max file size
+                assertEquals(diskCapacity, file.length());
             }
             assertFalse(file.exists());
+        }
+    }
+
+    @Test
+    public void testVeryLargeCapacity() throws Exception
+    {
+        byte[] testData;
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos))
+        {
+            out.writeUTF("abc");
+            testData = baos.toByteArray();
+        }
+
+        try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                      INITIAL_BUFFER_SIZE, Integer.MAX_VALUE, file,
+                                                                                      Integer.MAX_VALUE))
+        {
+            reader.mark();
+            assertEquals("abc", reader.readUTF());
+            reader.reset();
+            assertEquals("abc", reader.readUTF());
+        }
+        assertFalse(file.exists());
+
+
+        baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos))
+        {
+            out.writeBoolean(true);
+            out.writeBoolean(true);
+            testData = baos.toByteArray();
         }
     }
 
@@ -167,10 +217,12 @@ public class RewindableDataInputStreamPlusTest
             // + 4 (float) + 8 (double) + 5 bytes (utf string)
         }
 
-        for (int capacity = 0; capacity <= 36; capacity++)
+        for (int memCapacity = 0; memCapacity <= 18; memCapacity++)
         {
+            int diskCapacity = 18 - memCapacity;
             try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
-                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
+                                                                                          INITIAL_BUFFER_SIZE, memCapacity, file,
+                                                                                          diskCapacity))
             {
                 //read a big amount before resetting
                 reader.mark();
@@ -209,6 +261,141 @@ public class RewindableDataInputStreamPlusTest
         }
     }
 
+
+    @Test
+    public void testCircularSpillFile() throws Exception
+    {
+        byte[] testData;
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos))
+        {
+            // boolean
+            out.writeBoolean(true);
+            // byte
+            out.writeByte(0x1);
+            // char
+            out.writeChar('a');
+            // short
+            out.writeShort(1);
+            // int
+            out.writeInt(1);
+
+            // String
+            out.writeUTF("ab");
+            testData = baos.toByteArray();
+
+            // 1 (boolean) + 1 (byte) + 2 (char) + 2 (short) + 4 (int) + 4 bytes (utf string)
+        }
+
+        //read at most 4 bytes multiple times (and then check file size)
+        int MEM_SIZE = 0;
+        int DISK_SIZE = 4;
+        try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                      INITIAL_BUFFER_SIZE, MEM_SIZE, file,
+                                                                                      DISK_SIZE))
+        {
+            //read 2 bytes and reset
+            reader.mark();
+            assertTrue(reader.readBoolean());
+            assertEquals(0x1, reader.readByte());
+            assertEquals(2, reader.bytesPastMark(null));
+            reader.reset();
+
+            //read again previous sequence
+            assertTrue(reader.readBoolean());
+            assertEquals(0x1, reader.readByte());
+            //finish reading again previous sequence
+
+            //read 4 bytes and reset
+            reader.mark();
+            assertEquals('a', reader.readChar());
+            assertEquals(1, reader.readShort());
+            assertEquals(4, reader.bytesPastMark(null));
+            reader.reset();
+
+            //read again previous sequence
+            assertEquals('a', reader.readChar());
+            assertEquals(1, reader.readShort());
+            //finish reading again previous sequence
+
+            //read 4 bytes and reset
+            reader.mark();
+            assertEquals(1, reader.readInt());
+            assertEquals(4, reader.bytesPastMark(null));
+            reader.reset();
+
+            //read again previous sequence
+            assertEquals(1, reader.readInt());
+
+            //check max file size
+            assertEquals(DISK_SIZE, file.length());
+        }
+        assertFalse(file.exists());
+    }
+
+    @Test
+    public void testExhaustCapacity() throws Exception
+    {
+        byte[] testData;
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos))
+        {
+            // boolean
+            out.writeBoolean(true);
+            // byte
+            out.writeByte(0x1);
+            // char
+            out.writeChar('a');
+            // short
+            out.writeShort(1);
+            testData = baos.toByteArray();
+        }
+
+        //test capacity exhausted when reading more than 4 bytes
+        testCapacityExhausted(testData, 0, 2);
+        testCapacityExhausted(testData, 2, 0);
+        testCapacityExhausted(testData, 1, 1);
+    }
+
+    private void testCapacityExhausted(byte[] testData, int memSize, int diskSize) throws IOException
+    {
+        try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
+                                                                                      INITIAL_BUFFER_SIZE, memSize, file,
+                                                                                      diskSize))
+        {
+            //read 2 bytes and reset
+            reader.mark();
+            assertTrue(reader.readBoolean());
+            assertEquals(0x1, reader.readByte());
+            assertEquals(2, reader.bytesPastMark(null));
+            reader.reset();
+
+            //read again previous sequence
+            assertTrue(reader.readBoolean());
+            assertEquals(0x1, reader.readByte());
+            //finish reading again previous sequence
+
+            reader.mark();
+            //read 3 bytes - OK
+            assertEquals('a', reader.readChar());
+            //read 1 more bytes - CAPACITY will exhaust when trying to reset :(
+            assertEquals(1, reader.readShort());
+
+            try
+            {
+                reader.reset();
+                fail("Should have thrown IllegalStateException");
+            }
+            catch (IllegalStateException e) {}
+
+            //check max file size
+            assertEquals(diskSize, file.length());
+        }
+        assertFalse(file.exists());
+    }
+
     @Test
     public void testMarkAndResetUnsignedRead() throws Exception
     {
@@ -224,10 +411,12 @@ public class RewindableDataInputStreamPlusTest
             testData = baos.toByteArray();
         }
 
-        for (int capacity = 0; capacity <= 4; capacity++)
+        for (int memCapacity = 0; memCapacity <= 1; memCapacity++)
         {
+            int diskCapacity = 1 - memCapacity;
             try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
-                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
+                                                                                          INITIAL_BUFFER_SIZE, memCapacity, file,
+                                                                                          diskCapacity))
             {
                 reader.mark();
                 assertEquals(1, reader.readUnsignedByte());
@@ -255,10 +444,12 @@ public class RewindableDataInputStreamPlusTest
         String testStr = "1234567890";
         byte[] testData = testStr.getBytes();
 
-        for (int capacity = 0; capacity <= 11; capacity++)
+        for (int memCapacity = 0; memCapacity <= 7; memCapacity++)
         {
+            int diskCapacity = 7 - memCapacity;
             try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
-                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
+                                                                                          INITIAL_BUFFER_SIZE, memCapacity, file,
+                                                                                          diskCapacity))
             {
                 reader.mark();
                 // read first 5 bytes and rewind
@@ -269,6 +460,7 @@ public class RewindableDataInputStreamPlusTest
                 // then skip 2 bytes (67)
                 reader.skipBytes(2);
 
+                assertEquals(7, reader.bytesPastMark(null));
                 reader.reset();
 
                 //now read part of the previously skipped bytes
@@ -306,10 +498,12 @@ public class RewindableDataInputStreamPlusTest
         String testStr = "1234567890";
         byte[] testData = testStr.getBytes();
 
-        for (int capacity = 0; capacity <= 11; capacity++)
+        for (int memCapacity = 0; memCapacity <= 5; memCapacity++)
         {
+            int diskCapacity = 5 - memCapacity;
             try (RewindableDataInputStreamPlus reader = new RewindableDataInputStreamPlus(new ByteArrayInputStream(testData),
-                                                                                          INITIAL_BUFFER_SIZE, capacity, file))
+                                                                                          INITIAL_BUFFER_SIZE, memCapacity, file,
+                                                                                          diskCapacity))
             {
                 reader.mark();
                 // read first 5 bytes and rewind

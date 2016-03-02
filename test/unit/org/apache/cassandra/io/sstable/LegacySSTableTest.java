@@ -104,13 +104,6 @@ public class LegacySSTableTest
         assert LEGACY_SSTABLE_ROOT.isDirectory();
     }
 
-    @Before
-    public void setup()
-    {
-        System.setProperty("cassandra.rewindable_is_initial_mem_buffer_size", "1");
-        System.setProperty("cassandra.legacy_stream_reader_max_mem_buffer_size", "3");
-    }
-
     @After
     public void tearDown()
     {

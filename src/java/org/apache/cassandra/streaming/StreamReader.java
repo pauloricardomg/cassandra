@@ -196,10 +196,10 @@ public class StreamReader
 
     public static class StreamDeserializer extends UnmodifiableIterator<Unfiltered> implements UnfilteredRowIterator
     {
-        public static final int INITIAL_BUFFER_SIZE = Integer.parseInt(System.getProperty("cassandra.dtest.rdisp_initial_buffer_size",
-                                                                                                  "32768"));
-        public static final int MAX_BUFFER_SIZE = Integer.parseInt(System.getProperty("cassandra.dtest.rdisp_max_buffer_size",
-                                                                                             "1048576"));
+        public static final int INITIAL_MEM_BUFFER_SIZE = Integer.getInteger("cassandra.streamdes.initial_mem_buffer_size", 32768);
+        public static final int MAX_MEM_BUFFER_SIZE = Integer.getInteger("cassandra.streamdes.max_mem_buffer_size", 1048576);
+        public static final int MAX_SPILL_FILE_SIZE = Integer.getInteger("cassandra.streamdes.max_spill_file_size", Integer.MAX_VALUE);
+
         public static final String BUFFER_FILE_PREFIX = "buf";
         public static final String BUFFER_FILE_SUFFIX = "dat";
 
@@ -221,8 +221,11 @@ public class StreamReader
             // streaming pre-3.0 sstables require mark/reset support from source stream
             if (version.correspondingMessagingVersion() < MessagingService.VERSION_30)
             {
+                logger.trace("Initializing rewindable input stream for reading legacy sstable with {} bytes with following " +
+                             "parameters: initial_mem_buffer_size={}, max_mem_buffer_size={}, max_spill_file_size={}.",
+                             totalSize, INITIAL_MEM_BUFFER_SIZE, MAX_MEM_BUFFER_SIZE, MAX_SPILL_FILE_SIZE);
                 File bufferFile = getTempBufferFile(metadata, totalSize, sessionId);
-                this.in = new RewindableDataInputStreamPlus(in, INITIAL_BUFFER_SIZE, MAX_BUFFER_SIZE, bufferFile);
+                this.in = new RewindableDataInputStreamPlus(in, INITIAL_MEM_BUFFER_SIZE, MAX_MEM_BUFFER_SIZE, bufferFile, MAX_SPILL_FILE_SIZE);
             } else
                 this.in = new DataInputPlus.DataInputStreamPlus(in);
             this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
@@ -345,13 +348,11 @@ public class StreamReader
                 throw new RuntimeException(String.format("CF %s.%s was dropped during streaming", metadata.ksName, metadata.cfName));
             }
 
-            //We play it safe here by asking for a directory with 2*totalSize to make sure the disk will have
-            //sufficient space to hold both the received sstable and the buffer file, which can have the same
-            // size as the sstable in the worst case
-            File tmpDir = cfs.getDirectories().getTemporaryWriteableDirectoryAsFile(2 * totalSize);
+            long maxSize = Math.min(MAX_SPILL_FILE_SIZE, totalSize);
+            File tmpDir = cfs.getDirectories().getTemporaryWriteableDirectoryAsFile(maxSize);
             if (tmpDir == null)
                 throw new RuntimeException(String.format("No sufficient disk space to stream legacy sstable from {}.{}. " +
-                                                         "Required disk space: %s.", FBUtilities.prettyPrintMemory(2 * totalSize)));
+                                                         "Required disk space: %s.", FBUtilities.prettyPrintMemory(maxSize)));
             return new File(tmpDir, String.format("%s-%s.%s", BUFFER_FILE_PREFIX, sessionId, BUFFER_FILE_SUFFIX));
         }
     }
