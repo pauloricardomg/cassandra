@@ -23,6 +23,9 @@ import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.xml.crypto.Data;
+
+import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +83,15 @@ public class BootStrapper extends ProgressEventNotifierSupport
         {
             AbstractReplicationStrategy strategy = Keyspace.open(keyspaceName).getReplicationStrategy();
             streamer.addRanges(keyspaceName, strategy.getPendingAddressRanges(tokenMetadata, tokens, address));
+
+            if (DatabaseDescriptor.isReplacing())
+            {
+                Multimap<Range<Token>, InetAddress> changedRanges = StorageService.instance.getChangedRangesForReplacement(keyspaceName, DatabaseDescriptor.getReplaceAddress());
+                if (!changedRanges.isEmpty())
+                {
+                    logger.debug("Following ranges will be changed: {}", changedRanges);
+                }
+            }
         }
 
         StreamResultFuture bootstrapStreamResult = streamer.fetchAsync();

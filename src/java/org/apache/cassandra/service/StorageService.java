@@ -171,6 +171,7 @@ import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventType;
 import org.apache.cassandra.utils.progress.jmx.JMXProgressSupport;
+import org.hsqldb.Database;
 
 /**
  * This abstraction contains the token/identifier of this node
@@ -2315,8 +2316,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         });
     }
 
+    public Multimap<Range<Token>, InetAddress> getChangedRangesForLeaving(String keyspaceName, InetAddress endpoint)
+    {
+        return getChangedRanges(keyspaceName, endpoint, false);
+    }
+
+    public Multimap<Range<Token>, InetAddress> getChangedRangesForReplacement(String keyspaceName, InetAddress endpoint)
+    {
+        return getChangedRanges(keyspaceName, endpoint, true);
+    }
+
     // needs to be modified to accept either a keyspace or ARS.
-    private Multimap<Range<Token>, InetAddress> getChangedRangesForLeaving(String keyspaceName, InetAddress endpoint)
+    private Multimap<Range<Token>, InetAddress> getChangedRanges(String keyspaceName, InetAddress endpoint, boolean replacing)
     {
         // First get all ranges the leaving endpoint is responsible for
         Collection<Range<Token>> ranges = getRangesForEndpoint(keyspaceName, endpoint);
@@ -2328,15 +2339,23 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         // Find (for each range) all nodes that store replicas for these ranges as well
         TokenMetadata metadata = tokenMetadata.cloneOnlyTokenMap(); // don't do this in the loop! #7758
+
+        if (replacing)
+            metadata.removeEndpoint(DatabaseDescriptor.getBroadcastAddress());
+
         for (Range<Token> range : ranges)
             currentReplicaEndpoints.put(range, Keyspace.open(keyspaceName).getReplicationStrategy().calculateNaturalEndpoints(range.right, metadata));
 
-        TokenMetadata temp = tokenMetadata.cloneAfterAllLeft();
+        TokenMetadata updatedTopology = tokenMetadata.cloneAfterAllLeft();
+
+        //if replacing, simulate a bootstrap
+        if (replacing)
+            updatedTopology.updateNormalTokens(bootstrapTokens, DatabaseDescriptor.getBroadcastAddress());
 
         // endpoint might or might not be 'leaving'. If it was not leaving (that is, removenode
         // command was used), it is still present in temp and must be removed.
-        if (temp.isMember(endpoint))
-            temp.removeEndpoint(endpoint);
+        if (updatedTopology.isMember(endpoint) || replacing)
+            updatedTopology.removeEndpoint(endpoint);
 
         Multimap<Range<Token>, InetAddress> changedRanges = HashMultimap.create();
 
@@ -2347,7 +2366,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // range.
         for (Range<Token> range : ranges)
         {
-            Collection<InetAddress> newReplicaEndpoints = Keyspace.open(keyspaceName).getReplicationStrategy().calculateNaturalEndpoints(range.right, temp);
+            Collection<InetAddress> newReplicaEndpoints = Keyspace.open(keyspaceName).getReplicationStrategy().calculateNaturalEndpoints(range.right, updatedTopology);
             newReplicaEndpoints.removeAll(currentReplicaEndpoints.get(range));
             if (logger.isDebugEnabled())
                 if (newReplicaEndpoints.isEmpty())
