@@ -42,6 +42,7 @@ import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.*;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventNotifierSupport;
 import org.apache.cassandra.utils.progress.ProgressEventType;
@@ -86,11 +87,13 @@ public class BootStrapper extends ProgressEventNotifierSupport
 
             if (DatabaseDescriptor.isReplacing())
             {
-                Multimap<Range<Token>, InetAddress> changedRanges = StorageService.instance.getChangedRangesForReplacement(keyspaceName, DatabaseDescriptor.getReplaceAddress());
-                if (!changedRanges.isEmpty())
-                {
-                    logger.debug("Following ranges will be changed: {}", changedRanges);
-                }
+                Multimap<Range<Token>, InetAddress> changedRanges = StorageService.instance.getChangedRangesForReplacement(keyspaceName,
+                                                                                                                           DatabaseDescriptor.getReplaceAddress(),
+                                                                                                                           FBUtilities.getBroadcastAddress());
+                if (changedRanges.isEmpty())
+                    logger.info("#33 [ks={}] No changed ranges!", keyspaceName);
+                else
+                    logger.info("#33 [ks={}] Following ranges will be changed: {}", keyspaceName, changedRanges);
             }
         }
 

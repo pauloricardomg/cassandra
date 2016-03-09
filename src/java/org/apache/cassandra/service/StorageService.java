@@ -171,7 +171,6 @@ import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventType;
 import org.apache.cassandra.utils.progress.jmx.JMXProgressSupport;
-import org.hsqldb.Database;
 
 /**
  * This abstraction contains the token/identifier of this node
@@ -2318,44 +2317,55 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public Multimap<Range<Token>, InetAddress> getChangedRangesForLeaving(String keyspaceName, InetAddress endpoint)
     {
-        return getChangedRanges(keyspaceName, endpoint, false);
+        return getChangedRanges(keyspaceName, endpoint, null);
     }
 
-    public Multimap<Range<Token>, InetAddress> getChangedRangesForReplacement(String keyspaceName, InetAddress endpoint)
+    public Multimap<Range<Token>, InetAddress> getChangedRangesForReplacement(String keyspaceName, InetAddress leavingEndpoint,
+                                                                              InetAddress replacementEndpoint)
     {
-        return getChangedRanges(keyspaceName, endpoint, true);
+        return getChangedRanges(keyspaceName, leavingEndpoint, replacementEndpoint);
     }
 
     // needs to be modified to accept either a keyspace or ARS.
-    private Multimap<Range<Token>, InetAddress> getChangedRanges(String keyspaceName, InetAddress endpoint, boolean replacing)
+    private Multimap<Range<Token>, InetAddress> getChangedRanges(String keyspaceName, InetAddress leavingEndpoint,
+                                                                 InetAddress replacementEndpoint)
     {
+        TokenMetadata originalTopology = tokenMetadata.cloneOnlyTokenMap();
+
+        // If we are the replacement node, we already set this node as the new owner of the leaving endpoint's tokens
+        // so we update the topology copy to reflect the ring before we join the ring
+        if (replacementEndpoint != null && replacementEndpoint.equals(FBUtilities.getBroadcastAddress()))
+            originalTopology.updateNormalTokens(getLocalTokens(), leavingEndpoint);
+
         // First get all ranges the leaving endpoint is responsible for
-        Collection<Range<Token>> ranges = getRangesForEndpoint(keyspaceName, endpoint);
+        Collection<Range<Token>> ranges = Keyspace.open(keyspaceName).getReplicationStrategy().getAddressRanges(originalTopology).get(leavingEndpoint);
 
         if (logger.isDebugEnabled())
-            logger.debug("Node {} ranges [{}]", endpoint, StringUtils.join(ranges, ", "));
+            logger.info("#33 Node {} ranges [{}]", leavingEndpoint, StringUtils.join(ranges, ", "));
 
         Map<Range<Token>, List<InetAddress>> currentReplicaEndpoints = new HashMap<>(ranges.size());
 
         // Find (for each range) all nodes that store replicas for these ranges as well
-        TokenMetadata metadata = tokenMetadata.cloneOnlyTokenMap(); // don't do this in the loop! #7758
+        logger.info("#33 original topology: {}", originalTopology);
 
-        if (replacing)
-            metadata.removeEndpoint(DatabaseDescriptor.getBroadcastAddress());
+        logger.info("#33 original topology after removing: {}", originalTopology);
 
         for (Range<Token> range : ranges)
-            currentReplicaEndpoints.put(range, Keyspace.open(keyspaceName).getReplicationStrategy().calculateNaturalEndpoints(range.right, metadata));
+            currentReplicaEndpoints.put(range, Keyspace.open(keyspaceName).getReplicationStrategy().calculateNaturalEndpoints(range.right, originalTopology));
 
-        TokenMetadata updatedTopology = tokenMetadata.cloneAfterAllLeft();
+        TokenMetadata updatedTopology = replacementEndpoint != null ? tokenMetadata.cloneOnlyTokenMap() : tokenMetadata.cloneAfterAllLeft();
+        logger.info("#33 Updated topology: {}", updatedTopology);
 
-        //if replacing, simulate a bootstrap
-        if (replacing)
-            updatedTopology.updateNormalTokens(bootstrapTokens, DatabaseDescriptor.getBroadcastAddress());
+        // If we are NOT the replacement node, we replace the leaving endpoint with the replacement node
+        // in the updated topology
+        if (replacementEndpoint != null && !replacementEndpoint.equals(FBUtilities.getBroadcastAddress()))
+            updatedTopology.updateNormalTokens(getLocalTokens(), replacementEndpoint);
 
         // endpoint might or might not be 'leaving'. If it was not leaving (that is, removenode
         // command was used), it is still present in temp and must be removed.
-        if (updatedTopology.isMember(endpoint) || replacing)
-            updatedTopology.removeEndpoint(endpoint);
+        if (updatedTopology.isMember(leavingEndpoint))
+            updatedTopology.removeEndpoint(leavingEndpoint);
+        logger.info("#33 Updated topology after removing: {}", updatedTopology);
 
         Multimap<Range<Token>, InetAddress> changedRanges = HashMultimap.create();
 
@@ -2367,12 +2377,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (Range<Token> range : ranges)
         {
             Collection<InetAddress> newReplicaEndpoints = Keyspace.open(keyspaceName).getReplicationStrategy().calculateNaturalEndpoints(range.right, updatedTopology);
+            if (replacementEndpoint != null)
+                //We are not interested in the replacement node because it will already transfer
+                //the ranges of the leaving endpoing during bootstrap
+                newReplicaEndpoints.remove(replacementEndpoint);
+
             newReplicaEndpoints.removeAll(currentReplicaEndpoints.get(range));
             if (logger.isDebugEnabled())
                 if (newReplicaEndpoints.isEmpty())
-                    logger.debug("Range {} already in all replicas", range);
+                    logger.info("#33 Range {} already in all replicas", range);
                 else
-                    logger.debug("Range {} will be responsibility of {}", range, StringUtils.join(newReplicaEndpoints, ", "));
+                    logger.info("#33 Range {} will be responsibility of {}", range, StringUtils.join(newReplicaEndpoints, ", "));
             changedRanges.putAll(range, newReplicaEndpoints);
         }
 
@@ -3809,6 +3824,20 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * @param hostIdString token for the node
      */
     public void removeNode(String hostIdString)
+    {
+        coordinateNodeRemoval(hostIdString);
+    }
+
+    /**
+     * Remove a node that has died, attempting to restore the replica count.
+     * If the node is alive, decommission should be attempted.  If decommission
+     * fails, then removeToken should be called.  If we fail while trying to
+     * restore the replica count, finally forceRemoveCompleteion should be
+     * called to forcibly remove the node without regard to replica count.
+     *
+     * @param hostIdString token for the node
+     */
+    public void coordinateNodeRemoval(String hostIdString)
     {
         InetAddress myAddress = FBUtilities.getBroadcastAddress();
         UUID localHostId = tokenMetadata.getHostId(myAddress);
