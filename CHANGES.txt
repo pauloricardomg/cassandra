@@ -27,6 +27,7 @@
  * (cqlsh) Support utf-8/cp65001 encoding on Windows (CASSANDRA-11030)
  * Fix paging on DISTINCT queries repeats result when first row in partition changes
    (CASSANDRA-10010)
+ * Add --hex-format option to nodetool getsstables (CASSANDRA-11337)
 Merged from 2.1:
  * Fix streaming_socket_timeout_in_ms not enforced (CASSANDRA-11286)
  * Avoid dropping message too quickly due to missing unit conversion (CASSANDRA-11302)

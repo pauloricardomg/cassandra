@@ -1987,7 +1987,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public List<String> getSSTablesForKey(String key)
     {
-        DecoratedKey dk = partitioner.decorateKey(metadata.getKeyValidator().fromString(key));
+        return getSSTablesForKey(key, false);
+    }
+
+    public List<String> getSSTablesForKey(String key, boolean hexFormat)
+    {
+        ByteBuffer keyBuffer = hexFormat ? ByteBufferUtil.hexToBytes(key) : metadata.getKeyValidator().fromString(key);
+        DecoratedKey dk = partitioner.decorateKey(keyBuffer);
         try (OpOrder.Group op = readOrdering.start())
         {
             List<String> files = new ArrayList<>();
