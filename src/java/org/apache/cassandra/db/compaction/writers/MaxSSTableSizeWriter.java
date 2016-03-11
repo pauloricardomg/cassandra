@@ -66,7 +66,7 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
         long totalSize = cfs.getExpectedCompactedFileSize(nonExpiredSSTables, txn.opType());
         expectedWriteSize = Math.min(maxSSTableSize, totalSize);
         estimatedTotalKeys = SSTableReader.getApproximateKeyCount(nonExpiredSSTables);
-        estimatedSSTables = Math.max(1, estimatedTotalKeys / maxSSTableSize);
+        estimatedSSTables = Math.max(1, totalSize / maxSSTableSize);
     }
 
     @Override
