@@ -23,6 +23,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.db.SerializationHeader;
+import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -74,8 +75,9 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
         this.allSSTables = txn.originals();
         this.level = level;
         this.maxSSTableSize = maxSSTableSize;
+        long totalSize = cfs.getExpectedCompactedFileSize(nonExpiredSSTables, OperationType.COMPACTION);
         estimatedTotalKeys = SSTableReader.getApproximateKeyCount(nonExpiredSSTables);
-        estimatedSSTables = Math.max(1, estimatedTotalKeys / maxSSTableSize);
+        estimatedSSTables = Math.max(1, totalSize / maxSSTableSize);
     }
 
     protected boolean realAppend(UnfilteredRowIterator partition)
