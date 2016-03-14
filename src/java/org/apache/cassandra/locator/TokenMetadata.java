@@ -292,10 +292,10 @@ public class TokenMetadata
     @Deprecated
     public void addBootstrapToken(Token token, InetAddress endpoint)
     {
-        addBootstrapTokens(Collections.singleton(token), endpoint);
+        addBootstrapTokens(Collections.singleton(token), endpoint, false);
     }
 
-    public void addBootstrapTokens(Collection<Token> tokens, InetAddress endpoint)
+    public void addBootstrapTokens(Collection<Token> tokens, InetAddress endpoint, boolean replacing)
     {
         assert tokens != null && !tokens.isEmpty();
         assert endpoint != null;
@@ -312,9 +312,12 @@ public class TokenMetadata
                 if (oldEndpoint != null && !oldEndpoint.equals(endpoint))
                     throw new RuntimeException("Bootstrap Token collision between " + oldEndpoint + " and " + endpoint + " (token " + token);
 
-                oldEndpoint = tokenToEndpointMap.get(token);
-                if (oldEndpoint != null && !oldEndpoint.equals(endpoint))
-                    throw new RuntimeException("Bootstrap Token collision between " + oldEndpoint + " and " + endpoint + " (token " + token);
+                if (!replacing)
+                {
+                    oldEndpoint = tokenToEndpointMap.get(token);
+                    if (oldEndpoint != null && !oldEndpoint.equals(endpoint))
+                        throw new RuntimeException("Bootstrap Token collision between " + oldEndpoint + " and " + endpoint + " (token " + token);
+                }
             }
 
             bootstrapTokens.removeValue(endpoint);

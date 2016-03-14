@@ -65,6 +65,7 @@ public class VersionedValue implements Comparable<VersionedValue>
 
     // values for ApplicationState.STATUS
     public final static String STATUS_BOOTSTRAPPING = "BOOT";
+    public final static String STATUS_REPLACING = "REPLACING";
     public final static String STATUS_NORMAL = "NORMAL";
     public final static String STATUS_LEAVING = "LEAVING";
     public final static String STATUS_LEFT = "LEFT";
@@ -137,6 +138,12 @@ public class VersionedValue implements Comparable<VersionedValue>
         {
             return new VersionedValue(versionString(VersionedValue.STATUS_BOOTSTRAPPING,
                                                     makeTokenString(tokens)));
+        }
+
+        public VersionedValue replacing(InetAddress replacement)
+        {
+            return new VersionedValue(versionString(VersionedValue.STATUS_REPLACING,
+                                                    replacement.getHostAddress()));
         }
 
         public VersionedValue normal(Collection<Token> tokens)
