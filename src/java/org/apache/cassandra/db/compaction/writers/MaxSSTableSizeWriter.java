@@ -45,14 +45,9 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
         this.allSSTables = txn.originals();
         this.level = level;
         this.maxSSTableSize = maxSSTableSize;
-        long estimatedKeysBeforeCompaction = 0;
-        for (SSTableReader sstable : nonExpiredSSTables)
-            estimatedKeysBeforeCompaction += sstable.estimatedKeys();
-        estimatedKeysBeforeCompaction = Math.max(1, estimatedKeysBeforeCompaction);
-        double estimatedCompactionRatio = (double) estimatedTotalKeys / estimatedKeysBeforeCompaction;
-        long totalSize = Math.round(estimatedCompactionRatio * cfs.getExpectedCompactedFileSize(nonExpiredSSTables, compactionType));
-        expectedWriteSize = Math.min(maxSSTableSize, totalSize);
-        estimatedSSTables = Math.max(1, totalSize / maxSSTableSize);
+        long estimatedTotalSize = Math.round(estimateCompactionRatio() * cfs.getExpectedCompactedFileSize(nonExpiredSSTables, compactionType));
+        expectedWriteSize = Math.min(maxSSTableSize, estimatedTotalSize);
+        estimatedSSTables = Math.max(1, estimatedTotalSize / maxSSTableSize);
         File sstableDirectory = cfs.directories.getLocationForDisk(getWriteDirectory(expectedWriteSize));
         @SuppressWarnings("resource")
         SSTableWriter writer = SSTableWriter.create(Descriptor.fromFilename(cfs.getTempSSTablePath(sstableDirectory)),
@@ -62,6 +57,15 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
                                                     cfs.partitioner,
                                                     new MetadataCollector(allSSTables, cfs.metadata.comparator, level));
         sstableWriter.switchWriter(writer);
+    }
+
+    private double estimateCompactionRatio()
+    {
+        long estimatedKeysBeforeCompaction = 0;
+        for (SSTableReader sstable : nonExpiredSSTables)
+            estimatedKeysBeforeCompaction += sstable.estimatedKeys();
+        estimatedKeysBeforeCompaction = Math.max(1, estimatedKeysBeforeCompaction);
+        return (double) estimatedTotalKeys / estimatedKeysBeforeCompaction;
     }
 
     @Override
