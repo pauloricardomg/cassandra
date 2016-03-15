@@ -194,7 +194,7 @@ public final class CompactionParams
 
     double defaultBloomFilterFbChance()
     {
-        return klass.equals(LeveledCompactionStrategy.class) ? 0.1 : 0.01;
+        return klass.equals(LeveledCompactionStrategy.class) ? 0.01 : 0.01;
     }
 
     public Class<? extends AbstractCompactionStrategy> klass()
