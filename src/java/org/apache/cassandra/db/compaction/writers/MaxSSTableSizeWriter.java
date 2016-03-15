@@ -32,7 +32,6 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 
 public class MaxSSTableSizeWriter extends CompactionAwareWriter
 {
-    private final long estimatedTotalKeys;
     private final long expectedWriteSize;
     private final long maxSSTableSize;
     private final int level;
@@ -63,9 +62,13 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
         this.allSSTables = txn.originals();
         this.level = level;
         this.maxSSTableSize = maxSSTableSize;
-        long totalSize = cfs.getExpectedCompactedFileSize(nonExpiredSSTables, txn.opType());
+        long estimatedKeysBeforeCompaction = 0;
+        for (SSTableReader sstable : nonExpiredSSTables)
+            estimatedKeysBeforeCompaction += sstable.estimatedKeys();
+        estimatedKeysBeforeCompaction = Math.max(1, estimatedKeysBeforeCompaction);
+        double estimatedCompactionRatio = (double) estimatedTotalKeys / estimatedKeysBeforeCompaction;
+        long totalSize = Math.round(estimatedCompactionRatio * cfs.getExpectedCompactedFileSize(nonExpiredSSTables, txn.opType()));
         expectedWriteSize = Math.min(maxSSTableSize, totalSize);
-        estimatedTotalKeys = SSTableReader.getApproximateKeyCount(nonExpiredSSTables);
         estimatedSSTables = Math.max(1, totalSize / maxSSTableSize);
     }
 
@@ -91,11 +94,5 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
 
         sstableWriter.switchWriter(writer);
 
-    }
-
-    @Override
-    public long estimatedKeys()
-    {
-        return estimatedTotalKeys;
     }
 }
