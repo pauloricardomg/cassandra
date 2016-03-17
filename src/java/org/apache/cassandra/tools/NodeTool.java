@@ -1710,7 +1710,7 @@ public class NodeTool
         @Override
         public void execute(NodeProbe probe)
         {
-            checkState(!probe.isJoined(), "This node has already joined the ring.");
+            checkState(!probe.isJoined() || probe.isSurveyMode(), "This node has already joined the ring.");
 
             try
             {
