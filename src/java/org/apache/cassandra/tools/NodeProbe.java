@@ -574,6 +574,11 @@ public class NodeProbe implements AutoCloseable
         return ssProxy.isJoined();
     }
 
+    public boolean isSurveyMode()
+    {
+        return ssProxy.isSurveyMode();
+    }
+
     public void joinRing() throws IOException
     {
         ssProxy.joinRing();
