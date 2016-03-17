@@ -107,25 +107,28 @@ public class TableStats extends NodeToolCmd
 
                 System.out.println("\t\tSSTable count: " + probe.getColumnFamilyMetric(keyspaceName, tableName, "LiveSSTableCount"));
 
-                int[] leveledSStables = table.getSSTableCountPerLevel();
+                int[][] leveledSStables = table.getSSTableCountPerRepairStatusAndLevel();
                 if (leveledSStables != null)
                 {
-                    System.out.print("\t\tSSTables in each level: [");
-                    for (int level = 0; level < leveledSStables.length; level++)
+                    for (int repaired = 0; repaired <= 1; repaired++)
                     {
-                        int count = leveledSStables[level];
-                        System.out.print(count);
-                        long maxCount = 4L; // for L0
-                        if (level > 0)
-                            maxCount = (long) Math.pow(10, level);
-                        //  show max threshold for level when exceeded
-                        if (count > maxCount)
-                            System.out.print("/" + maxCount);
+                        System.out.print(String.format("\t\tSSTables in each level (%s): [", repaired == 0? "repaired" : "unrepaired"));
+                        for (int level = 0; level < leveledSStables[repaired].length; level++)
+                        {
+                            int count = leveledSStables[repaired][level];
+                            System.out.print(count);
+                            long maxCount = 4L; // for L0
+                            if (level > 0)
+                                maxCount = (long) Math.pow(10, level);
+                            //  show max threshold for level when exceeded
+                            if (count > maxCount)
+                                System.out.print("/" + maxCount);
 
-                        if (level < leveledSStables.length - 1)
-                            System.out.print(", ");
-                        else
-                            System.out.println("]");
+                            if (level < leveledSStables[repaired].length - 1)
+                                System.out.print(", ");
+                            else
+                                System.out.println("]");
+                        }
                     }
                 }
 

@@ -135,10 +135,20 @@ public interface ColumnFamilyStoreMBean
     public int getUnleveledSSTables();
 
     /**
+     * @deprecated Use {@link this#getSSTableCountPerRepairStatusAndLevel()}  instead}
      * @return sstable count for each level. null unless leveled compaction is used.
      *         array index corresponds to level(int[0] is for level 0, ...).
      */
+    @Deprecated
     public int[] getSSTableCountPerLevel();
+
+    /**
+     * @return sstable count for each level for repaired and unrepaired set of sstables.
+     *         null unless leveled compaction is used. first array index corresponds to repaired
+     *         vs unrepaired (0 is unrepaired, 1 is repaired), second array index corresponds
+     *         to level(int[0] is for level 0, ...).
+     */
+    public int[][] getSSTableCountPerRepairStatusAndLevel();
 
     /**
      * Get the ratio of droppable tombstones to real columns (and non-droppable tombstones)

@@ -2308,9 +2308,18 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return compactionStrategyManager.getUnleveledSSTables();
     }
 
+    /**
+     * @deprecated Use {@link this#getSSTableCountPerRepairStatusAndLevel()}  instead}
+     */
+    @Deprecated
     public int[] getSSTableCountPerLevel()
     {
         return compactionStrategyManager.getSSTableCountPerLevel();
+    }
+
+    public int[][] getSSTableCountPerRepairStatusAndLevel()
+    {
+        return compactionStrategyManager.getSSTableCountPerRepairStatusAndLevel();
     }
 
     public static class ViewFragment

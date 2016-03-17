@@ -312,6 +312,10 @@ public class CompactionStrategyManager implements INotificationConsumer
         return 0;
     }
 
+    /**
+     * @deprecated Use {@link this#getSSTableCountPerRepairStatusAndLevel() instead}
+     */
+    @Deprecated
     public int[] getSSTableCountPerLevel()
     {
         readLock.lock();
@@ -329,6 +333,34 @@ public class CompactionStrategyManager implements INotificationConsumer
                 {
                     int[] unrepairedCountPerLevel = ((LeveledCompactionStrategy) strategy).getAllLevelSize();
                     res = sumArrays(res, unrepairedCountPerLevel);
+                }
+                return res;
+            }
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+        return null;
+    }
+
+    public int[][] getSSTableCountPerRepairStatusAndLevel()
+    {
+        readLock.lock();
+        try
+        {
+            if (repaired.get(0) instanceof LeveledCompactionStrategy && unrepaired.get(0) instanceof LeveledCompactionStrategy)
+            {
+                int[][] res = new int[2][LeveledManifest.MAX_LEVEL_COUNT];
+                for (AbstractCompactionStrategy strategy : repaired)
+                {
+                    int[] allLevelSize = ((LeveledCompactionStrategy) strategy).getAllLevelSize();
+                    System.arraycopy(allLevelSize, 0, res[0], 0, allLevelSize.length);
+                }
+                for (AbstractCompactionStrategy strategy : unrepaired)
+                {
+                    int[] allLevelSize = ((LeveledCompactionStrategy) strategy).getAllLevelSize();
+                    System.arraycopy(allLevelSize, 0, res[1], 0, allLevelSize.length);
                 }
                 return res;
             }
