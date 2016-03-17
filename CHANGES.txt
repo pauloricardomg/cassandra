@@ -32,6 +32,7 @@
  * Fix paging on DISTINCT queries repeats result when first row in partition changes
    (CASSANDRA-10010)
 Merged from 2.1:
+ * Fix nodetool join does not transition from write survey to normal mode (CASSANDRA-11379)
  * Don't do defragmentation if reading from repaired sstables (CASSANDRA-10342)
  * Fix streaming_socket_timeout_in_ms not enforced (CASSANDRA-11286)
  * Avoid dropping message too quickly due to missing unit conversion (CASSANDRA-11302)
