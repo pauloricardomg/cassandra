@@ -1122,6 +1122,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return tokenMetadata.isMember(FBUtilities.getBroadcastAddress());
     }
 
+    public boolean isSurveyMode()
+    {
+        return isSurveyMode;
+    }
+
     public void rebuild(String sourceDc)
     {
         // check on going rebuild
