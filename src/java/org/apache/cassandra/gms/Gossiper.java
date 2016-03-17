@@ -1157,12 +1157,20 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         if (logger.isTraceEnabled())
             logger.trace("Updating heartbeat state version to {} from {} for {} ...", localState.getHeartBeatState().getHeartBeatVersion(), oldVersion, addr);
 
+//        Map<ApplicationState, VersionedValue> previousStates = new HashMap<>();
+//        for (Entry<ApplicationState, VersionedValue> localEntry : localState.states())
+//            previousStates.put(localEntry.getKey(), localEntry.getValue());
+
         Set<Entry<ApplicationState, VersionedValue>> remoteStates = remoteState.states();
         assert remoteState.getHeartBeatState().getGeneration() == localState.getHeartBeatState().getGeneration();
         localState.addApplicationStates(remoteStates);
 
         for (Entry<ApplicationState, VersionedValue> remoteEntry : remoteStates)
-            doOnChangeNotifications(addr, remoteEntry.getKey(), remoteEntry.getValue());
+        {
+            ApplicationState key = remoteEntry.getKey();
+            //VersionedValue previousValue = previousStates.get(key);
+            doOnChangeNotifications(addr, key, null, remoteEntry.getValue());
+        }
     }
     
     // notify that a local application state is going to change (doesn't get triggered for remote changes)
@@ -1175,11 +1183,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     }
 
     // notify that an application state has changed
-    private void doOnChangeNotifications(InetAddress addr, ApplicationState state, VersionedValue value)
+    private void doOnChangeNotifications(InetAddress addr, ApplicationState state, VersionedValue previousValue, VersionedValue newValue)
     {
         for (IEndpointStateChangeSubscriber subscriber : subscribers)
         {
-            subscriber.onChange(addr, state, value);
+            subscriber.onChange(addr, state, newValue);
+            subscriber.onChange(addr, state, previousValue, newValue);
         }
     }
 
@@ -1409,13 +1418,15 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         assert epState != null;
         // Fire "before change" notifications:
         doBeforeChangeNotifications(epAddr, epState, state, value);
+
+        //VersionedValue previousValue = epState.getApplicationState(state);
         // Notifications may have taken some time, so preventively raise the version
         // of the new value, otherwise it could be ignored by the remote node
         // if another value with a newer version was received in the meantime:
         value = StorageService.instance.valueFactory.cloneWithHigherVersion(value);
         // Add to local application state and fire "on change" notifications:
         epState.addApplicationState(state, value);
-        doOnChangeNotifications(epAddr, state, value);
+        doOnChangeNotifications(epAddr, state, null, value);
     }
 
     public void addLocalApplicationState(ApplicationState applicationState, VersionedValue value)

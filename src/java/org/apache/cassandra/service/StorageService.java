@@ -1218,7 +1218,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
 //            // Dont set any state for the node which is bootstrapping the existing token...
 //            tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
-//            SystemKeyspace.removeEndpoint(DatabaseDescriptor.getReplaceAddress());
+//            SystemKeyspace.removeEndpoint(DatabaseDescriptor.parseReplaceAddress());
         }
 
         if (!Gossiper.instance.seenAnySeed())
@@ -1633,6 +1633,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // no-op
     }
 
+    public void onChange(InetAddress endpoint, ApplicationState state, VersionedValue value)
+    {
+        // no-op
+    }
+
     /*
      * Handle the reception of a new particular ApplicationState for a particular endpoint. Note that the value of the
      * ApplicationState has not necessarily "changed" since the last known value, if we already received the same update
@@ -1665,7 +1670,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * Note: Any time a node state changes from STATUS_NORMAL, it will not be visible to new nodes. So it follows that
      * you should never bootstrap a new node during a removenode, decommission or move.
      */
-    public void onChange(InetAddress endpoint, ApplicationState state, VersionedValue value)
+    public void onChange(InetAddress endpoint, ApplicationState state, VersionedValue previousValue, VersionedValue value)
     {
         if (state == ApplicationState.STATUS)
         {
@@ -1684,10 +1689,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     handleStateReplace(endpoint, pieces);
                     break;
                 case VersionedValue.STATUS_NORMAL:
-                    handleStateNormal(endpoint, VersionedValue.STATUS_NORMAL);
+                    handleStateNormal(endpoint, previousValue, VersionedValue.STATUS_NORMAL);
                     break;
                 case VersionedValue.SHUTDOWN:
-                    handleStateNormal(endpoint, VersionedValue.SHUTDOWN);
+                    handleStateNormal(endpoint, previousValue, VersionedValue.SHUTDOWN);
                     break;
                 case VersionedValue.REMOVING_TOKEN:
                 case VersionedValue.REMOVED_TOKEN:
@@ -1929,18 +1934,27 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         String replaceAddress = pieces[1];
         logger.info("Node {} is replacing {}", endpoint, replaceAddress);
-        InetAddress replaceEndpoint;
-        try
-        {
-            replaceEndpoint = InetAddress.getByName(replaceAddress);
-        }
-        catch (UnknownHostException e)
+        InetAddress replaceEndpoint = parseReplaceAddress(replaceAddress);
+        if (replaceEndpoint == null)
         {
             logger.error("Could not resolve replace address {} of bootstrapping endpoint {}.", replaceAddress, endpoint);
             return;
         }
+
         handleStateBootstrap(endpoint, true);
         removeTokens(replaceEndpoint, endpoint, true);
+    }
+
+    private static InetAddress parseReplaceAddress(String replaceAddress)
+    {
+        try
+        {
+            return InetAddress.getByName(replaceAddress);
+        }
+        catch (UnknownHostException e)
+        {
+            return null;
+        }
     }
 
     /**
@@ -1948,10 +1962,30 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * in reads.
      *
      * @param endpoint node
+     * @param previousValue
      */
-    private void handleStateNormal(final InetAddress endpoint, final String status)
+    private void handleStateNormal(final InetAddress endpoint, VersionedValue previousValue, final String status)
     {
+        logger.info("handleStateNormal({}, {}, {})", endpoint, previousValue, status);
         Collection<Token> tokens = getTokensFor(endpoint);
+
+        InetAddress replaceEndpoint = null;
+        if (previousValue != null)
+        {
+            String apStateValue = previousValue.value;
+            String[] pieces = apStateValue.split(VersionedValue.DELIMITER_STR, -1);
+            if (pieces[0].equals(VersionedValue.STATUS_REPLACING))
+            {
+                String replaceAddress = pieces[1];
+                replaceEndpoint = parseReplaceAddress(replaceAddress);
+                if (replaceEndpoint == null)
+                {
+                    logger.error("Could not resolve replace address {} of bootstrapping endpoint {}.", replaceAddress, endpoint);
+                    return;
+                }
+                logger.info("Node {} will complete replacement of {} for tokens {}.", endpoint, replaceEndpoint, tokens);
+            }
+        }
         Set<Token> tokensToUpdateInMetadata = new HashSet<>();
         Set<Token> tokensToUpdateInSystemKeyspace = new HashSet<>();
         Set<InetAddress> endpointsToRemove = new HashSet<>();
@@ -2066,7 +2100,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             notifyJoined(endpoint);
         }
 
-        PendingRangeCalculatorService.instance.update();
+        if (replaceEndpoint != null)
+        {
+            logger.info("Removing replaced node {}.", replaceEndpoint);
+            excise(tokens, endpoint, Gossiper.computeExpireTime());
+        }
+        else
+        {
+            PendingRangeCalculatorService.instance.update();
+        }
     }
 
     /**
@@ -2311,7 +2353,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * since this is called very seldom
      *
      * @param leavingEndpoint the node that left
-     * @param isReplace
      */
     private void restoreReplicaCount(InetAddress leavingEndpoint, final InetAddress notifyEndpoint, InetAddress replacementEndpoint)
     {
@@ -2420,7 +2461,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         for (Map.Entry<ApplicationState, VersionedValue> entry : epState.states())
         {
-            onChange(endpoint, entry.getKey(), entry.getValue());
+            onChange(endpoint, entry.getKey(), null, entry.getValue());
         }
         MigrationManager.instance.scheduleSchemaPull(endpoint, epState);
     }
@@ -3824,7 +3865,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             for (InetAddress endpoint : tokenMetadata.getLeavingEndpoints())
             {
                 UUID hostId = tokenMetadata.getHostId(endpoint);
-                Gossiper.instance.advertiseTokenRemoved(endpoint, hostId);
+                advertiseTokenRemoved(hostId, endpoint);
                 excise(tokenMetadata.getTokens(endpoint), endpoint);
             }
             replicatingNodes.clear();
@@ -3934,13 +3975,26 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
         }
 
-        excise(tokens, endpoint);
-
-        // gossiper will indicate the token has left
-        Gossiper.instance.advertiseTokenRemoved(endpoint, hostId);
+        if (replacing)
+        {
+            UUID localHostId = SystemKeyspace.getLocalHostId();
+            getTokenMetadata().updateHostId(localHostId, FBUtilities.getBroadcastAddress());
+            excise(tokens, endpoint, Gossiper.computeExpireTime());
+        }
+        else
+        {
+            excise(tokens, endpoint);
+            advertiseTokenRemoved(hostId, endpoint);
+        }
 
         replicatingNodes.clear();
         removingNode = null;
+    }
+
+    private void advertiseTokenRemoved(UUID hostId, InetAddress endpoint)
+    {
+        // gossiper will indicate the token has left
+        Gossiper.instance.advertiseTokenRemoved(endpoint, hostId);
     }
 
     public void confirmReplication(InetAddress node)
