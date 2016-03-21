@@ -76,6 +76,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     static {
         SILENT_SHUTDOWN_STATES.addAll(DEAD_STATES);
         SILENT_SHUTDOWN_STATES.add(VersionedValue.STATUS_BOOTSTRAPPING);
+        SILENT_SHUTDOWN_STATES.add(VersionedValue.STATUS_REPLACING);
     }
 
     private volatile ScheduledFuture<?> scheduledGossipTask;
@@ -1127,16 +1128,14 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                         // apply states, but do not notify since there is no major change
                         applyNewStates(ep, localEpStatePtr, remoteState);
                     }
-                    else if (logger.isTraceEnabled())
-                            logger.trace("Ignoring remote version {} <= {} for {}", remoteMaxVersion, localMaxVersion, ep);
+                    else logger.debug("Ignoring remote version {} <= {} for {}", remoteMaxVersion, localMaxVersion, ep);
 
                     if (!localEpStatePtr.isAlive() && !isDeadState(localEpStatePtr)) // unless of course, it was dead
                         markAlive(ep, localEpStatePtr);
                 }
                 else
                 {
-                    if (logger.isTraceEnabled())
-                        logger.trace("Ignoring remote generation {} < {}", remoteGeneration, localGeneration);
+                    logger.debug("Ignoring remote generation {} < {}", remoteGeneration, localGeneration);
                 }
             }
             else
@@ -1154,12 +1153,13 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         int oldVersion = localState.getHeartBeatState().getHeartBeatVersion();
 
         localState.setHeartBeatState(remoteState.getHeartBeatState());
-        if (logger.isTraceEnabled())
-            logger.trace("Updating heartbeat state version to {} from {} for {} ...", localState.getHeartBeatState().getHeartBeatVersion(), oldVersion, addr);
+        logger.debug("Updating heartbeat state version to {} from {} for {} ... (localState={}, remoteState={})",
+                     localState.getHeartBeatState().getHeartBeatVersion(), oldVersion, addr, localState.getApplicationState(ApplicationState.STATUS),
+                     remoteState.getApplicationState(ApplicationState.STATUS));
 
-//        Map<ApplicationState, VersionedValue> previousStates = new HashMap<>();
-//        for (Entry<ApplicationState, VersionedValue> localEntry : localState.states())
-//            previousStates.put(localEntry.getKey(), localEntry.getValue());
+        Map<ApplicationState, VersionedValue> previousStates = new HashMap<>();
+        for (Entry<ApplicationState, VersionedValue> localEntry : localState.states())
+            previousStates.put(localEntry.getKey(), localEntry.getValue());
 
         Set<Entry<ApplicationState, VersionedValue>> remoteStates = remoteState.states();
         assert remoteState.getHeartBeatState().getGeneration() == localState.getHeartBeatState().getGeneration();
@@ -1168,8 +1168,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         for (Entry<ApplicationState, VersionedValue> remoteEntry : remoteStates)
         {
             ApplicationState key = remoteEntry.getKey();
-            //VersionedValue previousValue = previousStates.get(key);
-            doOnChangeNotifications(addr, key, null, remoteEntry.getValue());
+            VersionedValue previousValue = previousStates.get(key);
+            doOnChangeNotifications(addr, key, previousValue, remoteEntry.getValue());
         }
     }
     
@@ -1419,14 +1419,20 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         // Fire "before change" notifications:
         doBeforeChangeNotifications(epAddr, epState, state, value);
 
-        //VersionedValue previousValue = epState.getApplicationState(state);
+        VersionedValue previousValue = epState.getApplicationState(state);
         // Notifications may have taken some time, so preventively raise the version
         // of the new value, otherwise it could be ignored by the remote node
         // if another value with a newer version was received in the meantime:
         value = StorageService.instance.valueFactory.cloneWithHigherVersion(value);
         // Add to local application state and fire "on change" notifications:
         epState.addApplicationState(state, value);
-        doOnChangeNotifications(epAddr, state, null, value);
+
+        logger.debug("Updating local heartbeat state version to {}... (localState={} - state ({}={})",
+                     epState.getHeartBeatState().getHeartBeatVersion(),
+                     epState.getApplicationState(ApplicationState.STATUS),
+                     state, value);
+
+        doOnChangeNotifications(epAddr, state, previousValue, value);
     }
 
     public void addLocalApplicationState(ApplicationState applicationState, VersionedValue value)

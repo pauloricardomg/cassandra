@@ -513,11 +513,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // make magic happen
         Gossiper.instance.doShadowRound();
 
-        UUID hostId = null;
+        //UUID hostId = null;
         // now that we've gossiped at least once, we should be able to find the node we're replacing
         if (Gossiper.instance.getEndpointStateForEndpoint(DatabaseDescriptor.getReplaceAddress())== null)
             throw new RuntimeException("Cannot replace_address " + DatabaseDescriptor.getReplaceAddress() + " because it doesn't exist in gossip");
-        hostId = Gossiper.instance.getHostId(DatabaseDescriptor.getReplaceAddress());
+        //hostId = Gossiper.instance.getHostId(DatabaseDescriptor.getReplaceAddress());
         try
         {
             VersionedValue tokensVersionedValue = Gossiper.instance.getEndpointStateForEndpoint(DatabaseDescriptor.getReplaceAddress()).getApplicationState(ApplicationState.TOKENS);
@@ -525,7 +525,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 throw new RuntimeException("Could not find tokens for " + DatabaseDescriptor.getReplaceAddress() + " to replace");
             Collection<Token> tokens = TokenSerializer.deserialize(getPartitioner(), new DataInputStream(new ByteArrayInputStream(tokensVersionedValue.toBytes())));
 
-            SystemKeyspace.setLocalHostId(hostId); // use the replacee's host Id as our own so we receive hints, etc
+            //SystemKeyspace.setLocalHostId(hostId); // use the replacee's host Id as our own so we receive hints, etc
             Gossiper.instance.resetEndpointStateMap(); // clean up since we have what we need
             return tokens;
         }
@@ -763,8 +763,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 if (!DatabaseDescriptor.isAutoBootstrap())
                     throw new RuntimeException("Trying to replace_address with auto_bootstrap disabled will not work, check your configuration");
                 bootstrapTokens = prepareReplacementInfo();
-                appStates.put(ApplicationState.TOKENS, valueFactory.tokens(bootstrapTokens));
-                appStates.put(ApplicationState.STATUS, valueFactory.hibernate(true));
+//                appStates.put(ApplicationState.TOKENS, valueFactory.tokens(bootstrapTokens));
+//                appStates.put(ApplicationState.STATUS, valueFactory.hibernate(true));
             }
             else if (shouldBootstrap())
             {
@@ -1015,8 +1015,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
         else if (isSurveyMode)
         {
-            setTokens(SystemKeyspace.getSavedTokens());
             SystemKeyspace.setBootstrapState(SystemKeyspace.BootstrapState.COMPLETED);
+            setTokens(SystemKeyspace.getSavedTokens());
             isSurveyMode = false;
             logger.info("Leaving write survey mode and joining ring at operator request");
             assert tokenMetadata.sortedTokens().size() > 0;
@@ -1209,22 +1209,24 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         isBootstrapMode = true;
         SystemKeyspace.updateTokens(tokens); // DON'T use setToken, that makes us part of the ring locally which is incorrect until we are done bootstrapping
-        if (!replacing)
-        {
-            // if not an existing token then bootstrap
-            List<Pair<ApplicationState, VersionedValue>> states = new ArrayList<>();
-            states.add(Pair.create(ApplicationState.TOKENS, valueFactory.tokens(tokens)));
-            states.add(Pair.create(ApplicationState.STATUS, valueFactory.bootstrapping(tokens)));
-            Gossiper.instance.addLocalApplicationStates(states);
-            setMode(Mode.JOINING, "sleeping " + RING_DELAY + " ms for pending range setup", true);
-            Uninterruptibles.sleepUninterruptibly(RING_DELAY, TimeUnit.MILLISECONDS);
-        }
+//        if (!replacing)
+//        {
+        List<Pair<ApplicationState, VersionedValue>> states = new ArrayList<>();
+        states.add(Pair.create(ApplicationState.TOKENS, valueFactory.tokens(tokens)));
+        if (replacing)
+            states.add(Pair.create(ApplicationState.STATUS, valueFactory.replacing(DatabaseDescriptor.getReplaceAddress())));
         else
-        {
+            states.add(Pair.create(ApplicationState.STATUS, valueFactory.bootstrapping(tokens)));
+        Gossiper.instance.addLocalApplicationStates(states);
+        setMode(Mode.JOINING, "sleeping " + RING_DELAY + " ms for pending range setup", true);
+        Uninterruptibles.sleepUninterruptibly(RING_DELAY, TimeUnit.MILLISECONDS);
+//        }
+//        else
+//        {
 //            // Dont set any state for the node which is bootstrapping the existing token...
-//            tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
-//            SystemKeyspace.removeEndpoint(DatabaseDescriptor.parseReplaceAddress());
-        }
+//            //tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
+//            //SystemKeyspace.removeEndpoint(DatabaseDescriptor.parseReplaceAddress());
+//        }
 
         if (!Gossiper.instance.seenAnySeed())
             throw new IllegalStateException("Unable to contact any seeds!");
@@ -1238,9 +1240,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (replacing)
         {
             UUID hostId = Gossiper.instance.getHostId(DatabaseDescriptor.getReplaceAddress());
-            removeNode(hostId.toString(), true);
             isBootstrapMode = false;
-            logger.info("Successfully replaced host {} ({}) with tokens {}.", hostId, DatabaseDescriptor.getReplaceAddress(), tokens);
+            logger.info("Finished replacing {} ({}) with tokens {}.", hostId, DatabaseDescriptor.getReplaceAddress(), tokens);
             return true;
         }
         else
@@ -1927,11 +1928,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         tokenMetadata.addBootstrapTokens(tokens, endpoint, replacing);
+        tokenMetadata.updateHostId(Gossiper.instance.getHostId(endpoint), endpoint);
 
         if (!replacing)
         {
             PendingRangeCalculatorService.instance.update();
-            tokenMetadata.updateHostId(Gossiper.instance.getHostId(endpoint), endpoint);
         }
     }
 
@@ -1947,7 +1948,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         handleStateBootstrap(endpoint, true);
-        removeTokens(replaceEndpoint, endpoint, true);
+        removeEndpoint(replaceEndpoint, endpoint, true);
     }
 
     private static InetAddress parseReplaceAddress(String replaceAddress)
@@ -2106,14 +2107,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         if (replaceEndpoint != null)
-        {
-            logger.info("Removing replaced node {}.", replaceEndpoint);
-            excise(tokens, endpoint, Gossiper.computeExpireTime());
-        }
+            excise(tokens, replaceEndpoint, Gossiper.computeExpireTime());
         else
-        {
             PendingRangeCalculatorService.instance.update();
-        }
     }
 
     /**
@@ -2223,7 +2219,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 UUID hostId = UUID.fromString(coordinator[1]);
                 // grab any data we are now responsible for and notify responsible node
                 InetAddress removalCoordinator = tokenMetadata.getEndpointForHostId(hostId);
-                removeTokens(endpoint, removalCoordinator, false);
+                removeEndpoint(endpoint, removalCoordinator, false);
             }
         }
         else // now that the gossiper has told us about this nonexistent member, notify the gossiper to remove it
@@ -2234,7 +2230,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    private void removeTokens(InetAddress leavingEndpoint, InetAddress removalCoordinator, boolean isReplace)
+    private void removeEndpoint(InetAddress leavingEndpoint, InetAddress removalCoordinator, boolean isReplace)
     {
         Collection<Token> removeTokens = tokenMetadata.getTokens(leavingEndpoint);
 
@@ -3956,12 +3952,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         if (replacing)
         {
-            List<Pair<ApplicationState, VersionedValue>> states = new ArrayList<>();
-            states.add(Pair.create(ApplicationState.TOKENS, valueFactory.tokens(tokens)));
-            states.add(Pair.create(ApplicationState.STATUS, valueFactory.replacing(DatabaseDescriptor.getReplaceAddress())));
-            Gossiper.instance.addLocalApplicationStates(states);
-            setMode(Mode.JOINING, "sleeping " + RING_DELAY + " ms for pending range setup", true);
-            Uninterruptibles.sleepUninterruptibly(RING_DELAY, TimeUnit.MILLISECONDS);
+//            List<Pair<ApplicationState, VersionedValue>> states = new ArrayList<>();
+//            states.add(Pair.create(ApplicationState.TOKENS, valueFactory.tokens(tokens)));
+//            states.add(Pair.create(ApplicationState.STATUS, valueFactory.replacing(DatabaseDescriptor.getReplaceAddress())));
+//            Gossiper.instance.addLocalApplicationStates(states);
+//            setMode(Mode.JOINING, "sleeping " + RING_DELAY + " ms for pending range setup", true);
+//            Uninterruptibles.sleepUninterruptibly(RING_DELAY, TimeUnit.MILLISECONDS);
         }
         else
         {
@@ -3983,6 +3979,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (replacing)
         {
             UUID localHostId = SystemKeyspace.getLocalHostId();
+            //tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
             getTokenMetadata().updateHostId(localHostId, FBUtilities.getBroadcastAddress());
             excise(tokens, endpoint, Gossiper.computeExpireTime());
         }
