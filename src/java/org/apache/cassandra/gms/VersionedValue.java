@@ -27,6 +27,7 @@ import static java.nio.charset.StandardCharsets.ISO_8859_1;
 
 import com.google.common.collect.Iterables;
 
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
@@ -70,6 +71,7 @@ public class VersionedValue implements Comparable<VersionedValue>
     public final static String STATUS_LEFT = "LEFT";
     public final static String STATUS_MOVING = "MOVING";
 
+    public final static String REPLACING = "replacing";
     public final static String REMOVING_TOKEN = "removing";
     public final static String REMOVED_TOKEN = "removed";
 
@@ -139,6 +141,13 @@ public class VersionedValue implements Comparable<VersionedValue>
                                                     makeTokenString(tokens)));
         }
 
+        public VersionedValue replacing(Collection<Token> tokens, InetAddress replaceAddress)
+        {
+            return new VersionedValue(versionString(VersionedValue.STATUS_BOOTSTRAPPING,
+                                                    makeTokenString(tokens),
+                                                    replaceAddress.getHostAddress()));
+        }
+
         public VersionedValue normal(Collection<Token> tokens)
         {
             return new VersionedValue(versionString(VersionedValue.STATUS_NORMAL,
@@ -199,6 +208,11 @@ public class VersionedValue implements Comparable<VersionedValue>
         }
 
         public VersionedValue removingNonlocal(UUID hostId)
+        {
+            return new VersionedValue(versionString(VersionedValue.REMOVING_TOKEN, hostId.toString()));
+        }
+
+        public VersionedValue replacingNonlocal(UUID hostId)
         {
             return new VersionedValue(versionString(VersionedValue.REMOVING_TOKEN, hostId.toString()));
         }

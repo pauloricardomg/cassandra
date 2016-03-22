@@ -297,6 +297,11 @@ public class TokenMetadata
 
     public void addBootstrapTokens(Collection<Token> tokens, InetAddress endpoint)
     {
+        addBootstrapTokens(tokens, endpoint, null);
+    }
+
+    public void addBootstrapTokens(Collection<Token> tokens, InetAddress endpoint, InetAddress replacementEndpoint)
+    {
         assert tokens != null && !tokens.isEmpty();
         assert endpoint != null;
 
@@ -313,7 +318,7 @@ public class TokenMetadata
                     throw new RuntimeException("Bootstrap Token collision between " + oldEndpoint + " and " + endpoint + " (token " + token);
 
                 oldEndpoint = tokenToEndpointMap.get(token);
-                if (oldEndpoint != null && !oldEndpoint.equals(endpoint))
+                if (oldEndpoint != null && !oldEndpoint.equals(endpoint) && (replacementEndpoint == null || !oldEndpoint.equals(replacementEndpoint)))
                     throw new RuntimeException("Bootstrap Token collision between " + oldEndpoint + " and " + endpoint + " (token " + token);
             }
 

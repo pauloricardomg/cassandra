@@ -70,8 +70,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     private static final DebuggableScheduledThreadPoolExecutor executor = new DebuggableScheduledThreadPoolExecutor("GossipTasks");
 
     static final ApplicationState[] STATES = ApplicationState.values();
-    static final List<String> DEAD_STATES = Arrays.asList(VersionedValue.REMOVING_TOKEN, VersionedValue.REMOVED_TOKEN,
-                                                          VersionedValue.STATUS_LEFT, VersionedValue.HIBERNATE);
+    static final List<String> DEAD_STATES = Arrays.asList(VersionedValue.REPLACING, VersionedValue.REMOVING_TOKEN,
+                                                          VersionedValue.REMOVED_TOKEN, VersionedValue.STATUS_LEFT,
+                                                          VersionedValue.HIBERNATE);
     static ArrayList<String> SILENT_SHUTDOWN_STATES = new ArrayList<>();
     static {
         SILENT_SHUTDOWN_STATES.addAll(DEAD_STATES);
@@ -508,7 +509,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
      * @param hostId      - the ID of the host being removed
      * @param localHostId - my own host ID for replication coordination
      */
-    public void advertiseRemoving(InetAddress endpoint, UUID hostId, UUID localHostId)
+    public void advertiseRemoving(InetAddress endpoint, UUID hostId, UUID localHostId, boolean replacing)
     {
         EndpointState epState = endpointStateMap.get(endpoint);
         // remember this node's generation
@@ -525,7 +526,10 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         epState.updateTimestamp(); // make sure we don't evict it too soon
         epState.getHeartBeatState().forceNewerGenerationUnsafe();
         Map<ApplicationState, VersionedValue> states = new EnumMap<>(ApplicationState.class);
-        states.put(ApplicationState.STATUS, StorageService.instance.valueFactory.removingNonlocal(hostId));
+        if (replacing)
+            states.put(ApplicationState.STATUS, StorageService.instance.valueFactory.replacingNonlocal(hostId));
+        else
+            states.put(ApplicationState.STATUS, StorageService.instance.valueFactory.removingNonlocal(hostId));
         states.put(ApplicationState.REMOVAL_COORDINATOR, StorageService.instance.valueFactory.removalCoordinator(localHostId));
         epState.addApplicationStates(states);
         endpointStateMap.put(endpoint, epState);
