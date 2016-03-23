@@ -79,7 +79,9 @@ public class BootStrapper extends ProgressEventNotifierSupport
         for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
         {
             AbstractReplicationStrategy strategy = Keyspace.open(keyspaceName).getReplicationStrategy();
-            streamer.addRanges(keyspaceName, strategy.getPendingAddressRanges(tokenMetadata, tokens, address));
+            Collection<Range<Token>> pendingAddressRanges = strategy.getPendingAddressRanges(tokenMetadata, tokens, address);
+            logger.info("ks: {}, pendingRanges: {}", keyspaceName, pendingAddressRanges);
+            streamer.addRanges(keyspaceName, pendingAddressRanges);
         }
 
         StreamResultFuture bootstrapStreamResult = streamer.fetchAsync();

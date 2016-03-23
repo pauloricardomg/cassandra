@@ -349,7 +349,7 @@ public class CassandraRoleManager implements IRoleManager
         }
         catch (RequestExecutionException e)
         {
-            logger.warn("CassandraRoleManager skipped default role setup: some nodes were not ready");
+            logger.warn("CassandraRoleManager skipped default role setup: some nodes were not ready", e);
             throw e;
         }
     }

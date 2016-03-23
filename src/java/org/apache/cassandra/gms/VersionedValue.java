@@ -65,11 +65,13 @@ public class VersionedValue implements Comparable<VersionedValue>
 
     // values for ApplicationState.STATUS
     public final static String STATUS_BOOTSTRAPPING = "BOOT";
+    public final static String STATUS_BOOTSTRAP_REPLACING = "BOOT_REPLACE";
     public final static String STATUS_NORMAL = "NORMAL";
     public final static String STATUS_LEAVING = "LEAVING";
     public final static String STATUS_LEFT = "LEFT";
     public final static String STATUS_MOVING = "MOVING";
 
+    public final static String REPLACING_TOKEN = "replacing";
     public final static String REMOVING_TOKEN = "removing";
     public final static String REMOVED_TOKEN = "removed";
 
@@ -139,6 +141,12 @@ public class VersionedValue implements Comparable<VersionedValue>
                                                     makeTokenString(tokens)));
         }
 
+        public VersionedValue bootstrappingReplacing(InetAddress replacement)
+        {
+            return new VersionedValue(versionString(VersionedValue.STATUS_BOOTSTRAP_REPLACING,
+                                                    replacement.getHostAddress()));
+        }
+
         public VersionedValue normal(Collection<Token> tokens)
         {
             return new VersionedValue(versionString(VersionedValue.STATUS_NORMAL,
@@ -201,6 +209,11 @@ public class VersionedValue implements Comparable<VersionedValue>
         public VersionedValue removingNonlocal(UUID hostId)
         {
             return new VersionedValue(versionString(VersionedValue.REMOVING_TOKEN, hostId.toString()));
+        }
+
+        public VersionedValue replacing(UUID hostId)
+        {
+            return new VersionedValue(versionString(VersionedValue.REPLACING_TOKEN, hostId.toString()));
         }
 
         public VersionedValue removedNonlocal(UUID hostId, long expireTime)

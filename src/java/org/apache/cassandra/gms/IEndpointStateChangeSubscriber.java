@@ -40,7 +40,13 @@ public interface IEndpointStateChangeSubscriber
     
     public void beforeChange(InetAddress endpoint, EndpointState currentState, ApplicationState newStateKey, VersionedValue newValue);
 
+    /**
+     * @deprecated use {@link this#onChange(InetAddress, ApplicationState, VersionedValue, VersionedValue) instead}
+     */
+    @Deprecated
     public void onChange(InetAddress endpoint, ApplicationState state, VersionedValue value);
+
+    public void onChange(InetAddress endpoint, ApplicationState state, VersionedValue previousValue, VersionedValue newValue);
 
     public void onAlive(InetAddress endpoint, EndpointState state);
 
