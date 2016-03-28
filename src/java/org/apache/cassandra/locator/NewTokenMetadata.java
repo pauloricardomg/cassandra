@@ -15,11 +15,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.locator;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,7 +40,16 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.*;
+import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,58 +65,27 @@ import org.apache.cassandra.utils.BiMultiValMap;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.SortedBiMultiValMap;
 
-public class TokenMetadata implements ITokenMetadata
+public class NewTokenMetadata implements ITokenMetadata
 {
-    private static final Logger logger = LoggerFactory.getLogger(TokenMetadata.class);
+    private static final Logger logger = LoggerFactory.getLogger(NewTokenMetadata.class);
 
-    /**
-     * Maintains token to endpoint map of every node in the cluster.
-     * Each Token is associated with exactly one Address, but each Address may have
-     * multiple tokens.  Hence, the BiMultiValMap collection.
-     */
-    private final BiMultiValMap<Token, InetAddress> tokenToEndpointMap;
+    public Ring ring = new Ring();
 
     /** Maintains endpoint to host ID map of every node in the cluster */
     private final BiMap<InetAddress, UUID> endpointToHostIdMap;
 
-    // Prior to CASSANDRA-603, we just had <tt>Map<Range, InetAddress> pendingRanges<tt>,
-    // which was added to when a node began bootstrap and removed from when it finished.
-    //
-    // This is inadequate when multiple changes are allowed simultaneously.  For example,
-    // suppose that there is a ring of nodes A, C and E, with replication factor 3.
-    // Node D bootstraps between C and E, so its pending ranges will be E-A, A-C and C-D.
-    // Now suppose node B bootstraps between A and C at the same time. Its pending ranges
-    // would be C-E, E-A and A-B. Now both nodes need to be assigned pending range E-A,
-    // which we would be unable to represent with the old Map.  The same thing happens
-    // even more obviously for any nodes that boot simultaneously between same two nodes.
-    //
-    // So, we made two changes:
-    //
-    // First, we changed pendingRanges to a <tt>Multimap<Range, InetAddress></tt> (now
-    // <tt>Map<String, Multimap<Range, InetAddress>></tt>, because replication strategy
-    // and options are per-KeySpace).
-    //
-    // Second, we added the bootstrapTokens and leavingEndpoints collections, so we can
-    // rebuild pendingRanges from the complete information of what is going on, when
-    // additional changes are made mid-operation.
-    //
-    // Finally, note that recording the tokens of joining nodes in bootstrapTokens also
-    // means we can detect and reject the addition of multiple nodes at the same token
-    // before one becomes part of the ring.
-    private final BiMultiValMap<Token, InetAddress> bootstrapTokens = new BiMultiValMap<>();
-    // (don't need to record Token here since it's still part of tokenToEndpointMap until it's done leaving)
+    private final Set<InetAddress> bootstrappingEndpoints = new HashSet<>();
+    private final Set<InetAddress> movingEndpoints = new HashSet<>();
     private final Set<InetAddress> leavingEndpoints = new HashSet<>();
+
     // this is a cache of the calculation from {tokenToEndpointMap, bootstrapTokens, leavingEndpoints}
     private final ConcurrentMap<String, PendingRangeMaps> pendingRanges = new ConcurrentHashMap<String, PendingRangeMaps>();
 
-    // nodes which are migrating to the new tokens in the ring
-    private final Set<Pair<Token, InetAddress>> movingEndpoints = new HashSet<>();
 
     /* Use this lock for manipulating the token map */
     private final ReadWriteLock lock = new ReentrantReadWriteLock(true);
-    private volatile ArrayList<Token> sortedTokens;
 
-    private final Topology topology;
+    private final TokenMetadata.Topology topology;
     public final IPartitioner partitioner;
 
     private static final Comparator<InetAddress> inetaddressCmp = new Comparator<InetAddress>()
@@ -109,35 +99,40 @@ public class TokenMetadata implements ITokenMetadata
     // signals replication strategies that nodes have joined or left the ring and they need to recompute ownership
     private volatile long ringVersion = 0;
 
-    public TokenMetadata()
+    public NewTokenMetadata()
     {
-        this(SortedBiMultiValMap.<Token, InetAddress>create(null, inetaddressCmp),
+        this(new Ring(),
              HashBiMap.<InetAddress, UUID>create(),
-             new Topology(),
+             new TokenMetadata.Topology(),
              DatabaseDescriptor.getPartitioner());
     }
 
-    private TokenMetadata(BiMultiValMap<Token, InetAddress> tokenToEndpointMap, BiMap<InetAddress, UUID> endpointsMap, Topology topology, IPartitioner partitioner)
+    private NewTokenMetadata(Ring ring, BiMap<InetAddress, UUID> endpointsMap,
+                             TokenMetadata.Topology topology, IPartitioner partitioner)
     {
-        this.tokenToEndpointMap = tokenToEndpointMap;
         this.topology = topology;
         this.partitioner = partitioner;
         endpointToHostIdMap = endpointsMap;
-        sortedTokens = sortTokens();
+        this.ring = ring;
+    }
+
+    private UUID lookupNodeId(InetAddress endpoint)
+    {
+        UUID nodeId = endpointToHostIdMap.get(endpoint);
+        if (nodeId == null)
+        {
+            throw new RuntimeException(String.format("Could not find host id of endpoint %.", endpoint));
+        }
+        return nodeId;
     }
 
     /**
-     * To be used by tests only (via {@link StorageService#setPartitionerUnsafe}).
+     * To be used by tests only (via {@link StorageService.setPartitionerUnsafe}).
      */
     @VisibleForTesting
-    public TokenMetadata cloneWithNewPartitioner(IPartitioner newPartitioner)
+    public NewTokenMetadata cloneWithNewPartitioner(IPartitioner newPartitioner)
     {
-        return new TokenMetadata(tokenToEndpointMap, endpointToHostIdMap, topology, newPartitioner);
-    }
-
-    private ArrayList<Token> sortTokens()
-    {
-        return new ArrayList<>(tokenToEndpointMap.keySet());
+        return new NewTokenMetadata(ring, endpointToHostIdMap, topology, newPartitioner);
     }
 
     /** @return the number of nodes bootstrapping into source's primary range */
@@ -190,33 +185,22 @@ public class TokenMetadata implements ITokenMetadata
         lock.writeLock().lock();
         try
         {
-            boolean shouldSortTokens = false;
             for (InetAddress endpoint : endpointTokens.keySet())
             {
                 Collection<Token> tokens = endpointTokens.get(endpoint);
 
                 assert tokens != null && !tokens.isEmpty();
 
-                bootstrapTokens.removeValue(endpoint);
-                tokenToEndpointMap.removeValue(endpoint);
+                removeFromPending(endpoint);
+
                 topology.addEndpoint(endpoint);
-                leavingEndpoints.remove(endpoint);
                 removeFromMoving(endpoint); // also removing this endpoint from moving
 
-                for (Token token : tokens)
-                {
-                    InetAddress prev = tokenToEndpointMap.put(token, endpoint);
-                    if (!endpoint.equals(prev))
-                    {
-                        if (prev != null)
-                            logger.warn("Token {} changing ownership from {} to {}", token, prev, endpoint);
-                        shouldSortTokens = true;
-                    }
-                }
-            }
+                UUID nodeId = lookupNodeId(endpoint);
 
-            if (shouldSortTokens)
-                sortedTokens = sortTokens();
+                for (Token token : tokens)
+                    ring.setNormal(nodeId, token);
+            }
         }
         finally
         {
@@ -319,24 +303,9 @@ public class TokenMetadata implements ITokenMetadata
         lock.writeLock().lock();
         try
         {
-
-            InetAddress oldEndpoint;
-
+            UUID nodeId = lookupNodeId(endpoint);
             for (Token token : tokens)
-            {
-                oldEndpoint = bootstrapTokens.get(token);
-                if (oldEndpoint != null && !oldEndpoint.equals(endpoint))
-                    throw new RuntimeException("Bootstrap Token collision between " + oldEndpoint + " and " + endpoint + " (token " + token);
-
-                oldEndpoint = tokenToEndpointMap.get(token);
-                if (oldEndpoint != null && !oldEndpoint.equals(endpoint))
-                    throw new RuntimeException("Bootstrap Token collision between " + oldEndpoint + " and " + endpoint + " (token " + token);
-            }
-
-            bootstrapTokens.removeValue(endpoint);
-
-            for (Token token : tokens)
-                bootstrapTokens.put(token, endpoint);
+                ring.setAdding(nodeId, token);
         }
         finally
         {
@@ -344,20 +313,10 @@ public class TokenMetadata implements ITokenMetadata
         }
     }
 
+    @Deprecated
     public void removeBootstrapTokens(Collection<Token> tokens)
     {
-        assert tokens != null && !tokens.isEmpty();
-
-        lock.writeLock().lock();
-        try
-        {
-            for (Token token : tokens)
-                bootstrapTokens.remove(token);
-        }
-        finally
-        {
-            lock.writeLock().unlock();
-        }
+        // not needed - removeEndpoint is called before
     }
 
     public void addLeavingEndpoint(InetAddress endpoint)
@@ -388,7 +347,12 @@ public class TokenMetadata implements ITokenMetadata
 
         try
         {
-            movingEndpoints.add(Pair.create(token, endpoint));
+            UUID nodeId = lookupNodeId(endpoint);
+            Collection<Token> ownedTokens = ring.getTokens(nodeId);
+            assert ownedTokens.size() == 1 : "Can only move nodes with only 1 token";
+            ring.setRemoving(nodeId, ownedTokens.iterator().next());
+            ring.setAdding(nodeId, token);
+            movingEndpoints.add(endpoint);
         }
         finally
         {
@@ -403,18 +367,24 @@ public class TokenMetadata implements ITokenMetadata
         lock.writeLock().lock();
         try
         {
-            bootstrapTokens.removeValue(endpoint);
-            tokenToEndpointMap.removeValue(endpoint);
+            UUID nodeId = lookupNodeId(endpoint);
             topology.removeEndpoint(endpoint);
-            leavingEndpoints.remove(endpoint);
+            removeFromPending(endpoint);
             endpointToHostIdMap.remove(endpoint);
-            sortedTokens = sortTokens();
+            ring.removeNode(nodeId);
             invalidateCachedRings();
         }
         finally
         {
             lock.writeLock().unlock();
         }
+    }
+
+    private void removeFromPending(InetAddress endpoint)
+    {
+        leavingEndpoints.remove(endpoint);
+        movingEndpoints.remove(endpoint);
+        bootstrappingEndpoints.remove(endpoint);
     }
 
     /**
@@ -467,15 +437,8 @@ public class TokenMetadata implements ITokenMetadata
         lock.writeLock().lock();
         try
         {
-            for (Pair<Token, InetAddress> pair : movingEndpoints)
-            {
-                if (pair.right.equals(endpoint))
-                {
-                    movingEndpoints.remove(pair);
-                    break;
-                }
-            }
-
+            UUID nodeId = lookupNodeId(endpoint);
+            ring.removePendingTokens(nodeId);
             invalidateCachedRings();
         }
         finally
@@ -492,7 +455,8 @@ public class TokenMetadata implements ITokenMetadata
         lock.readLock().lock();
         try
         {
-            return new ArrayList<>(tokenToEndpointMap.inverse().get(endpoint));
+            UUID nodeId = lookupNodeId(endpoint);
+            return ring.getTokens(nodeId);
         }
         finally
         {
@@ -513,8 +477,8 @@ public class TokenMetadata implements ITokenMetadata
         lock.readLock().lock();
         try
         {
-            return tokenToEndpointMap.inverse().containsKey(endpoint);
-        }
+            UUID nodeId = lookupNodeId(endpoint);
+            return ring.hasNormalToken(nodeId);        }
         finally
         {
             lock.readLock().unlock();
@@ -544,13 +508,7 @@ public class TokenMetadata implements ITokenMetadata
 
         try
         {
-            for (Pair<Token, InetAddress> pair : movingEndpoints)
-            {
-                if (pair.right.equals(endpoint))
-                    return true;
-            }
-
-            return false;
+            return movingEndpoints.contains(endpoint);
         }
         finally
         {
@@ -558,20 +516,20 @@ public class TokenMetadata implements ITokenMetadata
         }
     }
 
-    private final AtomicReference<TokenMetadata> cachedTokenMap = new AtomicReference<>();
+    private final AtomicReference<NewTokenMetadata> cachedTokenMap = new AtomicReference<>();
 
     /**
      * Create a copy of TokenMetadata with only tokenToEndpointMap. That is, pending ranges,
      * bootstrap tokens and leaving endpoints are not included in the copy.
      */
-    public TokenMetadata cloneOnlyTokenMap()
+    public NewTokenMetadata cloneOnlyTokenMap()
     {
         lock.readLock().lock();
         try
         {
-            return new TokenMetadata(SortedBiMultiValMap.create(tokenToEndpointMap, null, inetaddressCmp),
+            return new NewTokenMetadata(ring,
                                      HashBiMap.create(endpointToHostIdMap),
-                                     new Topology(topology),
+                                     new TokenMetadata.Topology(topology),
                                      partitioner);
         }
         finally
@@ -587,9 +545,9 @@ public class TokenMetadata implements ITokenMetadata
      *
      * Callers must *NOT* mutate the returned metadata object.
      */
-    public TokenMetadata cachedOnlyTokenMap()
+    public NewTokenMetadata cachedOnlyTokenMap()
     {
-        TokenMetadata tm = cachedTokenMap.get();
+        NewTokenMetadata tm = cachedTokenMap.get();
         if (tm != null)
             return tm;
 
@@ -611,12 +569,12 @@ public class TokenMetadata implements ITokenMetadata
      *
      * @return new token metadata
      */
-    public TokenMetadata cloneAfterAllLeft()
+    public NewTokenMetadata cloneAfterAllLeft()
     {
         lock.readLock().lock();
         try
         {
-            TokenMetadata allLeftMetadata = cloneOnlyTokenMap();
+            NewTokenMetadata allLeftMetadata = cloneOnlyTokenMap();
 
             for (InetAddress endpoint : leavingEndpoints)
                 allLeftMetadata.removeEndpoint(endpoint);
@@ -635,13 +593,13 @@ public class TokenMetadata implements ITokenMetadata
      *
      * @return new token metadata
      */
-    public TokenMetadata cloneAfterAllSettled()
+    public NewTokenMetadata cloneAfterAllSettled()
     {
         lock.readLock().lock();
 
         try
         {
-            TokenMetadata metadata = cloneOnlyTokenMap();
+            NewTokenMetadata metadata = cloneOnlyTokenMap();
 
             for (InetAddress endpoint : leavingEndpoints)
                 metadata.removeEndpoint(endpoint);
@@ -663,7 +621,12 @@ public class TokenMetadata implements ITokenMetadata
         lock.readLock().lock();
         try
         {
-            return tokenToEndpointMap.get(token);
+            Set<UUID> nonPendingOwners = ring.getNonPendingOwners(token);
+            if (!nonPendingOwners.isEmpty())
+            {
+                UUID firstNonPendingOwner = nonPendingOwners.iterator().next();
+                return endpointToHostIdMap.inverse().get(firstNonPendingOwner);
+            }
         }
         finally
         {
@@ -687,7 +650,7 @@ public class TokenMetadata implements ITokenMetadata
 
     public List<Token> sortedTokens()
     {
-        return sortedTokens;
+        return ring.getNonPendingTokens();
     }
 
     public Multimap<Range<Token>, InetAddress> getPendingRangesMM(String keyspaceName)
@@ -759,7 +722,7 @@ public class TokenMetadata implements ITokenMetadata
         {
             PendingRangeMaps newPendingRanges = new PendingRangeMaps();
 
-            if (bootstrapTokens.isEmpty() && leavingEndpoints.isEmpty() && movingEndpoints.isEmpty())
+            if (bootstrappingEndpoints.isEmpty() && leavingEndpoints.isEmpty() && movingEndpoints.isEmpty())
             {
                 if (logger.isTraceEnabled())
                     logger.trace("No bootstrapping, leaving or moving nodes -> empty pending ranges for {}", keyspaceName);
@@ -771,7 +734,7 @@ public class TokenMetadata implements ITokenMetadata
             Multimap<InetAddress, Range<Token>> addressRanges = strategy.getAddressRanges();
 
             // Copy of metadata reflecting the situation after all leave operations are finished.
-            TokenMetadata allLeftMetadata = cloneAfterAllLeft();
+            NewTokenMetadata allLeftMetadata = cloneAfterAllLeft();
 
             // get all ranges that will be affected by leaving nodes
             Set<Range<Token>> affectedRanges = new HashSet<Range<Token>>();
@@ -780,7 +743,7 @@ public class TokenMetadata implements ITokenMetadata
 
             // for each of those ranges, find what new nodes will be responsible for the range when
             // all leaving nodes are gone.
-            TokenMetadata metadata = cloneOnlyTokenMap(); // don't do this in the loop! #7758
+            NewTokenMetadata metadata = cloneOnlyTokenMap(); // don't do this in the loop! #7758
             for (Range<Token> range : affectedRanges)
             {
                 Set<InetAddress> currentEndpoints = ImmutableSet.copyOf(strategy.calculateNaturalEndpoints(range.right, metadata));
@@ -870,18 +833,7 @@ public class TokenMetadata implements ITokenMetadata
 
     public Token getPredecessor(Token token)
     {
-        List<Token> tokens = sortedTokens();
-        int index = Collections.binarySearch(tokens, token);
-        assert index >= 0 : token + " not found in " + StringUtils.join(tokenToEndpointMap.keySet(), ", ");
-        return index == 0 ? tokens.get(tokens.size() - 1) : tokens.get(index - 1);
-    }
-
-    public Token getSuccessor(Token token)
-    {
-        List<Token> tokens = sortedTokens();
-        int index = Collections.binarySearch(tokens, token);
-        assert index >= 0 : token + " not found in " + StringUtils.join(tokenToEndpointMap.keySet(), ", ");
-        return (index == (tokens.size() - 1)) ? tokens.get(0) : tokens.get(index + 1);
+        return ring.getPredecessor(token);
     }
 
     /** @return a copy of the bootstrapping tokens map */
@@ -890,7 +842,7 @@ public class TokenMetadata implements ITokenMetadata
         lock.readLock().lock();
         try
         {
-            return ImmutableSet.copyOf(bootstrapTokens.values());
+            return ImmutableSet.copyOf((bootstrappingEndpoints);
         }
         finally
         {
@@ -934,7 +886,7 @@ public class TokenMetadata implements ITokenMetadata
         lock.readLock().lock();
         try
         {
-            return movingEndpoints.stream().map(p -> p.right).collect(Collectors.toSet());
+            return ImmutableSet.copyOf(movingEndpoints);
         }
         finally
         {
@@ -1008,13 +960,12 @@ public class TokenMetadata implements ITokenMetadata
         lock.writeLock().lock();
         try
         {
-            tokenToEndpointMap.clear();
+            ring.clear();
             endpointToHostIdMap.clear();
-            bootstrapTokens.clear();
             leavingEndpoints.clear();
+            bootstrappingEndpoints.clear();
             pendingRanges.clear();
             movingEndpoints.clear();
-            sortedTokens.clear();
             topology.clear();
             invalidateCachedRings();
         }
@@ -1030,7 +981,8 @@ public class TokenMetadata implements ITokenMetadata
         lock.readLock().lock();
         try
         {
-            Set<InetAddress> eps = tokenToEndpointMap.inverse().keySet();
+            List<Token> nonPendingTokens = ring.getNonPendingTokens();
+            Set<InetAddress> eps = nonPendingTokens.stream().map(i -> endpointToHostIdMap.inverse().get(i)).filter(i -> i != null).collect(Collectors.toSet());
 
             if (!eps.isEmpty())
             {
@@ -1154,7 +1106,7 @@ public class TokenMetadata implements ITokenMetadata
      * This is only allowed when a copy has been made of TokenMetadata, to avoid concurrent modifications
      * when Topology methods are subsequently used by the caller.
      */
-    public Topology getTopology()
+    public TokenMetadata.Topology getTopology()
     {
         assert this != StorageService.instance.getTokenMetadata();
         return topology;
@@ -1174,148 +1126,5 @@ public class TokenMetadata implements ITokenMetadata
     public DecoratedKey decorateKey(ByteBuffer key)
     {
         return partitioner.decorateKey(key);
-    }
-
-    /**
-     * Tracks the assignment of racks and endpoints in each datacenter for all the "normal" endpoints
-     * in this TokenMetadata. This allows faster calculation of endpoints in NetworkTopologyStrategy.
-     */
-    public static class Topology
-    {
-        /** multi-map of DC to endpoints in that DC */
-        private final Multimap<String, InetAddress> dcEndpoints;
-        /** map of DC to multi-map of rack to endpoints in that rack */
-        private final Map<String, Multimap<String, InetAddress>> dcRacks;
-        /** reverse-lookup map for endpoint to current known dc/rack assignment */
-        private final Map<InetAddress, Pair<String, String>> currentLocations;
-
-        Topology()
-        {
-            dcEndpoints = HashMultimap.create();
-            dcRacks = new HashMap<>();
-            currentLocations = new HashMap<>();
-        }
-
-        void clear()
-        {
-            dcEndpoints.clear();
-            dcRacks.clear();
-            currentLocations.clear();
-        }
-
-        /**
-         * construct deep-copy of other
-         */
-        Topology(Topology other)
-        {
-            dcEndpoints = HashMultimap.create(other.dcEndpoints);
-            dcRacks = new HashMap<>();
-            for (String dc : other.dcRacks.keySet())
-                dcRacks.put(dc, HashMultimap.create(other.dcRacks.get(dc)));
-            currentLocations = new HashMap<>(other.currentLocations);
-        }
-
-        /**
-         * Stores current DC/rack assignment for ep
-         */
-        void addEndpoint(InetAddress ep)
-        {
-            IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-            String dc = snitch.getDatacenter(ep);
-            String rack = snitch.getRack(ep);
-            Pair<String, String> current = currentLocations.get(ep);
-            if (current != null)
-            {
-                if (current.left.equals(dc) && current.right.equals(rack))
-                    return;
-                doRemoveEndpoint(ep, current);
-            }
-
-            doAddEndpoint(ep, dc, rack);
-        }
-
-        private void doAddEndpoint(InetAddress ep, String dc, String rack)
-        {
-            dcEndpoints.put(dc, ep);
-
-            if (!dcRacks.containsKey(dc))
-                dcRacks.put(dc, HashMultimap.<String, InetAddress>create());
-            dcRacks.get(dc).put(rack, ep);
-
-            currentLocations.put(ep, Pair.create(dc, rack));
-        }
-
-        /**
-         * Removes current DC/rack assignment for ep
-         */
-        void removeEndpoint(InetAddress ep)
-        {
-            if (!currentLocations.containsKey(ep))
-                return;
-
-            doRemoveEndpoint(ep, currentLocations.remove(ep));
-        }
-
-        private void doRemoveEndpoint(InetAddress ep, Pair<String, String> current)
-        {
-            dcRacks.get(current.left).remove(current.right, ep);
-            dcEndpoints.remove(current.left, ep);
-        }
-
-        void updateEndpoint(InetAddress ep)
-        {
-            IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-            if (snitch == null || !currentLocations.containsKey(ep))
-                return;
-
-           updateEndpoint(ep, snitch);
-        }
-
-        void updateEndpoints()
-        {
-            IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-            if (snitch == null)
-                return;
-
-            for (InetAddress ep : currentLocations.keySet())
-                updateEndpoint(ep, snitch);
-        }
-
-        private void updateEndpoint(InetAddress ep, IEndpointSnitch snitch)
-        {
-            Pair<String, String> current = currentLocations.get(ep);
-            String dc = snitch.getDatacenter(ep);
-            String rack = snitch.getRack(ep);
-            if (dc.equals(current.left) && rack.equals(current.right))
-                return;
-
-            doRemoveEndpoint(ep, current);
-            doAddEndpoint(ep, dc, rack);
-        }
-
-        /**
-         * @return multi-map of DC to endpoints in that DC
-         */
-        public Multimap<String, InetAddress> getDatacenterEndpoints()
-        {
-            return dcEndpoints;
-        }
-
-        /**
-         * @return map of DC to multi-map of rack to endpoints in that rack
-         */
-        public Map<String, Multimap<String, InetAddress>> getDatacenterRacks()
-        {
-            return dcRacks;
-        }
-
-        /**
-         * @return The DC and rack of the given endpoint.
-         */
-        public Pair<String, String> getLocation(InetAddress addr)
-        {
-            return currentLocations.get(addr);
-        }
-
     }
 }

@@ -126,7 +126,7 @@ public abstract class AbstractReplicationStrategy
      * @param searchToken the token the natural endpoints are requested for
      * @return a copy of the natural endpoints for the given token
      */
-    public abstract List<InetAddress> calculateNaturalEndpoints(Token searchToken, TokenMetadata tokenMetadata);
+    public abstract List<InetAddress> calculateNaturalEndpoints(Token searchToken, ITokenMetadata tokenMetadata);
 
     public <T> AbstractWriteResponseHandler<T> getWriteResponseHandler(Collection<InetAddress> naturalEndpoints,
                                                                 Collection<InetAddress> pendingEndpoints,
@@ -167,7 +167,7 @@ public abstract class AbstractReplicationStrategy
      * (fixing this would probably require merging tokenmetadata into replicationstrategy,
      * so we could cache/invalidate cleanly.)
      */
-    public Multimap<InetAddress, Range<Token>> getAddressRanges(TokenMetadata metadata)
+    public Multimap<InetAddress, Range<Token>> getAddressRanges(ITokenMetadata metadata)
     {
         Multimap<InetAddress, Range<Token>> map = HashMultimap.create();
 
@@ -183,7 +183,7 @@ public abstract class AbstractReplicationStrategy
         return map;
     }
 
-    public Multimap<Range<Token>, InetAddress> getRangeAddresses(TokenMetadata metadata)
+    public Multimap<Range<Token>, InetAddress> getRangeAddresses(ITokenMetadata metadata)
     {
         Multimap<Range<Token>, InetAddress> map = HashMultimap.create();
 

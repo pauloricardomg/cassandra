@@ -146,6 +146,7 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.DynamicEndpointSnitch;
 import org.apache.cassandra.locator.IEndpointSnitch;
+import org.apache.cassandra.locator.ITokenMetadata;
 import org.apache.cassandra.locator.LocalStrategy;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.metrics.StorageMetrics;
@@ -905,7 +906,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             if (useStrictConsistency &&
                     (
-                        tokenMetadata.getBootstrapTokens().valueSet().size() > 0 ||
+                        tokenMetadata.getBootstrappingEndpoints().size() > 0 ||
                         tokenMetadata.getLeavingEndpoints().size() > 0 ||
                         tokenMetadata.getMovingEndpoints().size() > 0
                     ))
@@ -1451,7 +1452,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return isBootstrapMode;
     }
 
-    public TokenMetadata getTokenMetadata()
+    public ITokenMetadata getTokenMetadata()
     {
         return tokenMetadata;
     }
@@ -2086,7 +2087,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                          Gossiper.instance.getEndpointStateForEndpoint(endpoint));
 
         updatePeerInfo(endpoint);
-        // Order Matters, TM.updateHostID() should be called before TM.updateNormalToken(), (see CASSANDRA-4300).
+        // Order Matters, TM.updateHostID() should be called before TM.setNormal(), (see CASSANDRA-4300).
         UUID hostId = Gossiper.instance.getHostId(endpoint);
         InetAddress existing = tokenMetadata.getEndpointForHostId(hostId);
         if (replacing && Gossiper.instance.getEndpointStateForEndpoint(DatabaseDescriptor.getReplaceAddress()) != null && (hostId.equals(Gossiper.instance.getHostId(DatabaseDescriptor.getReplaceAddress()))))
@@ -2645,9 +2646,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         List<String> endpoints = new ArrayList<>();
 
-        for (Pair<Token, InetAddress> node : tokenMetadata.getMovingEndpoints())
+        for (InetAddress node : tokenMetadata.getMovingEndpoints())
         {
-            endpoints.add(node.right.getHostAddress());
+            endpoints.add(node.getHostAddress());
         }
 
         return endpoints;
@@ -2655,7 +2656,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public List<String> getJoiningNodes()
     {
-        return stringify(tokenMetadata.getBootstrapTokens().valueSet());
+        return stringify(tokenMetadata.getBootstrappingEndpoints());
     }
 
     public List<String> getLiveNodes()
@@ -4712,7 +4713,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // Reason we use use the future settled TMD is that if we decommission a node, we want to stream
             // from that node to the correct location on disk, if we didn't, we would put new files in the wrong places.
             // We do this to minimize the amount of data we need to move in rebalancedisks once everything settled
-            TokenMetadata tmd = StorageService.instance.getTokenMetadata().cloneAfterAllSettled();
+            ITokenMetadata tmd = StorageService.instance.getTokenMetadata().cloneAfterAllSettled();
             lr = cfs.keyspace.getReplicationStrategy().getAddressRanges(tmd).get(FBUtilities.getBroadcastAddress());
         }
 

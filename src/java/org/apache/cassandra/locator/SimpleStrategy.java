@@ -45,7 +45,7 @@ public class SimpleStrategy extends AbstractReplicationStrategy
     public List<InetAddress> calculateNaturalEndpoints(Token token, TokenMetadata metadata)
     {
         int replicas = getReplicationFactor();
-        ArrayList<Token> tokens = metadata.sortedTokens();
+        List<Token> tokens = metadata.sortedTokens();
         List<InetAddress> endpoints = new ArrayList<InetAddress>(replicas);
 
         if (tokens.isEmpty())
