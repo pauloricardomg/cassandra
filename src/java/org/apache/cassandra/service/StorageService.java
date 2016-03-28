@@ -703,7 +703,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 catch (Throwable t)
                 {
                     JVMStabilityInspector.inspectThrowable(t);
-                    // don't let this stop us from shutting down the commitlog and other thread pools
+                    // don't let this interrupt us from shutting down the commitlog and other thread pools
                     logger.warn("Caught exception while waiting for memtable flushes during shutdown hook", t);
                 }
 
@@ -3099,6 +3099,39 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             logger.debug("Forcing flush on keyspace {}, CF {}", keyspaceName, cfStore.name);
             cfStore.forceBlockingFlush();
+        }
+    }
+
+    public Map<String, Map<String, String>> listRepairs()
+    {
+        Map<String, Map<String, String>> result = new HashMap<>();
+
+        for (RepairInfo info : ActiveRepairService.instance.listRepairs())
+        {
+            HashMap<String,String> infoAsMap = new HashMap<>();
+            infoAsMap.put("coordinator", info.getCoordinator().getHostAddress());
+            for (Entry<UUID, Map<UUID, String>> statusByTable : info.getStatus().entrySet())
+            {
+                Pair<String, String> kscf = Schema.instance.getCF(statusByTable.getKey());
+                String tableName = kscf == null? statusByTable.getKey().toString() : String.format("%s.%s", kscf.left, kscf.right);
+                for (Entry<UUID, String> statusBySessionId : statusByTable.getValue().entrySet())
+                {
+                    infoAsMap.put(String.format("status:%s:%s", tableName, statusBySessionId.getKey().toString()), statusBySessionId.getValue());
+                }
+            }
+            result.put(info.getParentSessionId().toString(), infoAsMap);
+        }
+        return result;
+    }
+
+    public boolean abortParentRepairSession(String parentSessionId)
+    {
+        try
+        {
+            return ActiveRepairService.instance.abortParentRepairSession(UUID.fromString(parentSessionId));
+        } catch (IllegalArgumentException e)
+        {
+            return false;
         }
     }
 

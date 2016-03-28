@@ -105,12 +105,18 @@ public class ConnectionHandler
             incoming.start(socket, version);
     }
 
-    public ListenableFuture<?> close()
+    public ListenableFuture<?> close(boolean interruptIfRunning)
     {
         logger.debug("[Stream #{}] Closing stream connection handler on {}", session.planId(), session.peer);
 
         ListenableFuture<?> inClosed = closeIncoming();
         ListenableFuture<?> outClosed = closeOutgoing();
+
+        if (interruptIfRunning)
+        {
+            incoming.interrupt();
+            outgoing.interrupt();
+        }
 
         return Futures.allAsList(inClosed, outClosed);
     }
@@ -160,6 +166,7 @@ public class ConnectionHandler
         protected Socket socket;
 
         private final AtomicReference<SettableFuture<?>> closeFuture = new AtomicReference<>();
+        private Thread thread = null;
 
         protected MessageHandler(StreamSession session)
         {
@@ -206,7 +213,13 @@ public class ConnectionHandler
             this.socket = socket;
             this.protocolVersion = protocolVersion;
 
-            new Thread(this, name() + "-" + socket.getRemoteSocketAddress()).start();
+            this.thread = new Thread(this, name() + "-" + socket.getRemoteSocketAddress());
+            this.thread.start();
+        }
+
+        public void interrupt()
+        {
+            this.thread.interrupt();
         }
 
         public ListenableFuture<?> close()
@@ -349,12 +362,10 @@ public class ConnectionHandler
                 while ((next = messageQueue.poll()) != null)
                     sendMessage(out, next);
             }
-            catch (InterruptedException e)
-            {
-                throw new AssertionError(e);
-            }
             catch (Throwable e)
             {
+                if (e instanceof InterruptedException && !isClosed())
+                    throw new AssertionError(e);
                 session.onError(e);
             }
             finally

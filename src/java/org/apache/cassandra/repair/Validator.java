@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -37,6 +38,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.ValidationComplete;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
@@ -58,6 +60,7 @@ public class Validator implements Runnable
     public final RepairJobDesc desc;
     public final InetAddress initiator;
     public final int gcBefore;
+    private final UUID cfId;
 
     // null when all rows with the min token have been consumed
     private long validated;
@@ -69,7 +72,7 @@ public class Validator implements Runnable
     // last key seen
     private DecoratedKey lastKey;
 
-    public Validator(RepairJobDesc desc, InetAddress initiator, int gcBefore)
+    public Validator(RepairJobDesc desc, InetAddress initiator, int gcBefore, UUID cfId)
     {
         this.desc = desc;
         this.initiator = initiator;
@@ -77,6 +80,7 @@ public class Validator implements Runnable
         validated = 0;
         range = null;
         ranges = null;
+        this.cfId = cfId;
     }
 
     public void prepare(ColumnFamilyStore cfs, MerkleTrees tree)
@@ -165,6 +169,11 @@ public class Validator implements Runnable
         }
 
         return range.contains(t);
+    }
+
+    public UUID getGroupId()
+    {
+        return desc.sessionId;
     }
 
     static class CountingDigest extends MessageDigest
@@ -258,6 +267,7 @@ public class Validator implements Runnable
      */
     public void fail()
     {
+        ActiveRepairService.instance.finishOngoingValidation(desc.parentSessionId, cfId, desc.sessionId);
         logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
         // send fail message only to nodes >= version 2.0
         MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), initiator);
@@ -268,6 +278,7 @@ public class Validator implements Runnable
      */
     public void run()
     {
+        ActiveRepairService.instance.finishOngoingValidation(desc.parentSessionId, cfId, desc.sessionId);
         // respond to the request that triggered this validation
         if (!initiator.equals(FBUtilities.getBroadcastAddress()))
         {

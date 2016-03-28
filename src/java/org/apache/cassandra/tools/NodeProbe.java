@@ -324,6 +324,16 @@ public class NodeProbe implements AutoCloseable
         ssProxy.forceKeyspaceFlush(keyspaceName, tableNames);
     }
 
+    public Map<String, Map<String, String>> listRepairs() throws IOException
+    {
+        return ssProxy.listRepairs();
+    }
+
+    public boolean abortParentRepairSession(String parentSessionId)
+    {
+        return ssProxy.abortParentRepairSession(parentSessionId);
+    }
+
     public void repairAsync(final PrintStream out, final String keyspace, Map<String, String> options) throws IOException
     {
         RepairRunner runner = new RepairRunner(out, ssProxy, keyspace, options);

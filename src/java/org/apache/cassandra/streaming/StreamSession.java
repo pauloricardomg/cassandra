@@ -155,6 +155,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         WAIT_COMPLETE,
         COMPLETE,
         FAILED,
+        ABORTED
     }
 
     private volatile State state = State.INITIALIZED;
@@ -416,7 +417,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         {
             state(finalState);
 
-            if (finalState == State.FAILED)
+            if (finalState == State.FAILED || finalState == State.ABORTED)
             {
                 for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
                     task.abort();
@@ -424,7 +425,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
             // Note that we shouldn't block on this close because this method is called on the handler
             // incoming thread (so we would deadlock).
-            handler.close();
+            handler.close(finalState == State.ABORTED);
 
             streamResult.handleSessionComplete(this);
         }
@@ -525,6 +526,16 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             handler.sendMessage(new SessionFailedMessage());
         // fail session
         closeSession(State.FAILED);
+    }
+
+    public boolean isActive()
+    {
+        return state != StreamSession.State.COMPLETE && state != StreamSession.State.FAILED;
+    }
+
+    public void abort()
+    {
+        closeSession(State.ABORTED);
     }
 
     /**
@@ -696,6 +707,17 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private boolean maybeCompleted()
     {
+        while (!isAborted.get())
+        {
+            try
+            {
+                Thread.sleep(1000L);
+            }
+            catch (InterruptedException e)
+            {
+                e.printStackTrace();
+            }
+        }
         boolean completed = receivers.isEmpty() && transfers.isEmpty();
         if (completed)
         {

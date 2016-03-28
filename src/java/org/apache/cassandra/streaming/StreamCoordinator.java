@@ -88,6 +88,17 @@ public class StreamCoordinator
         return results;
     }
 
+    public synchronized Collection<StreamSession> getActiveStreamSessions()
+    {
+        Collection<StreamSession> results = new ArrayList<>();
+        for (HostStreamingData data : peerSessions.values())
+        {
+            if (data.hasActiveSessions())
+                results.addAll(data.getActiveStreamSessions());
+        }
+        return results;
+    }
+
     public boolean isReceiving()
     {
         return connectionsPerHost == 0;
@@ -276,8 +287,7 @@ public class StreamCoordinator
         {
             for (StreamSession session : streamSessions.values())
             {
-                StreamSession.State state = session.state();
-                if (state != StreamSession.State.COMPLETE && state != StreamSession.State.FAILED)
+                if (session.isActive())
                     return true;
             }
             return false;
@@ -313,6 +323,17 @@ public class StreamCoordinator
         public Collection<StreamSession> getAllStreamSessions()
         {
             return Collections.unmodifiableCollection(streamSessions.values());
+        }
+
+        public Collection<StreamSession> getActiveStreamSessions()
+        {
+            Collection<StreamSession> results = new ArrayList<>();
+            for (StreamSession session : streamSessions.values())
+            {
+                if (session.isActive())
+                    results.add(session);
+            }
+            return results;
         }
 
         public StreamSession getOrCreateSessionById(InetAddress peer, int id, InetAddress connecting)

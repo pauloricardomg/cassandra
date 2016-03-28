@@ -189,7 +189,7 @@ public class LeveledCompactionStrategyTest
         UUID parentRepSession = UUID.randomUUID();
         ActiveRepairService.instance.registerParentRepairSession(parentRepSession, Arrays.asList(cfs), Arrays.asList(range), false, System.currentTimeMillis(), true);
         RepairJobDesc desc = new RepairJobDesc(parentRepSession, UUID.randomUUID(), KEYSPACE1, CF_STANDARDDLEVELED, Arrays.asList(range));
-        Validator validator = new Validator(desc, FBUtilities.getBroadcastAddress(), gcBefore);
+        Validator validator = new Validator(desc, FBUtilities.getBroadcastAddress(), gcBefore, cfs.metadata.cfId);
         CompactionManager.instance.submitValidation(cfs, validator).get();
     }
 

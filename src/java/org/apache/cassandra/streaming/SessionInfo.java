@@ -64,7 +64,7 @@ public final class SessionInfo implements Serializable
 
     public boolean isFailed()
     {
-        return state == StreamSession.State.FAILED;
+        return state == StreamSession.State.FAILED || state == StreamSession.State.ABORTED;
     }
 
     /**

@@ -299,6 +299,15 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void forceKeyspaceFlush(String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException;
 
     /**
+     * List ongoing repairs
+     *
+     * @return RepairId -> Attr -> Value
+     */
+    public Map<String, Map<String, String>> listRepairs();
+
+    public boolean abortParentRepairSession(String parentSessionId);
+
+    /**
      * Invoke repair asynchronously.
      * You can track repair progress by subscribing JMX notification sent from this StorageServiceMBean.
      * Notification format is:
@@ -473,7 +482,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     // allows a user to see whether gossip is running or not
     public boolean isGossipRunning();
 
-    // allows a user to forcibly completely stop cassandra
+    // allows a user to forcibly completely interrupt cassandra
     public void stopDaemon();
 
     // to determine if gossip is disabled

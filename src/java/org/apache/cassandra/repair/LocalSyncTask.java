@@ -23,6 +23,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -31,6 +32,7 @@ import org.apache.cassandra.streaming.ProgressInfo;
 import org.apache.cassandra.streaming.StreamEvent;
 import org.apache.cassandra.streaming.StreamEventHandler;
 import org.apache.cassandra.streaming.StreamPlan;
+import org.apache.cassandra.streaming.StreamResultFuture;
 import org.apache.cassandra.streaming.StreamState;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
@@ -73,13 +75,19 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
             isIncremental = prs.isIncremental;
         }
         Tracing.traceRepair(message);
-        new StreamPlan("Repair", repairedAt, 1, false, isIncremental, false).listeners(this)
-                                            .flushBeforeTransfer(true)
-                                            // request ranges from the remote node
-                                            .requestRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily)
-                                            // send ranges to the remote node
-                                            .transferRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily)
-                                            .execute();
+        StreamResultFuture streamFuture = new StreamPlan("Repair", repairedAt, 1, false, isIncremental, false).listeners(this)
+                                    .flushBeforeTransfer(true)
+                                     // request ranges from the remote node
+                                    .requestRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily)
+                                     // send ranges to the remote node
+                                    .transferRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily)
+                                    .execute();
+
+        ColumnFamilyStore store = ColumnFamilyStore.getIfExists(desc.keyspace, desc.columnFamily);
+        if (store != null)
+        {
+            ActiveRepairService.instance.registerOngoingSync(desc.parentSessionId, store.metadata.cfId, desc.sessionId, streamFuture);
+        }
     }
 
     public void handleStreamEvent(StreamEvent event)

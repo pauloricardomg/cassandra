@@ -113,7 +113,7 @@ public class ValidatorTest
 
         ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(columnFamily);
 
-        Validator validator = new Validator(desc, remote, 0);
+        Validator validator = new Validator(desc, remote, 0, cfs.metadata.cfId);
         MerkleTrees tree = new MerkleTrees(partitioner);
         tree.addMerkleTrees((int) Math.pow(2, 15), validator.desc.ranges);
         validator.prepare(cfs, tree);
@@ -172,7 +172,7 @@ public class ValidatorTest
 
         InetAddress remote = InetAddress.getByName("127.0.0.2");
 
-        Validator validator = new Validator(desc, remote, 0);
+        Validator validator = new Validator(desc, remote, 0, UUID.randomUUID());
         validator.fail();
 
         if (!lock.isSignaled())

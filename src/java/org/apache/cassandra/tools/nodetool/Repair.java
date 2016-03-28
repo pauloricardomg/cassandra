@@ -23,11 +23,15 @@ import io.airlift.command.Arguments;
 import io.airlift.command.Command;
 import io.airlift.command.Option;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import com.google.common.collect.Sets;
 
@@ -73,6 +77,15 @@ public class Repair extends NodeToolCmd
     @Option(title = "full", name = {"-full", "--full"}, description = "Use -full to issue a full repair.")
     private boolean fullRepair = false;
 
+    @Option(title = "list", name = {"-li", "--list"}, description = "Use --list to list active repair sessions.")
+    private boolean listSimple = false;
+
+    @Option(title = "listDetailed", name = {"-ld", "--list-detailed"}, description = "Use --list-detailed to show more details when listing active repair sessions.")
+    private boolean listDetailed = false;
+
+    @Option(title = "sessionId", name = {"-a", "--abort"}, description = "Abort repair session with given id")
+    private String abortRepairSessionId = EMPTY;
+
     @Option(title = "job_threads", name = {"-j", "--job-threads"}, description = "Number of threads to run repair jobs. " +
                                                                                  "Usually this means number of CFs to repair concurrently. " +
                                                                                  "WARNING: increasing this puts more load on repairing nodes, so be careful. (default: 1, max: 4)")
@@ -84,6 +97,18 @@ public class Repair extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
+        if (listSimple || listDetailed)
+        {
+            listRepairs(probe, listDetailed);
+            return;
+        }
+
+        if (!abortRepairSessionId.equals(EMPTY))
+        {
+            abortRepair(probe, abortRepairSessionId);
+            return;
+        }
+
         List<String> keyspaces = parseOptionalKeyspace(args, probe);
         String[] cfnames = parseOptionalTables(args);
 
@@ -129,5 +154,83 @@ public class Repair extends NodeToolCmd
                 throw new RuntimeException("Error occurred during repair", e);
             }
         }
+    }
+
+    private void abortRepair(NodeProbe probe, String parentSessionId)
+    {
+            if (probe.abortParentRepairSession(parentSessionId))
+                System.out.println(String.format("Successfully aborted parent repair session with id %s.", parentSessionId));
+            else
+                System.out.println(String.format("Did not find repair session with id %s. (maybe try nodetol repair --list?)", parentSessionId));
+
+    }
+
+    private void listRepairs(NodeProbe probe, boolean detailed)
+    {
+        try
+        {
+            Map<String, Map<String, String>> runningRepairs = probe.listRepairs();
+            if (runningRepairs.isEmpty())
+            {
+                System.out.println("No active repair sessions on this node.");
+            }
+            for (Map.Entry<String, Map<String, String>> repairStatuses : runningRepairs.entrySet())
+            {
+                Map<String, String> infoAsMap = repairStatuses.getValue();
+                System.out.printf("Session %s:%n", repairStatuses.getKey());
+                System.out.printf("\tCordinator: %s%n", infoAsMap.remove("coordinator"));
+                System.out.printf("\tRepair status per table:%n");
+                SortedMap<String, SortedMap<String, List<String>>> allTablesStatuses = constructTableStatuses(infoAsMap);
+                for (Map.Entry<String, SortedMap<String, List<String>>> entry : allTablesStatuses.entrySet())
+                {
+                    String table = entry.getKey();
+                    System.out.printf("\t\t- %s:%n", table);
+                    System.out.printf("\t\t\tActive subtasks: %d%n", getTasksPerTable(allTablesStatuses, table));
+                    System.out.printf("\t\t\tSubtasks in each status:%n", table);
+                    for (Map.Entry<String, List<String>> tableInfo : entry.getValue().entrySet())
+                    {
+                        List<String> sessionIds = tableInfo.getValue();
+                        if (!sessionIds.isEmpty())
+                            System.out.printf("\t\t\t\t- %s: %s%n", tableInfo.getKey(), detailed ? sessionIds : sessionIds.size());
+                    }
+                    System.out.println("");
+                }
+            }
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException("Error occurred while listing repairs", e);
+        }
+    }
+
+    private Integer getTasksPerTable(Map<String, SortedMap<String, List<String>>> statusByTable, String table)
+    {
+        return statusByTable.get(table).values().stream().mapToInt(l -> l.size()).sum();
+    }
+
+    private SortedMap<String, SortedMap<String, List<String>>> constructTableStatuses(Map<String, String> infoAsMap)
+    {
+        SortedMap<String, SortedMap<String, List<String>>> allTablesStatuses = new TreeMap<>();
+        for (Map.Entry<String, String> tableStatus : infoAsMap.entrySet())
+        {
+            String[] key = tableStatus.getKey().split(":");
+            String tableName = key[1];
+            String sessionId = key[2];
+            String status = tableStatus.getValue();
+            SortedMap<String, List<String>> tableStatuses = allTablesStatuses.get(tableName);
+            if (tableStatuses == null)
+            {
+                tableStatuses = new TreeMap<>();
+                allTablesStatuses.put(tableName, tableStatuses);
+            }
+            List<String> sessionIds = tableStatuses.get(status);
+            if (sessionIds == null)
+            {
+                sessionIds = new LinkedList<>();
+                tableStatuses.put(status, sessionIds);
+            }
+            sessionIds.add(sessionId);
+        }
+        return allTablesStatuses;
     }
 }

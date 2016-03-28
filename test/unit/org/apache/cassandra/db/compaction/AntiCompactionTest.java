@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -99,7 +100,7 @@ public class AntiCompactionTest
             if (txn == null)
                 throw new IllegalStateException();
             long repairedAt = 1000;
-            CompactionManager.instance.performAnticompaction(store, ranges, refs, txn, repairedAt);
+            CompactionManager.instance.performAnticompaction(UUID.randomUUID(), store, ranges, refs, txn, repairedAt);
         }
 
         assertEquals(2, store.getLiveSSTables().size());
@@ -147,7 +148,7 @@ public class AntiCompactionTest
         try (LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
              Refs<SSTableReader> refs = Refs.ref(sstables))
         {
-            CompactionManager.instance.performAnticompaction(cfs, Arrays.asList(range), refs, txn, 12345);
+            CompactionManager.instance.performAnticompaction(UUID.randomUUID(), cfs, Arrays.asList(range), refs, txn, 12345);
         }
         long sum = 0;
         long rows = 0;
@@ -229,7 +230,7 @@ public class AntiCompactionTest
         try (LifecycleTransaction txn = store.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
              Refs<SSTableReader> refs = Refs.ref(sstables))
         {
-            CompactionManager.instance.performAnticompaction(store, ranges, refs, txn, repairedAt);
+            CompactionManager.instance.performAnticompaction(UUID.randomUUID(), store, ranges, refs, txn, repairedAt);
         }
         /*
         Anticompaction will be anti-compacting 10 SSTables but will be doing this two at a time
@@ -278,7 +279,7 @@ public class AntiCompactionTest
         try (LifecycleTransaction txn = store.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
              Refs<SSTableReader> refs = Refs.ref(sstables))
         {
-            CompactionManager.instance.performAnticompaction(store, ranges, refs, txn, 1);
+            CompactionManager.instance.performAnticompaction(UUID.randomUUID(), store, ranges, refs, txn, 1);
         }
 
         assertThat(store.getLiveSSTables().size(), is(1));
@@ -309,7 +310,7 @@ public class AntiCompactionTest
         try (LifecycleTransaction txn = store.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
              Refs<SSTableReader> refs = Refs.ref(sstables))
         {
-            CompactionManager.instance.performAnticompaction(store, ranges, refs, txn, 1);
+            CompactionManager.instance.performAnticompaction(UUID.randomUUID(), store, ranges, refs, txn, 1);
         }
 
         assertThat(store.getLiveSSTables().size(), is(10));

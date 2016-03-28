@@ -18,6 +18,7 @@
 package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.StreamEvent;
 import org.apache.cassandra.streaming.StreamEventHandler;
 import org.apache.cassandra.streaming.StreamPlan;
+import org.apache.cassandra.streaming.StreamResultFuture;
 import org.apache.cassandra.streaming.StreamState;
 
 /**
@@ -43,12 +45,14 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
     private final RepairJobDesc desc;
     private final SyncRequest request;
     private final long repairedAt;
+    private final UUID cfId;
 
-    public StreamingRepairTask(RepairJobDesc desc, SyncRequest request, long repairedAt)
+    public StreamingRepairTask(RepairJobDesc desc, SyncRequest request, long repairedAt, UUID cfId)
     {
         this.desc = desc;
         this.request = request;
         this.repairedAt = repairedAt;
+        this.cfId = cfId;
     }
 
     public void run()
@@ -62,13 +66,14 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
             ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
             isIncremental = prs.isIncremental;
         }
-        new StreamPlan("Repair", repairedAt, 1, false, isIncremental, false).listeners(this)
-                                            .flushBeforeTransfer(true)
-                                            // request ranges from the remote node
-                                            .requestRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
-                                            // send ranges to the remote node
-                                            .transferRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
-                                            .execute();
+        StreamResultFuture future = new StreamPlan("Repair", repairedAt, 1, false, isIncremental, false).listeners(this)
+                                        .flushBeforeTransfer(true)
+                                         // request ranges from the remote node
+                                        .requestRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
+                                         // send ranges to the remote node
+                                        .transferRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
+                                        .execute();
+        ActiveRepairService.instance.registerOngoingSync(desc.parentSessionId, cfId, desc.sessionId, future);
     }
 
     public void handleStreamEvent(StreamEvent event)
@@ -84,6 +89,7 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
     {
         logger.info(String.format("[repair #%s] streaming task succeed, returning response to %s", desc.sessionId, request.initiator));
         MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, true).createMessage(), request.initiator);
+        ActiveRepairService.instance.finishOngoingSync(desc.parentSessionId, cfId, desc.sessionId);
     }
 
     /**

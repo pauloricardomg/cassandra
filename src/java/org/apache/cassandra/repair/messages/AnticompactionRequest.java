@@ -78,11 +78,11 @@ public class AnticompactionRequest extends RepairMessage
         }
     }
 
-    @Override
     public String toString()
     {
         return "AnticompactionRequest{" +
-                "parentRepairSession=" + parentRepairSession +
-                "} " + super.toString();
+               "parentRepairSession=" + parentRepairSession +
+               ", successfulRanges=" + successfulRanges +
+               '}';
     }
 }

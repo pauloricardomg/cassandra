@@ -221,4 +221,13 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
             }
         }
     }
+
+    public boolean cancel(boolean mayInterruptIfRunning)
+    {
+        if (mayInterruptIfRunning)
+        {
+            coordinator.getActiveStreamSessions().forEach(s -> s.abort());
+        }
+        return super.cancel(mayInterruptIfRunning);
+    }
 }
