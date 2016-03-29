@@ -128,6 +128,8 @@ public abstract class AbstractReplicationStrategy
      */
     public abstract List<InetAddress> calculateNaturalEndpoints(Token searchToken, TokenMetadata tokenMetadata);
 
+    public abstract List<UUID> calculateNaturalEndpoints(Token searchToken, Ring ring);
+
     public <T> AbstractWriteResponseHandler<T> getWriteResponseHandler(Collection<InetAddress> naturalEndpoints,
                                                                 Collection<InetAddress> pendingEndpoints,
                                                                 ConsistencyLevel consistency_level,

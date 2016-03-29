@@ -867,6 +867,122 @@ public class TokenMetadata
         }
     }
 
+    public void newCalculatePendingRanges(AbstractReplicationStrategy strategy, String keyspaceName)
+    {
+        lock.readLock().lock();
+        try
+        {
+            PendingRangeMaps newPendingRanges = new PendingRangeMaps();
+
+            if (bootstrapTokens.isEmpty() && leavingEndpoints.isEmpty() && movingEndpoints.isEmpty())
+            {
+                if (logger.isTraceEnabled())
+                    logger.trace("No bootstrapping, leaving or moving nodes -> empty pending ranges for {}", keyspaceName);
+
+                pendingRanges.put(keyspaceName, newPendingRanges);
+                return;
+            }
+
+            Multimap<InetAddress, Range<Token>> addressRanges = strategy.getAddressRanges();
+
+            // Copy of metadata reflecting the situation after all leave operations are finished.
+            TokenMetadata allLeftMetadata = cloneAfterAllLeft();
+
+            // get all ranges that will be affected by leaving nodes
+            Set<Range<Token>> affectedRanges = new HashSet<Range<Token>>();
+            for (InetAddress endpoint : leavingEndpoints)
+                affectedRanges.addAll(addressRanges.get(endpoint));
+
+            // for each of those ranges, find what new nodes will be responsible for the range when
+            // all leaving nodes are gone.
+            TokenMetadata metadata = cloneOnlyTokenMap(); // don't do this in the loop! #7758
+            for (Range<Token> range : affectedRanges)
+            {
+                Set<InetAddress> currentEndpoints = ImmutableSet.copyOf(strategy.calculateNaturalEndpoints(range.right, metadata));
+                Set<InetAddress> newEndpoints = ImmutableSet.copyOf(strategy.calculateNaturalEndpoints(range.right, allLeftMetadata));
+                for (InetAddress address : Sets.difference(newEndpoints, currentEndpoints))
+                {
+                    newPendingRanges.addPendingRange(range, address);
+                }
+            }
+
+            // At this stage newPendingRanges has been updated according to leave operations. We can
+            // now continue the calculation by checking bootstrapping nodes.
+
+            // For each of the bootstrapping nodes, simply add and remove them one by one to
+            // allLeftMetadata and check in between what their ranges would be.
+            Multimap<InetAddress, Token> bootstrapAddresses = bootstrapTokens.inverse();
+            for (InetAddress endpoint : bootstrapAddresses.keySet())
+            {
+                Collection<Token> tokens = bootstrapAddresses.get(endpoint);
+
+                allLeftMetadata.updateNormalTokens(tokens, endpoint);
+                for (Range<Token> range : strategy.getAddressRanges(allLeftMetadata).get(endpoint))
+                {
+                    newPendingRanges.addPendingRange(range, endpoint);
+                }
+                allLeftMetadata.removeEndpoint(endpoint);
+            }
+
+            // At this stage newPendingRanges has been updated according to leaving and bootstrapping nodes.
+            // We can now finish the calculation by checking moving nodes.
+
+            // For each of the moving nodes, we do the same thing we did for bootstrapping:
+            // simply add and remove them one by one to allLeftMetadata and check in between what their ranges would be.
+            for (Pair<Token, InetAddress> moving : movingEndpoints)
+            {
+                //Calculate all the ranges which will could be affected. This will include the ranges before and after the move.
+                Set<Range<Token>> moveAffectedRanges = new HashSet<>();
+                InetAddress endpoint = moving.right; // address of the moving node
+                //Add ranges before the move
+                for (Range<Token> range : strategy.getAddressRanges(allLeftMetadata).get(endpoint))
+                {
+                    moveAffectedRanges.add(range);
+                }
+
+                allLeftMetadata.updateNormalToken(moving.left, endpoint);
+                //Add ranges after the move
+                for (Range<Token> range : strategy.getAddressRanges(allLeftMetadata).get(endpoint))
+                {
+                    moveAffectedRanges.add(range);
+                }
+
+                for(Range<Token> range : moveAffectedRanges)
+                {
+                    Set<InetAddress> currentEndpoints = ImmutableSet.copyOf(strategy.calculateNaturalEndpoints(range.right, metadata));
+                    Set<InetAddress> newEndpoints = ImmutableSet.copyOf(strategy.calculateNaturalEndpoints(range.right, allLeftMetadata));
+                    Set<InetAddress> difference = Sets.difference(newEndpoints, currentEndpoints);
+                    for(final InetAddress address : difference)
+                    {
+                        Collection<Range<Token>> newRanges = strategy.getAddressRanges(allLeftMetadata).get(address);
+                        Collection<Range<Token>> oldRanges = strategy.getAddressRanges(metadata).get(address);
+                        //We want to get rid of any ranges which the node is currently getting.
+                        newRanges.removeAll(oldRanges);
+
+                        for(Range<Token> newRange : newRanges)
+                        {
+                            for(Range<Token> pendingRange : newRange.subtractAll(oldRanges))
+                            {
+                                newPendingRanges.addPendingRange(pendingRange, address);
+                            }
+                        }
+                    }
+                }
+
+                allLeftMetadata.removeEndpoint(endpoint);
+            }
+
+            pendingRanges.put(keyspaceName, newPendingRanges);
+
+            if (logger.isTraceEnabled())
+                logger.trace("Pending ranges:\n{}", (pendingRanges.isEmpty() ? "<empty>" : printPendingRanges()));
+        }
+        finally
+        {
+            lock.readLock().unlock();
+        }
+    }
+
     public Token getPredecessor(Token token)
     {
         List<Token> tokens = sortedTokens();

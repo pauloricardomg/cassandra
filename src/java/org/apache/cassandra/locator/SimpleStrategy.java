@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.dht.Token;
@@ -60,6 +61,20 @@ public class SimpleStrategy extends AbstractReplicationStrategy
                 endpoints.add(ep);
         }
         return endpoints;
+    }
+
+    public List<UUID> calculateNaturalEndpoints(Token searchToken, Ring ring)
+    {
+        int replicas = getReplicationFactor();
+
+        List<UUID> endpoints = new ArrayList<UUID>(replicas);
+
+        for (Ring.VirtualNode node : ring.from(searchToken))
+        {
+
+        }
+
+        return null;
     }
 
     public int getReplicationFactor()
