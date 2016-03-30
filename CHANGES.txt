@@ -109,6 +109,7 @@ Merged from 2.2:
  * (cqlsh) Support timezone conversion using pytz (CASSANDRA-10397)
  * cqlsh: change default encoding to UTF-8 (CASSANDRA-11124)
 Merged from 2.1:
+ * Fix nodetool join does not transition from write survey to normal mode
  * Don't do defragmentation if reading from repaired sstables (CASSANDRA-10342)
  * Fix streaming_socket_timeout_in_ms not enforced (CASSANDRA-11286)
  * Avoid dropping message too quickly due to missing unit conversion (CASSANDRA-11302)
