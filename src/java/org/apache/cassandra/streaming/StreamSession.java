@@ -156,7 +156,9 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         STREAMING,
         WAIT_COMPLETE,
         COMPLETE,
-        FAILED,
+        FAILED;
+
+        boolean isCompleted() { return this == COMPLETE || this == FAILED; }
     }
 
     private volatile State state = State.INITIALIZED;
@@ -442,7 +444,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public void state(State newState)
     {
-        state = newState;
+        if (!isAborted.get() || !state.isCompleted())
+            state = newState;
     }
 
     /**
