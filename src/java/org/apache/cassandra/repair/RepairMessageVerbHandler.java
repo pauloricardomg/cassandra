@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.repair;
 
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,11 +53,25 @@ import org.apache.cassandra.utils.Pair;
  */
 public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
 {
+    private static final Boolean DROP_VALIDATION = Boolean.getBoolean("cassandra.test.repair.drop_validation");
+    private static final Boolean FAIL_VALIDATION = Boolean.getBoolean("cassandra.test.repair.fail_validation");
+
     private static final Logger logger = LoggerFactory.getLogger(RepairMessageVerbHandler.class);
     public void doVerb(final MessageIn<RepairMessage> message, final int id)
     {
         // TODO add cancel/interrupt message
         RepairJobDesc desc = message.payload.desc;
+        if (DROP_VALIDATION != null && DROP_VALIDATION && RepairMessage.Type.VALIDATION_REQUEST.equals(message.payload.messageType))
+        {
+            logger.info("Dropping validation request due to cassandra.test.repair.drop_validation property.", message.payload.messageType);
+            return;
+        }
+        if (FAIL_VALIDATION != null && FAIL_VALIDATION && RepairMessage.Type.VALIDATION_REQUEST.equals(message.payload.messageType))
+        {
+            logger.info("Failing validation request due to cassandra.test.repair.fail_type property.", message.payload.messageType);
+            failValidation(desc, message.from);
+            return;
+        }
         try
         {
             switch (message.payload.messageType)
@@ -142,5 +157,10 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                 ActiveRepairService.instance.removeParentRepairSession(desc.parentSessionId);
             throw new RuntimeException(e);
         }
+    }
+
+    private void failValidation(RepairJobDesc desc, InetAddress coordinator)
+    {
+        MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), coordinator);
     }
 }
