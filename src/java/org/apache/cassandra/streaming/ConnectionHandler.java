@@ -52,6 +52,9 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
  */
 public class ConnectionHandler
 {
+
+    private static final String FAIL_ADDRESS = System.getProperty("cassandra.test.stream.fail_address");
+    private static final String FREEZE_ADDRESS = System.getProperty("cassandra.test.stream.freeze_address");
     private static final Logger logger = LoggerFactory.getLogger(ConnectionHandler.class);
 
     private final StreamSession session;
@@ -229,6 +232,28 @@ public class ConnectionHandler
                 logger.debug("Unexpected error while closing streaming connection", e);
             }
         }
+
+        protected void checkTestProperties()
+        {
+            if (FAIL_ADDRESS != null && FBUtilities.getBroadcastAddress().getHostAddress().equals(FAIL_ADDRESS))
+            {
+                logger.info("Failing stream task {} due to cassandra.test.stream.fail_address property.", session.planId());
+                session.onError(new RuntimeException("Failing stream session due to cassandra.test.stream.fail_aways property."));
+            }
+
+            if (FREEZE_ADDRESS != null && FBUtilities.getBroadcastAddress().getHostAddress().equals(FREEZE_ADDRESS))
+            {
+                logger.info("Freezing stream task {} due to cassandra.test.stream.freeze_address property.", session.planId());
+                try
+                {
+                    Thread.sleep(Integer.MAX_VALUE);
+                }
+                catch (InterruptedException e)
+                {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
     /**
@@ -248,6 +273,7 @@ public class ConnectionHandler
 
         public void run()
         {
+            checkTestProperties();
             try
             {
                 ReadableByteChannel in = getReadChannel(socket);
@@ -319,6 +345,7 @@ public class ConnectionHandler
         {
             try
             {
+                checkTestProperties();
                 DataOutputStreamAndChannel out = getWriteChannel(socket);
 
                 StreamMessage next;
