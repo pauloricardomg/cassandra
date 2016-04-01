@@ -3072,6 +3072,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         sendNotification("repair", message, new int[]{cmd, ActiveRepairService.Status.SESSION_FAILED.ordinal()});
                     }
                 }
+                final String finalMsg = String.format("Repair command #%d finished", cmd);
+                logger.info(finalMsg);
                 if (!fullRepair)
                 {
                     ListenableFuture future = ActiveRepairService.instance.finishParentSession(parentSession, allNeighbors, successful);
@@ -3080,13 +3082,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         @Override
                         public void run()
                         {
-                            sendNotification("repair", String.format("Repair command #%d finished", cmd), new int[]{cmd, ActiveRepairService.Status.FINISHED.ordinal()});
+                            sendNotification("repair", finalMsg, new int[]{cmd, ActiveRepairService.Status.FINISHED.ordinal()});
                         }
                     }, MoreExecutors.sameThreadExecutor());
                 }
                 else
                 {
-                    sendNotification("repair", String.format("Repair command #%d finished", cmd), new int[]{cmd, ActiveRepairService.Status.FINISHED.ordinal()});
+                    sendNotification("repair", finalMsg, new int[]{cmd, ActiveRepairService.Status.FINISHED.ordinal()});
                 }
             }
         }, null);
