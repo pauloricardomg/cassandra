@@ -50,11 +50,25 @@ import org.apache.cassandra.utils.CassandraVersion;
  */
 public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
 {
+    private static final Boolean DROP_VALIDATION = Boolean.getBoolean("cassandra.test.repair.drop_validation");
+    private static final Boolean FAIL_VALIDATION = Boolean.getBoolean("cassandra.test.repair.fail_validation");
+
     private static final Logger logger = LoggerFactory.getLogger(RepairMessageVerbHandler.class);
     public void doVerb(final MessageIn<RepairMessage> message, final int id)
     {
         // TODO add cancel/interrupt message
         RepairJobDesc desc = message.payload.desc;
+        if (DROP_VALIDATION != null && DROP_VALIDATION && RepairMessage.Type.VALIDATION_REQUEST.equals(message.payload.messageType))
+        {
+            logger.info("Dropping validation request due to cassandra.test.repair.drop_validation property.", message.payload.messageType);
+            return;
+        }
+        if (FAIL_VALIDATION != null && FAIL_VALIDATION && RepairMessage.Type.VALIDATION_REQUEST.equals(message.payload.messageType))
+        {
+            logger.info("Failing validation request due to cassandra.test.repair.fail_type property.", message.payload.messageType);
+            failValidation(desc, message.from);
+            return;
+        }
         try
         {
             switch (message.payload.messageType)
@@ -193,5 +207,10 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
         MessageOut reply = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
                                .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
         MessagingService.instance().sendReply(reply, id, to);
+    }
+
+    private void failValidation(RepairJobDesc desc, InetAddress coordinator)
+    {
+        MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), coordinator);
     }
 }
