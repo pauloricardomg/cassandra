@@ -138,7 +138,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         this.range = range;
         this.endpoints = endpoints;
         this.repairedAt = repairedAt;
-        this.validationRemaining = new AtomicInteger(cfnames.length);
+        this.validationRemaining = new AtomicInteger(endpoints.size() * cfnames.length);
     }
 
     public UUID getId()
