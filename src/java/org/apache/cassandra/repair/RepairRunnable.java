@@ -282,25 +282,47 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         {
             public void onSuccess(Object result)
             {
-                SystemDistributedKeyspace.successfulParentRepair(parentSession, successfulRanges);
-                if (hasFailure.get())
+                if (ActiveRepairService.instance.isAborted(parentSession))
                 {
-                    fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress,
-                                                             "Some repair failed"));
+                    finishSessionAbortion();
                 }
                 else
                 {
-                    fireProgressEvent(tag, new ProgressEvent(ProgressEventType.SUCCESS, progress.get(), totalProgress,
-                                                             "Repair completed successfully"));
+                    SystemDistributedKeyspace.successfulParentRepair(parentSession, successfulRanges);
+                    if (hasFailure.get())
+                    {
+                        fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress,
+                                                                 "Some repair failed"));
+                    }
+                    else
+                    {
+                        fireProgressEvent(tag, new ProgressEvent(ProgressEventType.SUCCESS, progress.get(), totalProgress,
+                                                                 "Repair completed successfully"));
+                    }
                 }
                 repairComplete();
             }
 
             public void onFailure(Throwable t)
             {
-                fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress, t.getMessage()));
-                SystemDistributedKeyspace.failParentRepair(parentSession, t);
+                if (ActiveRepairService.instance.isAborted(parentSession))
+                {
+                    finishSessionAbortion();
+                }
+                else {
+                    fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress, t.getMessage()));
+                    SystemDistributedKeyspace.failParentRepair(parentSession, t);
+                }
                 repairComplete();
+            }
+
+            private void finishSessionAbortion()
+            {
+                String message = String.format("Parent repair session %s was aborted.", parentSession);
+                SystemDistributedKeyspace.failParentRepair(parentSession, new RuntimeException(message));
+                fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ABORT, progress.get(), totalProgress,
+                                                         message));
+                ActiveRepairService.instance.removeParentRepairSession(parentSession);
             }
 
             private void repairComplete()
