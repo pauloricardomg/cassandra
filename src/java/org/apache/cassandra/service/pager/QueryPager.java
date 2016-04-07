@@ -17,10 +17,12 @@
  */
 package org.apache.cassandra.service.pager;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.EmptyIterators;
 import org.apache.cassandra.db.partitions.PartitionIterator;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.service.ClientState;
@@ -61,6 +63,11 @@ public interface QueryPager
         public PartitionIterator fetchPageInternal(int pageSize, ReadExecutionController executionController) throws RequestValidationException, RequestExecutionException
         {
             return EmptyIterators.partition();
+        }
+
+        public UnfilteredPartitionIterator fetchUnfilteredPageInternal(int pageSize, CFMetaData metadata, ReadExecutionController executionController)
+        {
+            return EmptyIterators.unfilteredPartition(metadata, false);
         }
 
         public boolean isExhausted()
@@ -110,6 +117,7 @@ public interface QueryPager
      */
     public PartitionIterator fetchPageInternal(int pageSize, ReadExecutionController executionController) throws RequestValidationException, RequestExecutionException;
 
+    public UnfilteredPartitionIterator fetchUnfilteredPageInternal(int pageSize, CFMetaData metadata, ReadExecutionController executionController);
     /**
      * Whether or not this pager is exhausted, i.e. whether or not a call to
      * fetchPage may return more result.

@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.service.pager;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.AbstractIterator;
 
 import org.apache.cassandra.db.*;
@@ -137,6 +138,78 @@ public class MultiPartitionPager implements QueryPager
         iter.setCounter(counter);
         return counter.applyTo(iter);
     }
+
+    @SuppressWarnings("resource") // iter closed via countingIter
+    public UnfilteredPartitionIterator fetchUnfilteredPageInternal(int pageSize, CFMetaData metadata, ReadExecutionController executionController)
+    {
+        int toQuery = Math.min(remaining, pageSize);
+        UnfilteredLocalPagersIterator iter = new UnfilteredLocalPagersIterator(toQuery, metadata, executionController);
+        DataLimits.Counter counter = limit.forPaging(toQuery).newCounter(nowInSec, true);
+        iter.setCounter(counter);
+        return counter.applyTo(iter);
+    }
+
+    /**
+     * pages through local data, without filtering!
+     */
+    private class UnfilteredLocalPagersIterator extends AbstractIterator<UnfilteredRowIterator> implements UnfilteredPartitionIterator
+    {
+        private final int pageSize;
+        private final CFMetaData metadata;
+        private UnfilteredPartitionIterator result;
+        private DataLimits.Counter counter;
+
+        // For internal queries
+        private final ReadExecutionController executionController;
+
+        public UnfilteredLocalPagersIterator(int pageSize, CFMetaData metadata, ReadExecutionController executionController)
+        {
+            this.pageSize = pageSize;
+            this.executionController = executionController;
+            this.metadata = metadata;
+        }
+
+        public void setCounter(DataLimits.Counter counter)
+        {
+            this.counter = counter;
+        }
+
+        protected UnfilteredRowIterator computeNext()
+        {
+            while (result == null || !result.hasNext())
+            {
+                if (result != null)
+                    result.close();
+
+                // This sets us on the first non-exhausted pager
+                if (isExhausted())
+                    return endOfData();
+
+                int toQuery = pageSize - counter.counted();
+                // todo: handle "normal" queries?
+                result = pagers[current].fetchUnfilteredPageInternal(toQuery, metadata, executionController);
+            }
+            return result.next();
+        }
+
+        public void close()
+        {
+            remaining -= counter.counted();
+            if (result != null)
+                result.close();
+        }
+
+        public boolean isForThrift()
+        {
+            return false;
+        }
+
+        public CFMetaData metadata()
+        {
+            return metadata;
+        }
+    }
+
 
     private class PagersIterator extends AbstractIterator<RowIterator> implements PartitionIterator
     {

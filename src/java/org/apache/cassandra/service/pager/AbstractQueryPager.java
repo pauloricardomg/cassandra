@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.service.pager;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.partitions.*;
@@ -75,6 +76,94 @@ abstract class AbstractQueryPager implements QueryPager
         pageSize = Math.min(pageSize, remaining);
         Pager pager = new Pager(limits.forPaging(pageSize), command.nowInSec());
         return Transformation.apply(nextPageReadCommand(pageSize).executeInternal(executionController), pager);
+    }
+
+    public UnfilteredPartitionIterator fetchUnfilteredPageInternal(int pageSize, CFMetaData metadata, ReadExecutionController executionController)
+    {
+        if (isExhausted())
+            return EmptyIterators.unfilteredPartition(metadata, false);
+
+        pageSize = Math.min(pageSize, remaining);
+        UnfilteredPager pager = new UnfilteredPager(limits.forPaging(pageSize), command.nowInSec());
+        return Transformation.apply(nextPageReadCommand(pageSize).executeLocally(executionController), pager);
+
+    }
+    // todo: mostly the same code as Pager below - we could perhaps generify
+    private class UnfilteredPager extends Transformation<UnfilteredRowIterator>
+    {
+        private final DataLimits pageLimits;
+        private final DataLimits.Counter counter;
+        private Row lastRow;
+        private boolean isFirstPartition = true;
+
+        private UnfilteredPager(DataLimits pageLimits, int nowInSec)
+        {
+            this.counter = pageLimits.newCounter(nowInSec, true);
+            this.pageLimits = pageLimits;
+        }
+
+        @Override
+        public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator partition)
+        {
+            DecoratedKey key = partition.partitionKey();
+            if (lastKey == null || !lastKey.equals(key))
+                remainingInPartition = limits.perPartitionCount();
+            lastKey = key;
+
+            // If this is the first partition of this page, this could be the continuation of a partition we've started
+            // on the previous page. In which case, we could have the problem that the partition has no more "regular"
+            // rows (but the page size is such we didn't knew before) but it does has a static row. We should then skip
+            // the partition as returning it would means to the upper layer that the partition has "only" static columns,
+            // which is not the case (and we know the static results have been sent on the previous page).
+            if (isFirstPartition)
+            {
+                isFirstPartition = false;
+                if (isPreviouslyReturnedPartition(key) && !partition.hasNext())
+                {
+                    partition.close();
+                    return null;
+                }
+            }
+
+            return Transformation.apply(counter.applyTo(partition), this);
+        }
+
+        @Override
+        public void onClose()
+        {
+            recordLast(lastKey, lastRow);
+
+            int counted = counter.counted();
+            remaining -= counted;
+            // If the clustering of the last row returned is a static one, it means that the partition was only
+            // containing data within the static columns. If the clustering of the last row returned is empty
+            // it means that there is only one row per partition. Therefore, in both cases there are no data remaining
+            // within the partition.
+            if (lastRow != null && (lastRow.clustering() == Clustering.STATIC_CLUSTERING
+                    || lastRow.clustering() == Clustering.EMPTY))
+            {
+                remainingInPartition = 0;
+            }
+            else
+            {
+                remainingInPartition -= counter.countedInCurrentPartition();
+            }
+            exhausted = counted < pageLimits.count();
+        }
+
+        public Row applyToStatic(Row row)
+        {
+            if (!row.isEmpty())
+                lastRow = row;
+            return row;
+        }
+
+        @Override
+        public Row applyToRow(Row row)
+        {
+            lastRow = row;
+            return row;
+        }
     }
 
     private class Pager extends Transformation<RowIterator>

@@ -169,4 +169,7 @@ public interface ColumnFamilyStoreMBean
      * @return top <i>count</i> items for the sampler since beginLocalSampling was called
      */
     public CompositeData finishLocalSampling(String sampler, int count) throws OpenDataException;
+
+    public void enableMutationBasedRepair();
+    public void stopMutationBasedRepair();
 }

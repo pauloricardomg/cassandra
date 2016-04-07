@@ -69,6 +69,8 @@ import org.apache.cassandra.metrics.ConnectionMetrics;
 import org.apache.cassandra.metrics.DroppedMessageMetrics;
 import org.apache.cassandra.metrics.MessagingMetrics;
 import org.apache.cassandra.repair.messages.RepairMessage;
+import org.apache.cassandra.repair.mutation.MBRCommand;
+import org.apache.cassandra.repair.mutation.MBRResponse;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.service.paxos.Commit;
@@ -150,6 +152,7 @@ public final class MessagingService implements MessagingServiceMBean
         UNUSED_3,
         UNUSED_4,
         UNUSED_5,
+        MUTATION_REPAIR,
         ;
     }
 
@@ -200,6 +203,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.UNUSED_1, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_2, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_3, Stage.INTERNAL_RESPONSE);
+        put(Verb.MUTATION_REPAIR, Stage.ANTI_ENTROPY); // todo: new stages:
     }};
 
     /**
@@ -238,6 +242,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.HINT, HintMessage.serializer);
         put(Verb.BATCH_STORE, Batch.serializer);
         put(Verb.BATCH_REMOVE, UUIDSerializer.serializer);
+        put(Verb.MUTATION_REPAIR, MBRCommand.serializer);
     }};
 
     /**
@@ -265,6 +270,8 @@ public final class MessagingService implements MessagingServiceMBean
 
         put(Verb.BATCH_STORE, WriteResponse.serializer);
         put(Verb.BATCH_REMOVE, WriteResponse.serializer);
+
+        put(Verb.MUTATION_REPAIR, MBRResponse.serializer);
     }};
 
     /* This records all the results mapped by message Id */

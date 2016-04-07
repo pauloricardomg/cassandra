@@ -93,7 +93,7 @@ public class PagingState
 
     public ByteBuffer serialize(int protocolVersion)
     {
-        assert rowMark == null || protocolVersion == rowMark.protocolVersion;
+        assert rowMark == null || protocolVersion == rowMark.protocolVersion : String.format("rowMark = %s protocolVersion = %d", rowMark, protocolVersion);
         try (DataOutputBuffer out = new DataOutputBufferFixed(serializedSize(protocolVersion)))
         {
             ByteBuffer pk = partitionKey == null ? ByteBufferUtil.EMPTY_BYTE_BUFFER : partitionKey;
@@ -179,7 +179,7 @@ public class PagingState
     public static class RowMark
     {
         // This can be null for convenience if no row is marked.
-        private final ByteBuffer mark;
+        public final ByteBuffer mark;
         private final int protocolVersion;
 
         private RowMark(ByteBuffer mark, int protocolVersion)
@@ -188,7 +188,7 @@ public class PagingState
             this.protocolVersion = protocolVersion;
         }
 
-        private static List<AbstractType<?>> makeClusteringTypes(CFMetaData metadata)
+        public static List<AbstractType<?>> makeClusteringTypes(CFMetaData metadata)
         {
             // This is the types that will be used when serializing the clustering in the paging state. We can't really use the actual clustering
             // types however because we can't guarantee that there won't be a schema change between when we send the paging state and get it back,
@@ -258,7 +258,7 @@ public class PagingState
         @Override
         public String toString()
         {
-            return ByteBufferUtil.bytesToHex(mark);
+            return String.format("protocolVersion = %d, mark = %s", protocolVersion, ByteBufferUtil.bytesToHex(mark));
         }
     }
 }

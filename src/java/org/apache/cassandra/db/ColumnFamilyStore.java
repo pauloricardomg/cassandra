@@ -70,6 +70,7 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.TableMetrics.Sampler;
+import org.apache.cassandra.repair.mutation.MBRService;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
@@ -85,6 +86,8 @@ import static org.apache.cassandra.utils.Throwables.maybeFail;
 
 public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 {
+    public MBRService mutationBasedRepairService = new MBRService();
+
     // The directories which will be searched for sstables on cfs instantiation.
     private static volatile Directories.DataDirectory[] initialDirectories = Directories.dataDirectories;
 
@@ -2590,5 +2593,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             return null;
 
         return keyspace.getColumnFamilyStore(id);
+    }
+
+    public void enableMutationBasedRepair()
+    {
+        mutationBasedRepairService.start(this);
+    }
+    public void stopMutationBasedRepair()
+    {
+        mutationBasedRepairService.stop();
     }
 }
