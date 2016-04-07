@@ -1190,7 +1190,6 @@ public class CompactionManager implements CompactionManagerMBean
         Refs<SSTableReader> sstables = null;
         try
         {
-
             String snapshotName = validator.desc.sessionId.toString();
             int gcBefore;
             int nowInSec = FBUtilities.nowInSeconds();
@@ -1231,11 +1230,20 @@ public class CompactionManager implements CompactionManagerMBean
                  ValidationCompactionController controller = new ValidationCompactionController(cfs, gcBefore);
                  CompactionIterator ci = new ValidationCompactionIterator(scanners.scanners, controller, nowInSec, metrics))
             {
+                try
+                {
+                    Thread.sleep(600000);
+                }
+                catch (InterruptedException e)
+                {
+                    throw new RuntimeException(e);
+                }
+
                 // validate the CF as we iterate over it
                 validator.prepare(cfs, tree);
                 while (ci.hasNext())
                 {
-                    if (ci.isStopRequested())
+                    if (ci.isStopRequested() || Thread.interrupted())
                         throw new CompactionInterruptedException(ci.getCompactionInfo());
                     try (UnfilteredRowIterator partition = ci.next())
                     {

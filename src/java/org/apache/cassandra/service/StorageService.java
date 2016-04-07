@@ -3128,7 +3128,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         try
         {
-            return ActiveRepairService.instance.abortParentRepairSession(UUID.fromString(parentSessionId));
+            return ActiveRepairService.instance.abortParentRepairSession(UUID.fromString(parentSessionId),
+                                                                         FBUtilities.getBroadcastAddress());
         } catch (IllegalArgumentException e)
         {
             return false;
@@ -3223,7 +3224,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 options.getColumnFamilies().add(table);
             }
         }
-        return forceRepairAsync(keyspace, options);
+        return  forceRepairAsync(keyspace, options);
     }
 
     public int forceRepairAsync(String keyspace,

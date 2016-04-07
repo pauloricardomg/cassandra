@@ -87,9 +87,9 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
      */
     public void onSuccess(StreamState state)
     {
+        ActiveRepairService.instance.finishOngoingSync(desc.parentSessionId, cfId, desc.sessionId);
         logger.info(String.format("[repair #%s] streaming task succeed, returning response to %s", desc.sessionId, request.initiator));
         MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, true).createMessage(), request.initiator);
-        ActiveRepairService.instance.finishOngoingSync(desc.parentSessionId, cfId, desc.sessionId);
     }
 
     /**
@@ -97,6 +97,16 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
      */
     public void onFailure(Throwable t)
     {
-        MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, false).createMessage(), request.initiator);
+        ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
+        if (prs != null && !prs.isAborted())
+        {
+            ActiveRepairService.instance.finishOngoingSync(desc.parentSessionId, cfId, desc.sessionId);
+            MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, false).createMessage(), request.initiator);
+        }
+        else
+        {
+            logger.debug("Ignoring failure of sync task {} from aborted or unkown parent repair session {}",
+                         desc.sessionId, desc.parentSessionId, t);
+        }
     }
 }

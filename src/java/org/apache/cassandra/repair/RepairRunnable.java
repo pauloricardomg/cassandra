@@ -188,12 +188,20 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             cfnames[i] = columnFamilyStores.get(i).name;
         }
 
+        // Set up RepairJob executor for this repair command.
+        final ListeningExecutorService executor = MoreExecutors.listeningDecorator(new JMXConfigurableThreadPoolExecutor(options.getJobThreads(),
+                                                                                                                         Integer.MAX_VALUE,
+                                                                                                                         TimeUnit.SECONDS,
+                                                                                                                         new LinkedBlockingQueue<Runnable>(),
+                                                                                                                         new NamedThreadFactory("Repair#" + cmd),
+                                                                                                                         "internal"));
+
         final UUID parentSession = UUIDGen.getTimeUUID();
         SystemDistributedKeyspace.startParentRepair(parentSession, keyspace, cfnames, options);
         long repairedAt;
         try
         {
-            ActiveRepairService.instance.prepareForRepair(parentSession, allNeighbors, options, columnFamilyStores);
+            ActiveRepairService.instance.prepareForRepair(parentSession, allNeighbors, options, columnFamilyStores, executor);
             repairedAt = ActiveRepairService.instance.getParentRepairSession(parentSession).getRepairedAt();
             progress.incrementAndGet();
         }
@@ -203,14 +211,6 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             fireErrorAndComplete(tag, progress.get(), totalProgress, t.getMessage());
             return;
         }
-
-        // Set up RepairJob executor for this repair command.
-        final ListeningExecutorService executor = MoreExecutors.listeningDecorator(new JMXConfigurableThreadPoolExecutor(options.getJobThreads(),
-                                                                                                                         Integer.MAX_VALUE,
-                                                                                                                         TimeUnit.SECONDS,
-                                                                                                                         new LinkedBlockingQueue<Runnable>(),
-                                                                                                                         new NamedThreadFactory("Repair#" + cmd),
-                                                                                                                         "internal"));
 
         List<ListenableFuture<RepairSessionResult>> futures = new ArrayList<>(options.getRanges().size());
         for (Pair<Set<InetAddress>, ? extends Collection<Range<Token>>> p : commonRanges)
@@ -241,9 +241,19 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
                 public void onFailure(Throwable t)
                 {
-                    String message = String.format("Repair session %s for range %s failed with error %s",
-                                                   session.getId(), session.getRanges().toString(), t.getMessage());
-                    logger.error(message, t);
+                    String message;
+                    ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentSession);
+                    if (prs != null && prs.isAborted())
+                    {
+                        message = String.format("Repair session %s for range %s was aborted.",
+                                                session.getId(), session.getRanges().toString());
+                    }
+                    else
+                    {
+                        message = String.format("Repair session %s for range %s failed with error %s",
+                                                       session.getId(), session.getRanges().toString(), t.getMessage());
+                        logger.error(message, t);
+                    }
                     fireProgressEvent(tag, new ProgressEvent(ProgressEventType.PROGRESS,
                                                              progress.incrementAndGet(),
                                                              totalProgress,
@@ -282,9 +292,10 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         {
             public void onSuccess(Object result)
             {
-                if (ActiveRepairService.instance.isAborted(parentSession))
+                ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentSession);
+                if (prs != null && prs.isAborted())
                 {
-                    finishSessionAbortion();
+                    finishAbortedSession();
                 }
                 else
                 {
@@ -305,18 +316,20 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
             public void onFailure(Throwable t)
             {
-                if (ActiveRepairService.instance.isAborted(parentSession))
+                ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentSession);
+                if (prs != null && prs.isAborted())
                 {
-                    finishSessionAbortion();
+                    finishAbortedSession();
                 }
-                else {
+                else
+                {
                     fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress, t.getMessage()));
                     SystemDistributedKeyspace.failParentRepair(parentSession, t);
                 }
                 repairComplete();
             }
 
-            private void finishSessionAbortion()
+            private void finishAbortedSession()
             {
                 String message = String.format("Parent repair session %s was aborted.", parentSession);
                 SystemDistributedKeyspace.failParentRepair(parentSession, new RuntimeException(message));

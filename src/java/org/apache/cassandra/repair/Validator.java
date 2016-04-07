@@ -267,10 +267,19 @@ public class Validator implements Runnable
      */
     public void fail()
     {
-        ActiveRepairService.instance.finishOngoingValidation(desc.parentSessionId, cfId, desc.sessionId);
-        logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
-        // send fail message only to nodes >= version 2.0
-        MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), initiator);
+        ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
+        if (prs != null && !prs.isAborted())
+        {
+            ActiveRepairService.instance.finishOngoingValidation(desc.parentSessionId, cfId, desc.sessionId);
+            logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
+            // send fail message only to nodes >= version 2.0
+            MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), initiator);
+        }
+        else
+        {
+            logger.debug("Ignoring failure of validation task {} from aborted or unkown parent repair session {}.",
+                         desc.sessionId, desc.parentSessionId);
+        }
     }
 
     /**

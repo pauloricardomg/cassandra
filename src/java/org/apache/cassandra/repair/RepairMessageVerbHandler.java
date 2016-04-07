@@ -81,6 +81,12 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     repairService.doCleanup(cleanup.parentRepairSession, message.from, id);
                     break;
 
+                case ABORT:
+                    logger.debug("Received abort message from {}", message.from);
+                    AbortMessage abort = (AbortMessage) message.payload;
+                    repairService.doAbort(abort.parentRepairSession, message.from);
+                    break;
+
                 case VALIDATION_COMPLETE:
                     ValidationComplete validation = (ValidationComplete) message.payload;
                     logger.debug("Received validation complete message from {}: {}", message.from, validation);

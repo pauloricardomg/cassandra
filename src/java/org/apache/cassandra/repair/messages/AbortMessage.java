@@ -49,7 +49,7 @@ public class AbortMessage extends RepairMessage
 
     public AbortMessage(UUID parentRepairSession, List<UUID> sessionIds)
     {
-        super(Type.CLEANUP, null);
+        super(Type.ABORT, null);
         this.parentRepairSession = parentRepairSession;
         this.sessionIds = sessionIds;
     }

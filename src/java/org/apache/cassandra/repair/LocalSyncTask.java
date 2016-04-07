@@ -19,6 +19,7 @@ package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
 import java.util.List;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,8 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.messages.SyncComplete;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.ProgressInfo;
 import org.apache.cassandra.streaming.StreamEvent;
@@ -48,11 +51,14 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
     private static final Logger logger = LoggerFactory.getLogger(LocalSyncTask.class);
 
     private final long repairedAt;
+    private final UUID cfId;
 
     public LocalSyncTask(RepairJobDesc desc, TreeResponse r1, TreeResponse r2, long repairedAt)
     {
         super(desc, r1, r2);
         this.repairedAt = repairedAt;
+        ColumnFamilyStore store = ColumnFamilyStore.getIfExists(desc.keyspace, desc.columnFamily);
+        this.cfId = store == null? null : store.metadata.cfId;
     }
 
     /**
@@ -83,11 +89,8 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
                                     .transferRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily)
                                     .execute();
 
-        ColumnFamilyStore store = ColumnFamilyStore.getIfExists(desc.keyspace, desc.columnFamily);
-        if (store != null)
-        {
-            ActiveRepairService.instance.registerOngoingSync(desc.parentSessionId, store.metadata.cfId, desc.sessionId, streamFuture);
-        }
+        if (cfId != null)
+            ActiveRepairService.instance.registerOngoingSync(desc.parentSessionId, cfId, desc.sessionId, streamFuture);
     }
 
     public void handleStreamEvent(StreamEvent event)
@@ -118,6 +121,7 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
 
     public void onSuccess(StreamState result)
     {
+        ActiveRepairService.instance.finishOngoingSync(desc.parentSessionId, cfId, desc.sessionId);
         String message = String.format("Sync complete using session %s between %s and %s on %s", desc.sessionId, r1.endpoint, r2.endpoint, desc.columnFamily);
         logger.info("[repair #{}] {}", desc.sessionId, message);
         Tracing.traceRepair(message);
@@ -126,6 +130,16 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
 
     public void onFailure(Throwable t)
     {
-        setException(t);
+        ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
+        if (prs != null && !prs.isAborted())
+        {
+            ActiveRepairService.instance.finishOngoingSync(desc.parentSessionId, cfId, desc.sessionId);
+            setException(t);
+        }
+        else
+        {
+            logger.debug("Ignoring failure of sync task {} from aborted or unkown parent repair session {}",
+                         desc.sessionId, desc.parentSessionId, t);
+        }
     }
 }
