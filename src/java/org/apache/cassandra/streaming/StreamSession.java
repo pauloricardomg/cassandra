@@ -517,10 +517,19 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public void onError(Throwable e)
     {
-        logger.error("[Stream #{}] Streaming error occurred on session with peer {}{}", planId(),
-                                                                                        peer.getHostAddress(),
-                                                                                        peer.equals(connecting) ? "" : " through " + connecting.getHostAddress(),
-                                                                                        e);
+        if (isActive())
+            logger.error("[Stream #{}] Streaming error occurred on session with peer {}{}", planId(),
+                         peer.getHostAddress(),
+                         peer.equals(connecting) ? "" : " through " + connecting.getHostAddress(),
+                         e);
+        else
+            logger.debug("[Stream #{}] Streaming error occurred on {} session with peer {}{}",
+                         planId(),
+                         state,
+                         peer.getHostAddress(),
+                         peer.equals(connecting) ? "" : " through " + connecting.getHostAddress(),
+                         e);
+
         // send session failure message
         if (handler.isOutgoingConnected())
             handler.sendMessage(new SessionFailedMessage());
@@ -530,11 +539,14 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public boolean isActive()
     {
-        return state != StreamSession.State.COMPLETE && state != StreamSession.State.FAILED;
+        return state != StreamSession.State.COMPLETE && state != StreamSession.State.FAILED && state != State.ABORTED;
     }
 
     public void abort()
     {
+        // send session failure message
+        if (handler.isOutgoingConnected())
+            handler.sendMessage(new SessionFailedMessage());
         closeSession(State.ABORTED);
     }
 
@@ -707,17 +719,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private boolean maybeCompleted()
     {
-        while (!isAborted.get())
-        {
-            try
-            {
-                Thread.sleep(1000L);
-            }
-            catch (InterruptedException e)
-            {
-                e.printStackTrace();
-            }
-        }
         boolean completed = receivers.isEmpty() && transfers.isEmpty();
         if (completed)
         {

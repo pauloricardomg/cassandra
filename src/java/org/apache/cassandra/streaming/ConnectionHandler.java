@@ -286,6 +286,10 @@ public class ConnectionHandler
                     {
                         session.messageReceived(message);
                     }
+                    if (FBUtilities.getBroadcastAddress().getHostAddress().equals("127.0.0.2"))
+                    {
+                        Thread.sleep(600000);
+                    }
                 }
             }
             catch (SocketException e)
