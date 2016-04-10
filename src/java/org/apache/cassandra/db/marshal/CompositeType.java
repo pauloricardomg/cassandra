@@ -24,6 +24,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,7 +69,7 @@ public class CompositeType extends AbstractCompositeType
     public final List<AbstractType<?>> types;
 
     // interning instances
-    private static final Map<List<AbstractType<?>>, CompositeType> instances = new HashMap<List<AbstractType<?>>, CompositeType>();
+    private static final ConcurrentMap<List<AbstractType<?>>, CompositeType> instances = new ConcurrentHashMap<>();
 
     public static CompositeType getInstance(TypeParser parser) throws ConfigurationException, SyntaxException
     {
@@ -97,16 +99,17 @@ public class CompositeType extends AbstractCompositeType
         return true;
     }
 
-    public static synchronized CompositeType getInstance(List<AbstractType<?>> types)
+    public static CompositeType getInstance(List<AbstractType<?>> types)
     {
         assert types != null && !types.isEmpty();
 
         CompositeType ct = instances.get(types);
         if (ct == null)
         {
-            ct = new CompositeType(types);
-            instances.put(types, ct);
+            instances.putIfAbsent(types, new CompositeType(types));
+            ct = instances.get(types);
         }
+
         return ct;
     }
 
