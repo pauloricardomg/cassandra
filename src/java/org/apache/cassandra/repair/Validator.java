@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -37,6 +38,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.ValidationComplete;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
@@ -258,9 +260,17 @@ public class Validator implements Runnable
      */
     public void fail()
     {
-        logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
-        // send fail message only to nodes >= version 2.0
-        MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), initiator);
+        if (ActiveRepairService.instance.isActive(desc.parentSessionId))
+        {
+            logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
+            // send fail message only to nodes >= version 2.0
+            MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), initiator);
+        }
+        else
+        {
+            logger.debug("Ignoring failure of validation task {} from aborted or unkown parent repair session {}.",
+                         desc.sessionId, desc.parentSessionId);
+        }
     }
 
     /**
