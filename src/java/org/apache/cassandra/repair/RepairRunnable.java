@@ -188,12 +188,20 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             cfnames[i] = columnFamilyStores.get(i).name;
         }
 
+        // Set up RepairJob executor for this repair command.
+        final ListeningExecutorService executor = MoreExecutors.listeningDecorator(new JMXConfigurableThreadPoolExecutor(options.getJobThreads(),
+                                                                                                                         Integer.MAX_VALUE,
+                                                                                                                         TimeUnit.SECONDS,
+                                                                                                                         new LinkedBlockingQueue<Runnable>(),
+                                                                                                                         new NamedThreadFactory("Repair#" + cmd),
+                                                                                                                         "internal"));
+
         final UUID parentSession = UUIDGen.getTimeUUID();
         SystemDistributedKeyspace.startParentRepair(parentSession, keyspace, cfnames, options);
         long repairedAt;
         try
         {
-            ActiveRepairService.instance.prepareForRepair(parentSession, allNeighbors, options, columnFamilyStores);
+            ActiveRepairService.instance.prepareForRepair(parentSession, allNeighbors, options, columnFamilyStores, executor);
             repairedAt = ActiveRepairService.instance.getParentRepairSession(parentSession).getRepairedAt();
             progress.incrementAndGet();
         }
@@ -203,14 +211,6 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             fireErrorAndComplete(tag, progress.get(), totalProgress, t.getMessage());
             return;
         }
-
-        // Set up RepairJob executor for this repair command.
-        final ListeningExecutorService executor = MoreExecutors.listeningDecorator(new JMXConfigurableThreadPoolExecutor(options.getJobThreads(),
-                                                                                                                         Integer.MAX_VALUE,
-                                                                                                                         TimeUnit.SECONDS,
-                                                                                                                         new LinkedBlockingQueue<Runnable>(),
-                                                                                                                         new NamedThreadFactory("Repair#" + cmd),
-                                                                                                                         "internal"));
 
         List<ListenableFuture<RepairSessionResult>> futures = new ArrayList<>(options.getRanges().size());
         for (Pair<Set<InetAddress>, ? extends Collection<Range<Token>>> p : commonRanges)
