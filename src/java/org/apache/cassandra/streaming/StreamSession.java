@@ -155,6 +155,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         WAIT_COMPLETE,
         COMPLETE,
         FAILED,
+        ABORTED
     }
 
     private volatile State state = State.INITIALIZED;
@@ -416,7 +417,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         {
             state(finalState);
 
-            if (finalState == State.FAILED)
+            if (finalState == State.FAILED || finalState == State.ABORTED)
             {
                 for (StreamTask task : Iterables.concat(receivers.values(), transfers.values()))
                     task.abort();
@@ -424,7 +425,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
             // Note that we shouldn't block on this close because this method is called on the handler
             // incoming thread (so we would deadlock).
-            handler.close();
+            handler.close(finalState == State.ABORTED);
 
             streamResult.handleSessionComplete(this);
         }
@@ -516,15 +517,37 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public void onError(Throwable e)
     {
-        logger.error("[Stream #{}] Streaming error occurred on session with peer {}{}", planId(),
-                                                                                        peer.getHostAddress(),
-                                                                                        peer.equals(connecting) ? "" : " through " + connecting.getHostAddress(),
-                                                                                        e);
+        if (isActive())
+            logger.error("[Stream #{}] Streaming error occurred on session with peer {}{}", planId(),
+                         peer.getHostAddress(),
+                         peer.equals(connecting) ? "" : " through " + connecting.getHostAddress(),
+                         e);
+        else
+            logger.debug("[Stream #{}] Streaming error occurred on {} session with peer {}{}",
+                         planId(),
+                         state,
+                         peer.getHostAddress(),
+                         peer.equals(connecting) ? "" : " through " + connecting.getHostAddress(),
+                         e);
+
         // send session failure message
         if (handler.isOutgoingConnected())
             handler.sendMessage(new SessionFailedMessage());
         // fail session
         closeSession(State.FAILED);
+    }
+
+    public boolean isActive()
+    {
+        return state != StreamSession.State.COMPLETE && state != StreamSession.State.FAILED && state != State.ABORTED;
+    }
+
+    public void abort()
+    {
+        // send session failure message
+        if (handler.isOutgoingConnected())
+            handler.sendMessage(new SessionFailedMessage());
+        closeSession(State.ABORTED);
     }
 
     /**
