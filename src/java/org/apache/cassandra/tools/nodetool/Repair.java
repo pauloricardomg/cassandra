@@ -23,6 +23,7 @@ import io.airlift.command.Arguments;
 import io.airlift.command.Command;
 import io.airlift.command.Option;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -73,6 +74,15 @@ public class Repair extends NodeToolCmd
     @Option(title = "full", name = {"-full", "--full"}, description = "Use -full to issue a full repair.")
     private boolean fullRepair = false;
 
+    @Option(title = "list", name = {"-li", "--list"}, description = "Use --list to list active repair sessions.")
+    private boolean list = false;
+
+    @Option(title = "abort-all", name = {"-killall", "--abort-all"}, description = "Use --abort-all to abort all active sessions.")
+    private boolean abortAll = false;
+
+    @Option(title = "sessionId", name = {"-a", "--abort"}, description = "Abort repair session with given id")
+    private String abortRepairSessionId = EMPTY;
+
     @Option(title = "job_threads", name = {"-j", "--job-threads"}, description = "Number of threads to run repair jobs. " +
                                                                                  "Usually this means number of CFs to repair concurrently. " +
                                                                                  "WARNING: increasing this puts more load on repairing nodes, so be careful. (default: 1, max: 4)")
@@ -84,6 +94,24 @@ public class Repair extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
+        if (list)
+        {
+            listRepairs(probe);
+            return;
+        }
+
+        if (!abortRepairSessionId.equals(EMPTY))
+        {
+            abortRepair(probe, abortRepairSessionId);
+            return;
+        }
+
+        if (abortAll)
+        {
+            abortAll(probe);
+            return;
+        }
+
         List<String> keyspaces = parseOptionalKeyspace(args, probe);
         String[] cfnames = parseOptionalTables(args);
 
@@ -128,6 +156,54 @@ public class Repair extends NodeToolCmd
             {
                 throw new RuntimeException("Error occurred during repair", e);
             }
+        }
+    }
+
+    private void abortAll(NodeProbe probe)
+    {
+        List<String> abortedSessions = probe.abortAllRepairJobs();
+        if (abortedSessions.isEmpty())
+        {
+            System.out.println(String.format("No repair sessions to abort"));
+        }
+        else
+        {
+            for (String sessionId : abortedSessions)
+                System.out.println(String.format("Successfully aborted parent repair session with id %s.", sessionId));
+        }
+    }
+
+    private void abortRepair(NodeProbe probe, String parentSessionId)
+    {
+            if (probe.abortRepairJob(parentSessionId))
+                System.out.println(String.format("Successfully aborted parent repair session with id %s.", parentSessionId));
+            else
+                System.out.println(String.format("Did not find repair session with id %s. (maybe try nodetol repair --list?)", parentSessionId));
+
+    }
+
+    private void listRepairs(NodeProbe probe)
+    {
+        try
+        {
+            Map<String, Map<String, String>> runningRepairs = probe.describeRepairJobs();
+            if (runningRepairs.isEmpty())
+            {
+                System.out.println("No active repair sessions on this node.");
+            }
+            for (Map.Entry<String, Map<String, String>> repairStatuses : runningRepairs.entrySet())
+            {
+                System.out.printf("Session %s%n", repairStatuses.getKey());
+                for (Map.Entry<String, String> info : repairStatuses.getValue().entrySet())
+                {
+                    System.out.printf("\t- %s: %s%n", info.getKey(), info.getValue());
+                }
+                System.out.println();
+            }
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException("Error occurred while listing repairs", e);
         }
     }
 }

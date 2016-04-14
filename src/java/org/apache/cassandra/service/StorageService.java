@@ -3112,6 +3112,44 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
+    public Map<String, Map<String, String>> describeRepairJobs()
+    {
+        Map<String, Map<String, String>> result = new HashMap<>();
+
+        for (RepairInfo info : ActiveRepairService.instance.listRepairs())
+        {
+            HashMap<String,String> infoAsMap = new HashMap<>();
+            infoAsMap.put("coordinator", info.getCoordinator().getHostAddress());
+            if (!info.getParticipants().isEmpty())
+                infoAsMap.put("participants", info.getParticipants().toString());
+            result.put(info.getParentSessionId().toString(), infoAsMap);
+        }
+        return result;
+    }
+
+    public boolean abortRepairJob(String parentSessionId)
+    {
+        try
+        {
+            return ActiveRepairService.instance.abortParentRepairSession(UUID.fromString(parentSessionId));
+        } catch (IllegalArgumentException e)
+        {
+            return false;
+        }
+    }
+
+    public List<String> abortAllRepairJobs()
+    {
+        List<RepairInfo> repairInfos = ActiveRepairService.instance.listRepairs();
+        List<String> aborted = new ArrayList<>(repairInfos.size());
+        for (RepairInfo info : repairInfos)
+        {
+            if (ActiveRepairService.instance.abortParentRepairSession(info.getParentSessionId()))
+                aborted.add(info.getParentSessionId().toString());
+        }
+        return aborted;
+    }
+
     public int repairAsync(String keyspace, Map<String, String> repairSpec)
     {
         RepairOption option = RepairOption.parse(repairSpec, tokenMetadata.partitioner);
