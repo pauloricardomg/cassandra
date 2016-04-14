@@ -298,6 +298,12 @@ public interface StorageServiceMBean extends NotificationEmitter
      */
     public void forceKeyspaceFlush(String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException;
 
+    public Map<String, Map<String, String>> describeRepairJobs();
+
+    public boolean abortRepairJob(String parentSessionId);
+
+    List<String> abortAllRepairJobs();
+
     /**
      * Invoke repair asynchronously.
      * You can track repair progress by subscribing JMX notification sent from this StorageServiceMBean.
