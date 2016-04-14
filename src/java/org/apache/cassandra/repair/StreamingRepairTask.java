@@ -30,6 +30,7 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.StreamEvent;
 import org.apache.cassandra.streaming.StreamEventHandler;
 import org.apache.cassandra.streaming.StreamPlan;
+import org.apache.cassandra.streaming.StreamResultFuture;
 import org.apache.cassandra.streaming.StreamState;
 
 /**
@@ -62,13 +63,14 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
             ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
             isIncremental = prs.isIncremental;
         }
-        new StreamPlan("Repair", repairedAt, 1, false, isIncremental, false).listeners(this)
-                                            .flushBeforeTransfer(true)
-                                            // request ranges from the remote node
-                                            .requestRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
-                                            // send ranges to the remote node
-                                            .transferRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
-                                            .execute();
+        StreamResultFuture future = new StreamPlan("Repair", repairedAt, 1, false, isIncremental, false).listeners(this)
+                                        .flushBeforeTransfer(true)
+                                         // request ranges from the remote node
+                                        .requestRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
+                                         // send ranges to the remote node
+                                        .transferRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily)
+                                        .execute();
+        ActiveRepairService.instance.taskStarted(desc.parentSessionId, future);
     }
 
     public void handleStreamEvent(StreamEvent event)
@@ -91,6 +93,14 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
      */
     public void onFailure(Throwable t)
     {
-        MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, false).createMessage(), request.initiator);
+        if (ActiveRepairService.instance.isActive(desc.parentSessionId))
+        {
+            MessagingService.instance().sendOneWay(new SyncComplete(desc, request.src, request.dst, false).createMessage(), request.initiator);
+        }
+        else
+        {
+            logger.debug("Ignoring failure of sync task {} from aborted or unkown parent repair session {}",
+                         desc.sessionId, desc.parentSessionId, t);
+        }
     }
 }
