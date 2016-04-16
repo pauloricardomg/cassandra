@@ -46,6 +46,14 @@ public class EC2SnitchTest
 {
     private static String az;
 
+    private SnitchProperties legacySnitchProps = new SnitchProperties()
+    {
+        public String get(String propertyName, String defaultValue)
+        {
+            return propertyName.equals("ec2_naming_scheme") ? "legacy" : super.get(propertyName, defaultValue);
+        }
+    };
+
     @BeforeClass
     public static void setup() throws Exception
     {
@@ -62,6 +70,11 @@ public class EC2SnitchTest
             super();
         }
 
+        public TestEC2Snitch(SnitchProperties props) throws IOException, ConfigurationException
+        {
+            super(props);
+        }
+
         @Override
         String awsApiCall(String url) throws IOException, ConfigurationException
         {
@@ -70,10 +83,10 @@ public class EC2SnitchTest
     }
 
     @Test
-    public void testRac() throws IOException, ConfigurationException
+    public void testLegacyRac() throws IOException, ConfigurationException
     {
         az = "us-east-1d";
-        Ec2Snitch snitch = new TestEC2Snitch();
+        Ec2Snitch snitch = new TestEC2Snitch(legacySnitchProps);
         InetAddress local = InetAddress.getByName("127.0.0.1");
         InetAddress nonlocal = InetAddress.getByName("127.0.0.7");
 
@@ -89,15 +102,34 @@ public class EC2SnitchTest
         assertEquals("us-east", snitch.getDatacenter(local));
         assertEquals("1d", snitch.getRack(local));
     }
-    
+
     @Test
-    public void testNewRegions() throws IOException, ConfigurationException
+    public void testLegacyNewRegions() throws IOException, ConfigurationException
     {
         az = "us-east-2d";
-        Ec2Snitch snitch = new TestEC2Snitch();
+        Ec2Snitch snitch = new TestEC2Snitch(legacySnitchProps);
         InetAddress local = InetAddress.getByName("127.0.0.1");
         assertEquals("us-east-2", snitch.getDatacenter(local));
         assertEquals("2d", snitch.getRack(local));
+    }
+
+    @Test
+    public void testFullNamingScheme() throws IOException, ConfigurationException
+    {
+        InetAddress local = InetAddress.getByName("127.0.0.1");
+
+
+        az = "us-east-2d";
+        Ec2Snitch snitch = new TestEC2Snitch();
+
+        assertEquals("us-east-2", snitch.getDatacenter(local));
+        assertEquals("us-east-2d", snitch.getRack(local));
+
+        az = "us-west-1a";
+        snitch = new TestEC2Snitch();
+
+        assertEquals("us-west-1", snitch.getDatacenter(local));
+        assertEquals("us-west-1a", snitch.getRack(local));
     }
 
     @Test

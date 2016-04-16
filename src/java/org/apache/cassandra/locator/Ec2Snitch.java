@@ -52,17 +52,34 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
 
     public Ec2Snitch() throws IOException, ConfigurationException
     {
+        this(new SnitchProperties());
+    }
+
+    public Ec2Snitch(SnitchProperties props) throws IOException, ConfigurationException
+    {
         String az = awsApiCall(ZONE_NAME_QUERY_URL);
-        // Split "us-east-1a" or "asia-1a" into "us-east"/"1a" and "asia"/"1a".
-        String[] splits = az.split("-");
-        ec2zone = splits[splits.length - 1];
 
-        // hack for CASSANDRA-4026
-        ec2region = az.substring(0, az.length() - 1);
-        if (ec2region.endsWith("1"))
-            ec2region = az.substring(0, az.length() - 3);
+        // if using the full naming scheme, region name is created by removing letters from the 
+        // end of the availability zone and zone is the full zone name 
+        if (props.get("ec2_naming_scheme", "standard").equalsIgnoreCase("legacy"))
+        {
+            // legacy
+            // Split "us-east-1a" or "asia-1a" into "us-east"/"1a" and "asia"/"1a".
+            String[] splits = az.split("-");
+            ec2zone = splits[splits.length - 1];
 
-        String datacenterSuffix = (new SnitchProperties()).get("dc_suffix", "");
+            // hack for CASSANDRA-4026
+            ec2region = az.substring(0, az.length() - 1);
+            if (ec2region.endsWith("1"))
+                ec2region = az.substring(0, az.length() - 3);
+        }
+        else
+        {
+            ec2region = az.replaceFirst("[a-z]+$","");
+            ec2zone = az;
+        }
+
+        String datacenterSuffix = props.get("dc_suffix", "");
         ec2region = ec2region.concat(datacenterSuffix);
         logger.info("EC2Snitch using region: {}, zone: {}.", ec2region, ec2zone);
     }
