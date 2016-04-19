@@ -1,6 +1,7 @@
 2.2.7
  * Always close cluster with connection in CqlRecordWriter (CASSANDRA-11553)
-
+Merged from 2.1:
+ * Validate levels when building LeveledScanner to avoid overlaps with orphaned sstables (CASSANDRA-9935)
 
 2.2.6
  * Allow only DISTINCT queries with partition keys restrictions (CASSANDRA-11339)
