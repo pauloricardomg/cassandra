@@ -1,3 +1,6 @@
+2.1.15
+ * Validate levels when building LeveledScanner to avoid overlaps with orphaned sstables (CASSANDRA-9935)
+
 2.1.14
  * Checking if an unlogged batch is local is inefficient (CASSANDRA-11529)
  * Fix paging for COMPACT tables without clustering columns (CASSANDRA-11467)
