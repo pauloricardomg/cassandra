@@ -852,20 +852,24 @@ public class CompactionManager implements CompactionManagerMBean
         {
             public Object call() throws IOException
             {
-                try
-                {
-                    doValidationCompaction(cfStore, validator);
-                    return this;
-                }
-                catch (Throwable e)
-                {
-                    // we need to inform the remote end of our failure, otherwise it will hang on repair forever
-                    validator.fail();
-                    throw e;
-                }
+                doValidationCompaction(cfStore, validator);
+                return this;
             }
         };
         ListenableFutureTask task = ListenableFutureTask.create(callable);
+        Futures.addCallback(task, new FutureCallback()
+        {
+            public void onSuccess(Object o)
+            {
+                validator.complete();
+            }
+
+            public void onFailure(Throwable throwable)
+            {
+                validator.fail();
+            }
+        });
+
         validationExecutor.submit(task);
         return task;
     }
@@ -1200,14 +1204,12 @@ public class CompactionManager implements CompactionManagerMBean
         // concurrently with other compactions, it would otherwise go ahead and scan those again.
         if (!cfs.isValid())
         {
-            validator.fail();
-            return;
+            throw new RuntimeException(String.format("Table %s.%s is not valid", cfs.keyspace, cfs.name));
         }
 
         Refs<SSTableReader> sstables = null;
         try
         {
-
             String snapshotName = validator.desc.sessionId.toString();
             int gcBefore;
             int nowInSec = FBUtilities.nowInSeconds();
@@ -1233,8 +1235,9 @@ public class CompactionManager implements CompactionManagerMBean
                 sstables = getSSTablesToValidate(cfs, validator);
                 if (sstables == null)
                 {
-                    validator.fail();
-                    return; // this means the parent repair session was removed - the repair session failed on another node and we removed it
+                    // this means the parent repair session was removed - the repair session failed on another node and we removed it
+                    throw new RuntimeException(String.format("No sstables to validate on repair session %s from parent repair session %s.",
+                                                             validator.desc.sessionId, validator.desc.parentSessionId));
                 }
                 if (validator.gcBefore > 0)
                     gcBefore = validator.gcBefore;
@@ -1262,7 +1265,6 @@ public class CompactionManager implements CompactionManagerMBean
                         validator.add(partition);
                     }
                 }
-                validator.complete();
             }
             finally
             {
