@@ -47,6 +47,8 @@ import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.concurrent.RefCounted;
 import org.apache.cassandra.utils.concurrent.Transactional;
 
+import static org.apache.cassandra.utils.Throwables.maybeFail;
+
 /**
  * IMPORTANT: When this object is involved in a transactional graph, and is not encapsulated in a LifecycleTransaction,
  * for correct behaviour its commit MUST occur before any others, since it may legitimately fail. This is consistent
@@ -293,6 +295,7 @@ class LogTransaction extends Transactional.AbstractTransactional implements Tran
         private final Tracker tracker;
         private final boolean wasNew;
         private final Ref<LogTransaction> parentRef;
+        private boolean released = false;
 
         public SSTableTidier(SSTableReader referent, boolean wasNew, LogTransaction parent)
         {
@@ -328,11 +331,15 @@ class LogTransaction extends Transactional.AbstractTransactional implements Tran
 
             // release the referent to the parent so that the all transaction files can be released
             parentRef.release();
+            released = true;
         }
 
         public void abort()
         {
-            parentRef.release();
+            if (!released)
+            {
+                parentRef.release();
+            }
         }
     }
 
@@ -369,7 +376,12 @@ class LogTransaction extends Transactional.AbstractTransactional implements Tran
 
     protected Throwable doCommit(Throwable accumulate)
     {
-        return complete(Throwables.perform(accumulate, txnFile::commit));
+        // accumulate must be null if we have been used correctly, so fail immediately if it is not
+        maybeFail(accumulate);
+        accumulate = Throwables.perform(accumulate, txnFile::commit);
+        // fail immediately if txn file commit failed
+        maybeFail(accumulate);
+        return complete(accumulate);
     }
 
     protected Throwable doAbort(Throwable accumulate)

@@ -106,11 +106,11 @@ public class LogTransactionTest extends AbstractTransactionalTest
 
             protected Throwable doCommit(Throwable accumulate)
             {
+                Throwable ret = txnLogs.commit(accumulate);
+
                 sstableOld.markObsolete(tidier);
                 sstableOld.selfRef().release();
                 LogTransaction.waitForDeletions();
-
-                Throwable ret = txnLogs.commit(accumulate);
 
                 sstableNew.selfRef().release();
                 return ret;
@@ -196,6 +196,11 @@ public class LogTransactionTest extends AbstractTransactionalTest
         protected void assertCommitted() throws Exception
         {
             txn.assertCommitted();
+        }
+
+        protected boolean commitCanThrow()
+        {
+            return true;
         }
     }
 
