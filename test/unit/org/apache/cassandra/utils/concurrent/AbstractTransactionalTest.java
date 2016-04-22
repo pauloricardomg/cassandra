@@ -101,6 +101,8 @@ public abstract class AbstractTransactionalTest
 
             Assert.assertEquals(t, txn.testing.abort(t));
             Assert.assertEquals(0, t.getSuppressed().length);
+            //if there was a failure during commit, we may want to abort the transaction
+            txn.assertAborted();
         }
         else
         {

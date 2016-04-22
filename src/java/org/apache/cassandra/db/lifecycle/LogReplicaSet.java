@@ -209,7 +209,7 @@ public class LogReplicaSet
         Throwable err = Throwables.perform(null, replicas().stream().map(r -> () -> r.append(record)));
         if (err != null)
         {
-            if (!record.isFinal() || err.getSuppressed().length == replicas().size() -1)
+            if (!record.isFinal() || err.getSuppressed().length == replicas().size() - 1 || Thread.currentThread().isInterrupted())
                 Throwables.maybeFail(err);
 
             logger.error("Failed to add record '{}' to some replicas '{}'", record, this);
