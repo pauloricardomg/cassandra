@@ -1258,7 +1258,7 @@ public class CompactionManager implements CompactionManagerMBean
                 validator.prepare(cfs, tree);
                 while (ci.hasNext())
                 {
-                    if (ci.isStopRequested())
+                    if (ci.isStopRequested() || Thread.currentThread().isInterrupted())
                         throw new CompactionInterruptedException(ci.getCompactionInfo());
                     try (UnfilteredRowIterator partition = ci.next())
                     {
@@ -1442,6 +1442,8 @@ public class CompactionManager implements CompactionManagerMBean
             Range.OrderedRangeContainmentChecker containmentChecker = new Range.OrderedRangeContainmentChecker(ranges);
             while (ci.hasNext())
             {
+                if (ci.isStopRequested() || Thread.currentThread().isInterrupted())
+                    throw new CompactionInterruptedException(ci.getCompactionInfo());
                 try (UnfilteredRowIterator partition = ci.next())
                 {
                     // if current range from sstable is repaired, save it into the new repaired sstable
