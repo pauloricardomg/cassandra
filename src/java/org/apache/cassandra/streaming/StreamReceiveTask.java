@@ -65,7 +65,7 @@ public class StreamReceiveTask extends StreamTask
     private final long totalSize;
 
     // Transaction tracking new files received
-    public final LifecycleTransaction txn;
+    private final LifecycleTransaction txn;
 
     // true if task is done (either completed or aborted)
     private volatile boolean done = false;
@@ -134,6 +134,13 @@ public class StreamReceiveTask extends StreamTask
     public long getTotalSize()
     {
         return totalSize;
+    }
+
+    public synchronized LifecycleTransaction getTransaction()
+    {
+        if (done)
+            throw new RuntimeException(String.format("Stream receive task {} of cf {} already finished.", session.planId(), cfId));
+        return txn;
     }
 
     private static class OnCompletionRunnable implements Runnable
@@ -227,7 +234,6 @@ public class StreamReceiveTask extends StreamTask
             }
             catch (Throwable t)
             {
-                logger.error("Error applying streamed data: ", t);
                 JVMStabilityInspector.inspectThrowable(t);
                 task.session.onError(t);
             }

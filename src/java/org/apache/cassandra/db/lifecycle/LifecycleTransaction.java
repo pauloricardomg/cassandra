@@ -518,6 +518,7 @@ public class LifecycleTransaction extends Transactional.AbstractTransactional
 
     public void trackNew(SSTable table)
     {
+        assert !state().isFinished() : String.format("may not update %s transaction %s with sstable %s", state().name(), opId().toString(), table.getFilename());
         log.trackNew(table);
     }
 

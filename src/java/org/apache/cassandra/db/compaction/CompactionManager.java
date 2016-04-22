@@ -1199,7 +1199,10 @@ public class CompactionManager implements CompactionManagerMBean
         // started prior to the drop keeping some sstables alive.  Since validationCompaction can run
         // concurrently with other compactions, it would otherwise go ahead and scan those again.
         if (!cfs.isValid())
+        {
+            validator.fail();
             return;
+        }
 
         Refs<SSTableReader> sstables = null;
         try
@@ -1229,7 +1232,10 @@ public class CompactionManager implements CompactionManagerMBean
                 StorageService.instance.forceKeyspaceFlush(cfs.keyspace.getName(), cfs.name);
                 sstables = getSSTablesToValidate(cfs, validator);
                 if (sstables == null)
+                {
+                    validator.fail();
                     return; // this means the parent repair session was removed - the repair session failed on another node and we removed it
+                }
                 if (validator.gcBefore > 0)
                     gcBefore = validator.gcBefore;
                 else
@@ -1498,7 +1504,6 @@ public class CompactionManager implements CompactionManagerMBean
         }
         catch (Throwable e)
         {
-            logger.warn("HUHUE br", e);
             JVMStabilityInspector.inspectThrowable(e);
             if (!ActiveRepairService.instance.isActive(parentRepairSession))
             {

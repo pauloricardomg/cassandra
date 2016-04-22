@@ -209,7 +209,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public LifecycleTransaction getTransaction(UUID cfId)
     {
         assert receivers.containsKey(cfId);
-        return receivers.get(cfId).txn;
+        return receivers.get(cfId).getTransaction();
     }
 
     /**
