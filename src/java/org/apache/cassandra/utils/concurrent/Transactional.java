@@ -18,6 +18,9 @@
 */
 package org.apache.cassandra.utils.concurrent;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import static org.apache.cassandra.utils.Throwables.maybeFail;
 import static org.apache.cassandra.utils.Throwables.merge;
 
@@ -57,6 +60,8 @@ import static org.apache.cassandra.utils.Throwables.merge;
  */
 public interface Transactional extends AutoCloseable
 {
+    static final Logger logger = LoggerFactory.getLogger(Transactional.class);
+
     /**
      * A simple abstract implementation of Transactional behaviour.
      * In general this should be used as the base class for any transactional implementations.
@@ -139,10 +144,22 @@ public interface Transactional extends AutoCloseable
                 return accumulate;
             }
             state = State.ABORTED;
+
+            boolean interrupted = Thread.interrupted();
+            if (interrupted)
+                logger.debug("Thread was interrupted, uninterrupting thread to perform transaction abortion.");
+
             // we cleanup first so that, e.g., file handles can be released prior to deletion
             accumulate = doPreCleanup(accumulate);
             accumulate = doAbort(accumulate);
             accumulate = doPostCleanup(accumulate);
+
+            if (interrupted)
+            {
+                logger.debug("Re-interrupting thread after abortion.");
+                Thread.currentThread().interrupt();
+            }
+
             return accumulate;
         }
 

@@ -59,6 +59,13 @@ public class LegacyJMXProgressSupportTest
                                                                             new ProgressEvent(ProgressEventType.PROGRESS, 2, 10, message));
         assertTrue(result.isPresent());
         assertArrayEquals(new int[]{ cmd, ActiveRepairService.Status.SESSION_FAILED.ordinal() }, result.get());
+
+        message = String.format("Repair session %s for range %s was aborted.", UUID.randomUUID(),
+                                new Range<Token>(new Murmur3Partitioner.LongToken(3), new Murmur3Partitioner.LongToken(4)).toString());
+        result = LegacyJMXProgressSupport.getLegacyUserdata(String.format("repair:%d", cmd),
+                                                                            new ProgressEvent(ProgressEventType.PROGRESS, 2, 10, message));
+        assertTrue(result.isPresent());
+        assertArrayEquals(new int[]{ cmd, ActiveRepairService.Status.SESSION_FAILED.ordinal() }, result.get());
     }
 
     @Test

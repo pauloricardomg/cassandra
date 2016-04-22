@@ -22,7 +22,6 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
 
