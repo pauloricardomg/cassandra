@@ -830,26 +830,32 @@ public class CompactionManager implements CompactionManagerMBean
     /**
      * Does not mutate data, so is not scheduled.
      */
-    public Future<Object> submitValidation(final ColumnFamilyStore cfStore, final Validator validator)
+    public ListenableFutureTask<Object> submitValidation(final ColumnFamilyStore cfStore, final Validator validator)
     {
         Callable<Object> callable = new Callable<Object>()
         {
             public Object call() throws IOException
             {
-                try
-                {
-                    doValidationCompaction(cfStore, validator);
-                }
-                catch (Throwable e)
-                {
-                    // we need to inform the remote end of our failure, otherwise it will hang on repair forever
-                    validator.fail();
-                    throw e;
-                }
+                doValidationCompaction(cfStore, validator);
                 return this;
             }
         };
-        return validationExecutor.submit(callable);
+        ListenableFutureTask task = ListenableFutureTask.create(callable);
+        Futures.addCallback(task, new FutureCallback()
+        {
+            public void onSuccess(Object o)
+            {
+                validator.complete();
+            }
+
+            public void onFailure(Throwable throwable)
+            {
+                validator.fail();
+            }
+        });
+
+        validationExecutor.submit(task);
+        return task;
     }
 
     /* Used in tests. */
@@ -1181,12 +1187,13 @@ public class CompactionManager implements CompactionManagerMBean
         // started prior to the drop keeping some sstables alive.  Since validationCompaction can run
         // concurrently with other compactions, it would otherwise go ahead and scan those again.
         if (!cfs.isValid())
-            return;
+        {
+            throw new RuntimeException(String.format("Table %s.%s is not valid", cfs.keyspace, cfs.name));
+        }
 
         Refs<SSTableReader> sstables = null;
         try
         {
-
             String snapshotName = validator.desc.sessionId.toString();
             int gcBefore;
             int nowInSec = FBUtilities.nowInSeconds();
@@ -1211,7 +1218,11 @@ public class CompactionManager implements CompactionManagerMBean
                 StorageService.instance.forceKeyspaceFlush(cfs.keyspace.getName(), cfs.name);
                 sstables = getSSTablesToValidate(cfs, validator);
                 if (sstables == null)
-                    return; // this means the parent repair session was removed - the repair session failed on another node and we removed it
+                {
+                    // this means the parent repair session was removed - the repair session failed on another node and we removed it
+                    throw new RuntimeException(String.format("No sstables to validate on repair session %s from parent repair session %s.",
+                                                             validator.desc.sessionId, validator.desc.parentSessionId));
+                }
                 if (validator.gcBefore > 0)
                     gcBefore = validator.gcBefore;
                 else
@@ -1238,7 +1249,6 @@ public class CompactionManager implements CompactionManagerMBean
                         validator.add(partition);
                     }
                 }
-                validator.complete();
             }
             finally
             {
