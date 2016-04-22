@@ -77,6 +77,11 @@ public interface Transactional extends AutoCloseable
             READY_TO_COMMIT,
             COMMITTED,
             ABORTED;
+
+            public boolean isFinished()
+            {
+                return this == ABORTED || this == COMMITTED;
+            }
         }
 
         private boolean permitRedundantTransitions;

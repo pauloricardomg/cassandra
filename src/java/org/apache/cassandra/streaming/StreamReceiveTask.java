@@ -68,7 +68,7 @@ public class StreamReceiveTask extends StreamTask
     public final LifecycleTransaction txn;
 
     // true if task is done (either completed or aborted)
-    private boolean done = false;
+    private volatile boolean done = false;
 
     //  holds references to SSTables received
     protected Collection<SSTableReader> sstables;
@@ -95,7 +95,13 @@ public class StreamReceiveTask extends StreamTask
     public synchronized void received(SSTableMultiWriter sstable)
     {
         if (done)
+        {
+            logger.warn("[{}] Received sstable {} on already finished stream received task. Aborting sstable.", session.planId(),
+                        sstable.getFilename());
+            sstable.abort(null);
             return;
+        }
+
         remoteSSTablesReceived++;
         assert cfId.equals(sstable.getCfId());
 
