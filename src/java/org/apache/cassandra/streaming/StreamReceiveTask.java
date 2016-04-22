@@ -17,9 +17,6 @@
  */
 package org.apache.cassandra.streaming;
 
-import java.io.File;
-import java.io.IOError;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -50,6 +47,7 @@ import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Refs;
 
 /**
@@ -67,10 +65,10 @@ public class StreamReceiveTask extends StreamTask
     private final long totalSize;
 
     // Transaction tracking new files received
-    public final LifecycleTransaction txn;
+    private final LifecycleTransaction txn;
 
     // true if task is done (either completed or aborted)
-    private boolean done = false;
+    private volatile boolean done = false;
 
     //  holds references to SSTables received
     protected Collection<SSTableReader> sstables;
@@ -96,12 +94,27 @@ public class StreamReceiveTask extends StreamTask
     public synchronized void received(SSTableMultiWriter sstable)
     {
         if (done)
+        {
+            logger.warn("[{}] Received sstable {} on already finished stream received task. Aborting sstable.", session.planId(),
+                        sstable.getFilename());
+            sstable.abort(null);
             return;
+        }
+
         remoteSSTablesReceived++;
         assert cfId.equals(sstable.getCfId());
 
-        Collection<SSTableReader> finished = sstable.finish(true);
-        txn.update(finished, false);
+        Collection<SSTableReader> finished = null;
+        try
+        {
+            finished = sstable.finish(true);
+            txn.update(finished, false);
+        }
+        catch (Throwable t)
+        {
+            Throwables.maybeFail(sstable.abort(t));
+        }
+
         sstables.addAll(finished);
 
         if (remoteSSTablesReceived == totalFiles)
@@ -119,6 +132,13 @@ public class StreamReceiveTask extends StreamTask
     public long getTotalSize()
     {
         return totalSize;
+    }
+
+    public synchronized LifecycleTransaction getTransaction()
+    {
+        if (done)
+            throw new RuntimeException(String.format("Stream receive task {} of cf {} already finished.", session.planId(), cfId));
+        return txn;
     }
 
     private static class OnCompletionRunnable implements Runnable
@@ -212,7 +232,6 @@ public class StreamReceiveTask extends StreamTask
             }
             catch (Throwable t)
             {
-                logger.error("Error applying streamed data: ", t);
                 JVMStabilityInspector.inspectThrowable(t);
                 task.session.onError(t);
             }
