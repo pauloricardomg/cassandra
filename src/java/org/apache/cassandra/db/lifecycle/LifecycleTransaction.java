@@ -327,6 +327,7 @@ public class LifecycleTransaction extends Transactional.AbstractTransactional
      */
     public void update(SSTableReader reader, boolean original)
     {
+        assert !state().isFinished() : String.format("may not update %s transaction %s with reader %s", state().name(), opId().toString(), reader.toString());
         assert !staged.update.contains(reader) : "each reader may only be updated once per checkpoint: " + reader;
         assert !identities.contains(reader.instanceId) : "each reader instance may only be provided as an update once: " + reader;
         // check it isn't obsolete, and that it matches the original flag
@@ -517,6 +518,7 @@ public class LifecycleTransaction extends Transactional.AbstractTransactional
 
     public void trackNew(SSTable table)
     {
+        assert !state().isFinished() : String.format("may not update %s transaction %s with sstable %s", state().name(), opId().toString(), table.getFilename());
         log.trackNew(table);
     }
 
