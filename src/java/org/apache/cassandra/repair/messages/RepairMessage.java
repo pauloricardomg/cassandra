@@ -46,7 +46,8 @@ public abstract class RepairMessage
         ANTICOMPACTION_REQUEST(4, AnticompactionRequest.serializer),
         PREPARE_MESSAGE(5, PrepareMessage.serializer),
         SNAPSHOT(6, SnapshotMessage.serializer),
-        CLEANUP(7, CleanupMessage.serializer);
+        CLEANUP(7, CleanupMessage.serializer),
+        ABORT(8, AbortMessage.serializer);
 
         private final byte type;
         private final MessageSerializer<RepairMessage> serializer;

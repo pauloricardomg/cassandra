@@ -247,13 +247,24 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 public void onFailure(Throwable t)
                 {
                     /**
-                     * If the failure message below is modified, it must also be updated on
+                     * If the failure messages below are modified, they must also be updated on
                      * {@link org.apache.cassandra.utils.progress.jmx.LegacyJMXProgressSupport}
                      * for backward-compatibility support.
                      */
-                    String message = String.format("Repair session %s for range %s failed with error %s",
-                                                   session.getId(), session.getRanges().toString(), t.getMessage());
-                    logger.error(message, t);
+                    String message;
+                    ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentSession);
+                    if (prs != null && prs.isAborted())
+                    {
+                        message = String.format("Repair session %s for range %s was aborted.",
+                                                session.getId(), session.getRanges().toString());
+                        logger.debug(message);
+                    }
+                    else
+                    {
+                        message = String.format("Repair session %s for range %s failed with error %s",
+                                                       session.getId(), session.getRanges().toString(), t.getMessage());
+                        logger.error(message, t);
+                    }
                     fireProgressEvent(tag, new ProgressEvent(ProgressEventType.PROGRESS,
                                                              progress.incrementAndGet(),
                                                              totalProgress,
@@ -288,28 +299,34 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 return ActiveRepairService.instance.finishParentSession(parentSession, allNeighbors, successfulRanges);
             }
         });
-        Futures.addCallback(anticompactionResult, new FutureCallback<Object>()
+        anticompactionResult.addListener(new Runnable()
         {
-            public void onSuccess(Object result)
+            public void run()
             {
-                SystemDistributedKeyspace.successfulParentRepair(parentSession, successfulRanges);
-                if (hasFailure.get())
+                ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentSession);
+                if (prs != null && prs.isAborted())
                 {
-                    fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress,
-                                                             "Some repair failed"));
+                    String message = String.format("Parent repair session %s was aborted.", parentSession);
+                    logger.info(message);
+                    SystemDistributedKeyspace.failParentRepair(parentSession, new RuntimeException(message));
+                    fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ABORT, progress.get(), totalProgress,
+                                                             message));
+                    ActiveRepairService.instance.removeParentRepairSession(parentSession);
                 }
                 else
                 {
-                    fireProgressEvent(tag, new ProgressEvent(ProgressEventType.SUCCESS, progress.get(), totalProgress,
-                                                             "Repair completed successfully"));
+                    SystemDistributedKeyspace.successfulParentRepair(parentSession, successfulRanges);
+                    if (hasFailure.get())
+                    {
+                        fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress,
+                                                                 "Some repair failed"));
+                    }
+                    else
+                    {
+                        fireProgressEvent(tag, new ProgressEvent(ProgressEventType.SUCCESS, progress.get(), totalProgress,
+                                                                 "Repair completed successfully"));
+                    }
                 }
-                repairComplete();
-            }
-
-            public void onFailure(Throwable t)
-            {
-                fireProgressEvent(tag, new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress, t.getMessage()));
-                SystemDistributedKeyspace.failParentRepair(parentSession, t);
                 repairComplete();
             }
 
@@ -335,7 +352,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 }
                 executor.shutdownNow();
             }
-        });
+        }, MoreExecutors.sameThreadExecutor());
     }
 
     private void addRangeToNeighbors(List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> neighborRangeList, Range<Token> range, Set<InetAddress> neighbors)

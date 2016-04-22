@@ -24,20 +24,24 @@ import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.FailureDetector;
@@ -51,12 +55,16 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.AnticompactionTask;
+import org.apache.cassandra.repair.NodePair;
 import org.apache.cassandra.repair.RepairJobDesc;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.RepairSession;
+import org.apache.cassandra.repair.StreamingRepairTask;
+import org.apache.cassandra.repair.Validator;
 import org.apache.cassandra.repair.messages.*;
-import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.MerkleTrees;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.concurrent.Refs;
@@ -87,8 +95,6 @@ public class ActiveRepairService
     {
         STARTED, SESSION_SUCCESS, SESSION_FAILED, FINISHED
     }
-
-    public static CassandraVersion SUPPORTS_GLOBAL_PREPARE_FLAG_VERSION = new CassandraVersion("2.2.1");
 
     private static final Logger logger = LoggerFactory.getLogger(ActiveRepairService.class);
     // singleton enforcement
@@ -133,6 +139,7 @@ public class ActiveRepairService
             return null;
 
         final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, endpoints, repairedAt, cfnames);
+        taskStarted(parentRepairSession, session);
 
         sessions.put(session.getId(), session);
         // register listeners
@@ -246,10 +253,14 @@ public class ActiveRepairService
         return neighbors;
     }
 
-    public synchronized UUID prepareForRepair(UUID parentRepairSession, Set<InetAddress> endpoints, RepairOption options, List<ColumnFamilyStore> columnFamilyStores)
+    public synchronized UUID prepareForRepair(UUID parentRepairSession, Set<InetAddress> endpoints, RepairOption options,
+                                              List<ColumnFamilyStore> columnFamilyStores, ListeningExecutorService executor)
     {
         long timestamp = System.currentTimeMillis();
-        registerParentRepairSession(parentRepairSession, columnFamilyStores, options.getRanges(), options.isIncremental(), timestamp, options.isGlobal());
+        ParentRepairSession prs = registerParentRepairSession(parentRepairSession, columnFamilyStores, options.getRanges(), options.isIncremental(), timestamp, options.isGlobal(),
+                                                              FBUtilities.getBroadcastAddress(), endpoints);
+        prs.registerJobExecutor(executor);
+
         final CountDownLatch prepareLatch = new CountDownLatch(endpoints.size());
         final AtomicBoolean status = new AtomicBoolean(true);
         final Set<String> failedNodes = Collections.synchronizedSet(new HashSet<String>());
@@ -311,9 +322,22 @@ public class ActiveRepairService
         return parentRepairSession;
     }
 
-    public void registerParentRepairSession(UUID parentRepairSession, List<ColumnFamilyStore> columnFamilyStores, Collection<Range<Token>> ranges, boolean isIncremental, long timestamp, boolean isGlobal)
+    public ParentRepairSession registerParentRepairSession(UUID parentRepairSession, List<ColumnFamilyStore> columnFamilyStores, Collection<Range<Token>> ranges,
+                                                           boolean isIncremental, long timestamp, boolean isGlobal,
+                                                           InetAddress coordinator)
     {
-        parentRepairSessions.put(parentRepairSession, new ParentRepairSession(columnFamilyStores, ranges, isIncremental, timestamp, isGlobal));
+        return registerParentRepairSession(parentRepairSession, columnFamilyStores, ranges, isIncremental, timestamp, isGlobal, coordinator, Collections.EMPTY_SET);
+    }
+
+    public ParentRepairSession registerParentRepairSession(UUID parentRepairSession, List<ColumnFamilyStore> columnFamilyStores, Collection<Range<Token>> ranges,
+                                                           boolean isIncremental, long timestamp, boolean isGlobal,
+                                                           InetAddress coordinator, Set<InetAddress> participants)
+    {
+        ParentRepairSession prs = new ParentRepairSession(parentRepairSession, columnFamilyStores,
+                                                            ranges, isIncremental, timestamp, isGlobal,
+                                                            coordinator, participants);
+        parentRepairSessions.put(parentRepairSession, prs);
+        return prs;
     }
 
     public Set<SSTableReader> currentlyRepairing(UUID cfId, UUID parentRepairSession)
@@ -338,6 +362,13 @@ public class ActiveRepairService
      */
     public synchronized ListenableFuture finishParentSession(UUID parentSession, Set<InetAddress> neighbors, Collection<Range<Token>> successfulRanges)
     {
+        ParentRepairSession prs = getParentRepairSession(parentSession);
+        if (prs.isAborted())
+        {
+            String message = String.format("Parent repair session %s was aborted.", prs.id);
+            return Futures.immediateFailedFuture(new RuntimeException(message));
+        }
+
         List<ListenableFuture<?>> tasks = new ArrayList<>(neighbors.size() + 1);
         for (InetAddress neighbor : neighbors)
         {
@@ -345,8 +376,23 @@ public class ActiveRepairService
             tasks.add(task);
             task.run(); // 'run' is just sending message
         }
-        tasks.add(doAntiCompaction(parentSession, successfulRanges));
+        tasks.add(doLocalAntiCompaction(parentSession, successfulRanges));
         return Futures.successfulAsList(tasks);
+    }
+
+    public void taskStarted(UUID parentSessionId, ListenableFuture task)
+    {
+        ParentRepairSession prs = getParentRepairSession(parentSessionId);
+        if (prs != null && prs.addTask(task))
+        {
+            logger.debug("Registering validation task {} from parent session {}", task, parentSessionId);
+            task.addListener(() -> prs.removeTask(task), MoreExecutors.sameThreadExecutor());
+        }
+        else
+        {
+            logger.info("Cancelling task {} of aborted or unknown repair session {}", task, prs.id);
+            task.cancel(true);
+        }
     }
 
     public ParentRepairSession getParentRepairSession(UUID parentSessionId)
@@ -354,9 +400,65 @@ public class ActiveRepairService
         return parentRepairSessions.get(parentSessionId);
     }
 
+    public boolean isActive(UUID parentRepairSession)
+    {
+        ParentRepairSession prs = parentRepairSessions.get(parentRepairSession);
+        return prs != null && !prs.isAborted();
+    }
+
     public synchronized ParentRepairSession removeParentRepairSession(UUID parentSessionId)
     {
         return parentRepairSessions.remove(parentSessionId);
+    }
+
+    public synchronized boolean abortParentRepairSession(UUID parentSessionId)
+    {
+        return abortParentRepairSession(parentSessionId, FBUtilities.getBroadcastAddress());
+    }
+
+    private synchronized boolean abortParentRepairSession(UUID parentSessionId, InetAddress aborter)
+    {
+        ParentRepairSession prs = getParentRepairSession(parentSessionId);
+        if (prs == null)
+        {
+            logger.debug("Ignoring abort request for unknown parent repair session id: {}.", parentSessionId);
+            return false;
+        }
+
+        logger.info("Aborting parent repair session {}", prs.id);
+
+        boolean isCoordinator = FBUtilities.getBroadcastAddress().equals(prs.coordinator);
+
+        if (isCoordinator)
+        {
+            for (InetAddress participant : prs.participants)
+            {
+                if (!participant.equals(prs.coordinator) && !participant.equals(aborter))
+                {
+                    logger.info("Sending abort message to participant {}", participant);
+                    MessagingService.instance().sendOneWay(new AbortMessage(parentSessionId).createMessage(), participant);
+                }
+            }
+        }
+        else if (!aborter.equals(prs.coordinator))
+        {
+            logger.info("Sending abort message to coordinator {}", prs.coordinator);
+            MessagingService.instance().sendOneWay(new AbortMessage(parentSessionId).createMessage(), prs.coordinator);
+        }
+
+        prs.abort();
+        prs.getJobExecutor().map(e -> e.shutdownNow());
+        for (Future<?> task : prs.getTasks())
+        {
+            logger.debug("Aborting task {}", task);
+            task.cancel(true);
+        }
+
+        if (!isCoordinator)
+        {
+            removeParentRepairSession(parentSessionId);
+        }
+        return true;
     }
 
     /**
@@ -367,7 +469,7 @@ public class ActiveRepairService
      * @return Future result of all anti-compaction jobs.
      */
     @SuppressWarnings("resource")
-    public ListenableFuture<List<Object>> doAntiCompaction(final UUID parentRepairSession, Collection<Range<Token>> successfulRanges)
+    public ListenableFuture<List<Object>> doLocalAntiCompaction(final UUID parentRepairSession, Collection<Range<Token>> successfulRanges)
     {
         assert parentRepairSession != null;
         ParentRepairSession prs = getParentRepairSession(parentRepairSession);
@@ -376,7 +478,8 @@ public class ActiveRepairService
         if (!prs.isGlobal)
         {
             logger.info("Not a global repair, will not do anticompaction");
-            removeParentRepairSession(parentRepairSession);
+            if (!prs.isAborted())
+                removeParentRepairSession(parentRepairSession);
             return Futures.immediateFuture(Collections.emptyList());
         }
         assert prs.ranges.containsAll(successfulRanges) : "Trying to perform anticompaction on unknown ranges";
@@ -389,7 +492,11 @@ public class ActiveRepairService
             {
                 Refs<SSTableReader> sstables = prs.getAndReferenceSSTables(columnFamilyStoreEntry.getKey());
                 ColumnFamilyStore cfs = columnFamilyStoreEntry.getValue();
-                futures.add(CompactionManager.instance.submitAntiCompaction(cfs, successfulRanges, sstables, prs.repairedAt));
+                ListenableFuture<?> task = CompactionManager.instance.submitAntiCompaction(parentRepairSession,
+                                                                                           cfs, successfulRanges,
+                                                                                           sstables, prs.repairedAt);
+                ActiveRepairService.instance.taskStarted(prs.id, task);
+                futures.add(task);
             }
         }
 
@@ -399,33 +506,201 @@ public class ActiveRepairService
             @Override
             public void run()
             {
-                removeParentRepairSession(parentRepairSession);
+                if (!prs.isAborted())
+                {
+                    removeParentRepairSession(parentRepairSession);
+                }
             }
         }, MoreExecutors.sameThreadExecutor());
 
         return allAntiCompactionResults;
     }
 
-    public void handleMessage(InetAddress endpoint, RepairMessage message)
+    /* Repair Message Handling */
+
+    public void doPrepare(UUID parentSessionId, InetAddress coordinator, int callbackId, List<UUID> cfIds,
+                          Collection<Range<Token>> ranges, boolean isIncremental, long timestamp, boolean isGlobal)
     {
-        RepairJobDesc desc = message.desc;
+        List<ColumnFamilyStore> columnFamilyStores = new ArrayList<>(cfIds.size());
+        for (UUID cfId : cfIds)
+        {
+            ColumnFamilyStore columnFamilyStore = ColumnFamilyStore.getIfExists(cfId);
+            if (columnFamilyStore == null)
+            {
+                logErrorAndSendFailureResponse(String.format("Table with id %s was dropped during prepare phase of repair",
+                                                             cfId.toString()), coordinator, callbackId);
+                return;
+            }
+            columnFamilyStores.add(columnFamilyStore);
+        }
+        registerParentRepairSession(parentSessionId, columnFamilyStores, ranges, isIncremental, timestamp, isGlobal, coordinator);
+        MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), callbackId, coordinator);
+    }
+
+    public void doSnapshot(UUID parentSessionId, UUID sessionId, InetAddress coordinator, int callbackId, String ks, String table,
+                           Collection<Range<Token>> ranges)
+    {
+        Pair<ParentRepairSession, ColumnFamilyStore> pair = validate(parentSessionId, sessionId, ks, table, "snapshot",
+                                                                     () -> logErrorAndSendFailureResponse(String.format("Table %s.%s was dropped during snapshot phase of repair",
+                                                                                                                        ks, table), coordinator, callbackId));
+        if (pair == null) return;
+
+        ParentRepairSession parentRepairSession = pair.left;
+        ColumnFamilyStore cfs = pair.right;
+
+        final Collection<Range<Token>> repairingRange = ranges;
+        Set<SSTableReader> snapshottedSSSTables = cfs.snapshot(sessionId.toString(), new Predicate<SSTableReader>()
+        {
+            public boolean apply(SSTableReader sstable)
+            {
+                return sstable != null &&
+                       !sstable.metadata.isIndex() && // exclude SSTables from 2i
+                       new Bounds<>(sstable.first.getToken(), sstable.last.getToken()).intersects(repairingRange);
+            }
+        }, true, false); //ephemeral snapshot, if repair fails, it will be cleaned next startup
+
+        if (parentRepairSession.isGlobal)
+        {
+            Set<SSTableReader> currentlyRepairing = currentlyRepairing(cfs.metadata.cfId, parentSessionId);
+            if (!Sets.intersection(currentlyRepairing, snapshottedSSSTables).isEmpty())
+            {
+                // clear snapshot that we just created
+                cfs.clearSnapshot(sessionId.toString());
+                logErrorAndSendFailureResponse("Cannot start multiple repair sessions over the same sstables", coordinator, callbackId);
+                return;
+            }
+            parentRepairSession.addSSTables(cfs.metadata.cfId, snapshottedSSSTables);
+        }
+        logger.debug("Enqueuing response to snapshot request {} to {}", sessionId, coordinator);
+        MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), callbackId, coordinator);
+    }
+
+    public void doValidate(UUID parentSessionId, UUID sessionId, InetAddress coordinator, RepairJobDesc desc, int gcBefore)
+    {
+        Pair<ParentRepairSession, ColumnFamilyStore> pair = validate(parentSessionId, sessionId, desc.keyspace, desc.columnFamily, "validation",
+                                                                     () -> MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(),
+                                                                                                                  coordinator));
+        if (pair == null) return;
+
+        ColumnFamilyStore store = pair.right;
+
+        Validator validator = new Validator(desc, coordinator, gcBefore);
+        ListenableFutureTask<Object> task = CompactionManager.instance.submitValidation(store, validator);
+        taskStarted(parentSessionId, task);
+    }
+
+    public void doSync(UUID parentSessionId, UUID sessionId, InetAddress coordinator, RepairJobDesc desc, SyncRequest request)
+    {
+        Pair<ParentRepairSession, ColumnFamilyStore> pair = validate(parentSessionId, sessionId, desc.keyspace, desc.columnFamily, "sync",
+                                                                     () -> MessagingService.instance().sendOneWay(new SyncComplete(desc,
+                                                                                                                                   request.src,
+                                                                                                                                   request.dst, false).createMessage(),
+                                                                                                                  coordinator));
+        if (pair == null) return;
+
+        ParentRepairSession parentRepairSession = pair.left;
+        ColumnFamilyStore cfs = pair.right;
+
+        if (parentRepairSession == null) return;
+
+        long repairedAt = parentRepairSession.getRepairedAt();
+
+        StreamingRepairTask task = new StreamingRepairTask(desc, request, repairedAt);
+        task.run();
+    }
+
+    public void doAbort(UUID parentSessionId, InetAddress from)
+    {
+        ParentRepairSession parentRepairSession = ActiveRepairService.instance.getParentRepairSession(parentSessionId);
+        if (parentRepairSession == null)
+        {
+            logger.warn("Ignoring abort request for unknown parent repair session id: {}.", parentSessionId);
+            return;
+        }
+        abortParentRepairSession(parentSessionId, from);
+    }
+
+    public void doRemoteAntiCompaction(UUID parentSessionId, final InetAddress coordinator, final int callbackId,
+                                       Collection<Range<Token>> successfulRanges)
+    {
+        ListenableFuture<?> compactionDone = doLocalAntiCompaction(parentSessionId, successfulRanges);
+        Futures.addCallback(compactionDone, new FutureCallback<Object>()
+        {
+            public void onSuccess(Object o)
+            {
+                MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), callbackId, coordinator);
+            }
+
+            public void onFailure(Throwable throwable)
+            {
+                if (ActiveRepairService.instance.isActive(parentSessionId))
+                {
+                    logger.warn("Error during anti-compacton on repair session {}.", parentSessionId, throwable);
+                    MessageOut reply = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
+                                       .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
+                    MessagingService.instance().sendReply(reply, callbackId, coordinator);
+                }
+            }
+        });
+    }
+
+    public void doCleanup(UUID parentSessionId, InetAddress coordinator, int messageId)
+    {
+        removeParentRepairSession(parentSessionId);
+        MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), messageId, coordinator);
+    }
+
+    public void doneSync(RepairJobDesc desc, NodePair nodes, boolean success)
+    {
         RepairSession session = sessions.get(desc.sessionId);
         if (session == null)
             return;
-        switch (message.messageType)
+        session.syncComplete(desc, nodes, success);
+    }
+
+    public void doneValidation(InetAddress endpoint, RepairJobDesc desc, MerkleTrees trees)
+    {
+        RepairSession session = sessions.get(desc.sessionId);
+        if (session == null)
+            return;
+        session.validationComplete(desc, endpoint, trees);
+    }
+
+    /* End Repair Message Handling */
+
+    private Pair<ParentRepairSession, ColumnFamilyStore> validate(UUID parentSessionId, UUID sessionId, String ks, String table,
+                                                                  String requestType, Runnable cfNotFoundAction)
+    {
+        ParentRepairSession parentRepairSession = ActiveRepairService.instance.getParentRepairSession(parentSessionId);
+        if (parentRepairSession == null)
         {
-            case VALIDATION_COMPLETE:
-                ValidationComplete validation = (ValidationComplete) message;
-                session.validationComplete(desc, endpoint, validation.trees);
-                break;
-            case SYNC_COMPLETE:
-                // one of replica is synced.
-                SyncComplete sync = (SyncComplete) message;
-                session.syncComplete(desc, sync.nodes, sync.success);
-                break;
-            default:
-                break;
+            logger.warn("Ignoring {} request for unknown parent repair session id: {}.", requestType, parentSessionId);
+            return null;
         }
+
+        // trigger read-only compaction
+        ColumnFamilyStore store = ColumnFamilyStore.getIfExists(ks, table);
+        if (store == null)
+        {
+            logger.error("Table {}.{} was dropped during {} phase of repair", ks, table, requestType);
+            cfNotFoundAction.run();
+            return null;
+        }
+
+        return Pair.create(parentRepairSession, store);
+    }
+
+    private void logErrorAndSendFailureResponse(String errorMessage, InetAddress to, int id)
+    {
+        logger.error(errorMessage);
+        MessageOut reply = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
+                           .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
+        MessagingService.instance().sendReply(reply, id, to);
+    }
+
+    public synchronized List<RepairInfo> listRepairs()
+    {
+        return parentRepairSessions.values().stream().map(r -> r.getRepairInfo()).collect(Collectors.toList());
     }
 
     public static class ParentRepairSession
@@ -436,18 +711,31 @@ public class ActiveRepairService
         private final long repairedAt;
         public final boolean isIncremental;
         public final boolean isGlobal;
+        private final UUID id;
+        protected final InetAddress coordinator;
+        protected final Set<InetAddress> participants;
+        private AtomicBoolean isAborted = new AtomicBoolean(false);
 
-        public ParentRepairSession(List<ColumnFamilyStore> columnFamilyStores, Collection<Range<Token>> ranges, boolean isIncremental, long repairedAt, boolean isGlobal)
+        private Set<Future<?>> tasks = new HashSet<>();
+        private ExecutorService jobExecutor;
+
+        public ParentRepairSession(UUID id, List<ColumnFamilyStore> columnFamilyStores,
+                                   Collection<Range<Token>> ranges, boolean isIncremental,
+                                   long repairedAt, boolean isGlobal, InetAddress coordinator,
+                                   Set<InetAddress> participants)
         {
+            this.id = id;
             for (ColumnFamilyStore cfs : columnFamilyStores)
             {
                 this.columnFamilyStores.put(cfs.metadata.cfId, cfs);
-                sstableMap.put(cfs.metadata.cfId, new HashSet<SSTableReader>());
+                sstableMap.put(cfs.metadata.cfId, new HashSet<>());
             }
             this.ranges = ranges;
             this.repairedAt = repairedAt;
             this.isIncremental = isIncremental;
             this.isGlobal = isGlobal;
+            this.coordinator = coordinator;
+            this.participants = participants;
         }
 
         public void addSSTables(UUID cfId, Set<SSTableReader> sstables)
@@ -494,6 +782,52 @@ public class ActiveRepairService
                     ", sstableMap=" + sstableMap +
                     ", repairedAt=" + repairedAt +
                     '}';
+        }
+
+        public synchronized boolean addTask(Future<?> task)
+        {
+            if (!isAborted())
+            {
+                tasks.add(task);
+                return true;
+            }
+            return false;
+        }
+
+        public synchronized boolean removeTask(Future<?> task)
+        {
+            return tasks.remove(task);
+        }
+
+        public synchronized Set<Future<?>> getTasks()
+        {
+            return Sets.newHashSet(tasks);
+        }
+
+        public void registerJobExecutor(ExecutorService executor)
+        {
+            this.jobExecutor = executor;
+        }
+
+        public Optional<ExecutorService> getJobExecutor()
+        {
+            return jobExecutor == null? Optional.empty() : Optional.of(jobExecutor);
+        }
+
+        public boolean isAborted()
+        {
+            return isAborted.get();
+        }
+
+        public synchronized void abort()
+        {
+            isAborted.compareAndSet(false, true);
+        }
+
+        public RepairInfo getRepairInfo()
+        {
+            RepairInfo info = new RepairInfo(id, coordinator, participants);
+            return info;
         }
     }
 }
