@@ -865,9 +865,9 @@ public class CompactionManager implements CompactionManagerMBean
                 }
             }
         };
-        ListenableFutureTask future = ListenableFutureTask.create(callable);
-        validationExecutor.submit(future);
-        return future;
+        ListenableFutureTask task = ListenableFutureTask.create(callable);
+        validationExecutor.submit(task);
+        return task;
     }
 
     /* Used in tests. */

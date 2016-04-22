@@ -17,9 +17,6 @@
  */
 package org.apache.cassandra.streaming;
 
-import java.io.File;
-import java.io.IOError;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -50,6 +47,7 @@ import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Refs;
 
 /**
@@ -85,6 +83,7 @@ public class StreamReceiveTask extends StreamTask
         // this is an "offline" transaction, as we currently manually expose the sstables once done;
         // this should be revisited at a later date, so that LifecycleTransaction manages all sstable state changes
         this.txn = LifecycleTransaction.offline(OperationType.STREAM);
+        logger.info("[{}] Creating TXN {}={}", session.planId(), txn.opId(), txn.state());
         this.sstables = new ArrayList<>(totalFiles);
     }
 
@@ -100,12 +99,22 @@ public class StreamReceiveTask extends StreamTask
         remoteSSTablesReceived++;
         assert cfId.equals(sstable.getCfId());
 
-        Collection<SSTableReader> finished = sstable.finish(true);
-        txn.update(finished, false);
+        Collection<SSTableReader> finished = null;
+        try
+        {
+            finished = sstable.finish(true);
+            txn.update(finished, false);
+        }
+        catch (Throwable t)
+        {
+            Throwables.maybeFail(sstable.abort(t));
+        }
+
         sstables.addAll(finished);
 
         if (remoteSSTablesReceived == totalFiles)
         {
+            logger.info("[{}] Finishing {}={}", session.planId(), txn.opId(),txn.state());
             done = true;
             executor.submit(new OnCompletionRunnable(this));
         }
@@ -238,11 +247,16 @@ public class StreamReceiveTask extends StreamTask
      */
     public synchronized void abort()
     {
+        logger.info("[{}] #1 {}={}", session.planId(), txn.opId(), txn.state());
         if (done)
             return;
+
+        logger.info("[{}] #2 {}={}", session.planId(), txn.opId(), txn.state());
 
         done = true;
         txn.abort();
         sstables.clear();
+
+        logger.info("[{}] #3 {}={}", session.planId(), txn.opId(), txn.state());
     }
 }

@@ -366,7 +366,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
     }
 
-    public void addTransferFiles(Collection<SSTableStreamingSections> sstableDetails)
+    public synchronized void addTransferFiles(Collection<SSTableStreamingSections> sstableDetails)
     {
         Iterator<SSTableStreamingSections> iter = sstableDetails.iterator();
         while (iter.hasNext())
@@ -557,10 +557,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     {
         // prepare tasks
         state(State.PREPARING);
-        for (StreamRequest request : requests)
-            addTransferRanges(request.keyspace, request.ranges, request.columnFamilies, true, request.repairedAt); // always flush on stream request
-        for (StreamSummary summary : summaries)
-            prepareReceiving(summary);
+        prepareTasks(requests, summaries);
 
         // send back prepare message if prepare message contains stream request
         if (!requests.isEmpty())
@@ -574,6 +571,15 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         // if there are files to stream
         if (!maybeCompleted())
             startStreamingFiles();
+    }
+
+    /* synchronized so resources are properly released on onError during errors or abortions */
+    private synchronized void prepareTasks(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
+    {
+        for (StreamRequest request : requests)
+            addTransferRanges(request.keyspace, request.ranges, request.columnFamilies, true, request.repairedAt); // always flush on stream request
+        for (StreamSummary summary : summaries)
+            prepareReceiving(summary);
     }
 
     /**

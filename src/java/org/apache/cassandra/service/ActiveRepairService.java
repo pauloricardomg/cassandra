@@ -385,6 +385,7 @@ public class ActiveRepairService
         ParentRepairSession prs = getParentRepairSession(parentSessionId);
         if (prs != null && prs.addTask(task))
         {
+            logger.debug("Registering validation task {} from parent session {}", task, parentSessionId);
             task.addListener(() -> prs.removeTask(task), MoreExecutors.sameThreadExecutor());
         }
         else

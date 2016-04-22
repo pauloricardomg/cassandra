@@ -238,6 +238,7 @@ public class ConnectionHandler
 
         protected void signalCloseDone()
         {
+            logger.debug("[{}] Closing", session.planId());
             closeFuture.get().set(null);
 
             // We can now close the socket
