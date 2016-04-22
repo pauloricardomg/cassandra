@@ -20,6 +20,8 @@ package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.After;
@@ -42,7 +44,9 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.ValidationComplete;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTrees;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
@@ -139,7 +143,10 @@ public class ValidatorTest
     public void testValidatorFailed() throws Throwable
     {
         Range<Token> range = new Range<>(partitioner.getMinimumToken(), partitioner.getRandomToken());
-        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), keyspace, columnFamily, Arrays.asList(range));
+        UUID parentSessionId = UUID.randomUUID();
+        List<Range<Token>> ranges = Arrays.asList(range);
+        final RepairJobDesc desc = new RepairJobDesc(parentSessionId, UUID.randomUUID(), keyspace, columnFamily, ranges);
+        ActiveRepairService.instance.registerParentRepairSession(parentSessionId, Collections.EMPTY_LIST, ranges, false, 0, true, FBUtilities.getBroadcastAddress());
 
         final SimpleCondition lock = new SimpleCondition();
         MessagingService.instance().addMessageSink(new IMessageSink()
