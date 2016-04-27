@@ -36,6 +36,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
@@ -82,6 +83,7 @@ public class LongLeveledCompactionStrategyTest
     }
 
     @Test
+    @Ignore
     public void testParallelLeveledCompaction() throws Exception
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
@@ -407,6 +409,60 @@ public class LongLeveledCompactionStrategyTest
         assertOnlyTopLevelSStablesDoNotHaveBloomFilter();
     }
 
+    @Test
+    public void testDisableTopLevelBloomFilterAntiCompactionCausingLevelDrop() throws Exception
+    {
+        //set "disable_top_level_bloom_filter" option
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARDLVL);
+        setDisableTopLevelBloomFilterOption(cfs, true);
+        cfs.reload();
+
+        //Populate column family and check all assertions from previous test are fine
+        testParallelLeveledCompaction();
+
+        assertOnlyTopLevelSStablesDoNotHaveBloomFilter();
+
+        //perform anti-compaction on full range
+        Collection<SSTableReader> sstables = AntiCompactionTest.getUnrepairedSSTables(cfs);
+        Range<Token> range = new Range<Token>(new ByteOrderedPartitioner.BytesToken("0".getBytes()), new ByteOrderedPartitioner.BytesToken("999".getBytes()));
+        try (LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
+             Refs<SSTableReader> refs = Refs.ref(sstables))
+        {
+            CompactionManager.instance.performAnticompaction(cfs, Collections.singleton(range), refs, txn, 1);
+        }
+
+        assertOnlyTopLevelSStablesDoNotHaveBloomFilter();
+
+        //Reinsert data, to recreate sstables from level L-1 and L-2
+        testParallelLeveledCompaction();
+
+        //perform anti-compaction, since there will be overlaps when moving sstables from unrepaired to repaired
+        //sstables will be dropped to L0, so bloom filter must be regenerated
+        sstables = AntiCompactionTest.getUnrepairedSSTables(cfs);
+        range = new Range<Token>(new ByteOrderedPartitioner.BytesToken("0".getBytes()), new ByteOrderedPartitioner.BytesToken("999".getBytes()));
+        try (LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
+             Refs<SSTableReader> refs = Refs.ref(sstables))
+        {
+            CompactionManager.instance.performAnticompaction(cfs, Collections.singleton(range), refs, txn, 1);
+        }
+
+        assertOnlyTopLevelSStablesDoNotHaveBloomFilter();
+
+        LogTransaction.waitForDeletions(); //avoid race when reloading sstables
+
+        //reload compaction strategy
+        cfs.getCompactionStrategyManager().reload(cfs.metadata);
+
+        assertOnlyTopLevelSStablesDoNotHaveBloomFilter();
+
+        //Reload SSTables from disk
+        cfs.clearUnsafe();
+        cfs.reloadSSTablesUnsafe();
+
+        //Top-level sstables loaded from disk should also not have bloom filters
+        assertOnlyTopLevelSStablesDoNotHaveBloomFilter();
+    }
+
     private void setDisableTopLevelBloomFilterOption(ColumnFamilyStore cfs, Boolean value)
     {
         Map<String, String> localOptions = new HashMap<>();
@@ -433,13 +489,11 @@ public class LongLeveledCompactionStrategyTest
                     {
                         long offHeapSize = sstable.getBloomFilter().offHeapSize();
                         long serializedSize = sstable.getBloomFilter().serializedSize();
-                        //System.out.println("* level: " + sstable.getSSTableLevel() + ". offHeapSize: " + offHeapSize);
 
                         if (isTopLevelSStable(lcs, sstable))
                         {
-                            //System.out.println("i=" + i + "level=" + sstable.getSSTableLevel());
                             assertEquals(0, offHeapSize);
-                            assertEquals(0, serializedSize);
+                            assertTrue(serializedSize);
                         }
                         else if (offHeapSize == 0 || serializedSize == 0)
                         {

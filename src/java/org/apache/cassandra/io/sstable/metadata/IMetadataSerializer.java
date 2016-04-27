@@ -80,4 +80,6 @@ public interface IMetadataSerializer
      * @throws IOException
      */
     void removeBloomFilter(Descriptor descriptor) throws IOException;
+
+    boolean hasBloomFilter(Descriptor descriptor);
 }

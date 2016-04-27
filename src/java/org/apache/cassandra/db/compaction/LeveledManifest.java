@@ -25,7 +25,6 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 
@@ -105,7 +104,7 @@ public class LeveledManifest
         // ensure all SSTables are in the manifest
         for (SSTableReader ssTableReader : sstables)
         {
-            manifest.add(ssTableReader, true);
+            manifest.add(ssTableReader, false);
         }
         for (int i = 1; i < manifest.getAllLevelSize().length; i++)
         {
@@ -116,10 +115,10 @@ public class LeveledManifest
 
     public synchronized void add(SSTableReader reader)
     {
-        add(reader, false);
+        add(reader, true);
     }
 
-    public synchronized void add(SSTableReader reader, boolean batchAdd)
+    public synchronized void add(SSTableReader reader, boolean newSStable)
     {
         int level = reader.getSSTableLevel();
 
@@ -130,13 +129,13 @@ public class LeveledManifest
             // adding the sstable does not cause overlap in the level
             logger.trace("Adding {} to L{}", reader, level);
             generations[level].add(reader);
-            if (!batchAdd && this.disableTopLevelBloomFilter)
-                //we avoid releasing bloom filter on batch add
-                //since we may not know the number of levels upfront
+            if (newSStable && this.disableTopLevelBloomFilter)
                 maybeReleaseTopLevelBloomFilter(reader);
         }
         else
         {
+            if (newSStable && this.disableTopLevelBloomFilter)
+                maybeReloadBloomFilter(reader);
             // this can happen if:
             // * a compaction has promoted an overlapping sstable to the given level, or
             //   was also supposed to add an sstable at the given level.
@@ -159,17 +158,48 @@ public class LeveledManifest
 
     private void maybeReleaseTopLevelBloomFilter(SSTableReader reader)
     {
-        if (reader.getSSTableLevel() > 0 && reader.getSSTableLevel() == getLevelCount() &&
-            !reader.getBloomFilter().isAlwaysPresent())
+        int maxLevel = getLevelCount();
+        if (maxLevel > 0 && reader.getSSTableLevel() == maxLevel && cfs.isBloomFilterEnabled())
+        {
+            if (!reader.getBloomFilter().isAlwaysPresent())
+            {
+                try
+                {
+                    logger.trace("Releasing bloom filter of top level sstable {}.", reader);
+                    reader.releaseBloomFilter();
+                }
+                catch (Exception e)
+                {
+                    logger.warn("Could not release bloom filter of sstable {}.", reader.getFilename(), e);
+                }
+            }
+            if (reader.isRepaired() && reader.hasBloomFilter())
+            {
+                try
+                {
+                    reader.removeBloomFilter();
+                }
+                catch (Exception e)
+                {
+                    logger.warn("Could not remove bloom filter of repaired sstable {}", reader.getFilename(), e);
+                }
+            }
+        }
+    }
+
+    private void maybeReloadBloomFilter(SSTableReader reader)
+    {
+        int maxLevel = getLevelCount();
+        if (reader.getSSTableLevel() != maxLevel && cfs.isBloomFilterEnabled() && reader.getBloomFilter().isAlwaysPresent())
         {
             try
             {
-                logger.trace("Releasing bloom filter of top level sstable {}.", reader);
-                reader.releaseBloomFilter();
+                logger.trace("Reloading bloom filter of demoted sstable {}.", reader.getFilename());
+                reader.reloadBloomFilter();
             }
-            catch (IOException e)
+            catch (Exception e)
             {
-                logger.warn("Could not release bloom filter.", e);
+                logger.warn("Could not reload bloom filter of demoted sstable {}.", reader.getFilename(), e);
             }
         }
     }
@@ -199,13 +229,7 @@ public class LeveledManifest
             logger.trace("Adding [{}]", toString(added));
 
         for (SSTableReader ssTableReader : added)
-            add(ssTableReader, true);
-
-        //we only release bloom filter after finishing replacement
-        //to make sure the final number of levels is known
-        if (this.disableTopLevelBloomFilter)
-            for (SSTableReader ssTableReader : added)
-                maybeReleaseTopLevelBloomFilter(ssTableReader);
+            add(ssTableReader);
 
         lastCompactedKeys[minLevel] = SSTableReader.sstableOrdering.max(added).last;
     }

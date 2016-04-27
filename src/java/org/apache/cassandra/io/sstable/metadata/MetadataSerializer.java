@@ -149,12 +149,21 @@ public class MetadataSerializer implements IMetadataSerializer
 
     public void removeBloomFilter(Descriptor descriptor) throws IOException
     {
+        if (!hasBloomFilter(descriptor))
+        {
+            throw new RuntimeException(String.format("SStable %s has no bloom filter to remove.", descriptor.filenameFor(Component.DATA)));
+        }
         logger.trace("Mutating {} bloomFilterFPChance to {}", descriptor.filenameFor(Component.STATS), ValidationMetadata.NO_BLOOM_FILTER_MARKER);
         Map<MetadataType, MetadataComponent> currentComponents = deserialize(descriptor, EnumSet.allOf(MetadataType.class));
         ValidationMetadata validation = (ValidationMetadata) currentComponents.remove(MetadataType.VALIDATION);
         currentComponents.put(MetadataType.VALIDATION, validation.mutateBloomFilterFPChance(ValidationMetadata.NO_BLOOM_FILTER_MARKER));
         rewriteSSTableMetadata(descriptor, currentComponents);
         FileUtils.delete(descriptor.filenameFor(Component.FILTER));
+    }
+
+    public boolean hasBloomFilter(Descriptor descriptor)
+    {
+        return new File(descriptor.filenameFor(Component.FILTER)).exists();
     }
 
     private void rewriteSSTableMetadata(Descriptor descriptor, Map<MetadataType, MetadataComponent> currentComponents) throws IOException

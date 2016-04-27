@@ -2412,9 +2412,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return data.getView().isEmpty();
     }
 
+    public boolean isBloomFilterEnabled()
+    {
+        return metadata.params.bloomFilterFpChance != 1.0;
+    }
+
     public boolean isRowCacheEnabled()
     {
-
         boolean retval = metadata.params.caching.cacheRows() && CacheService.instance.rowCache.getCapacity() > 0;
         assert(!retval || !isIndex());
         return retval;

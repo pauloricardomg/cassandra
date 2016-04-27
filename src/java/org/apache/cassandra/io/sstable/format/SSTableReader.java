@@ -135,6 +135,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     private static final Logger logger = LoggerFactory.getLogger(SSTableReader.class);
 
     private static final ScheduledThreadPoolExecutor syncExecutor = new ScheduledThreadPoolExecutor(1);
+
     static
     {
         // Immediately remove readMeter sync task when cancelled.
@@ -1260,7 +1261,27 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     {
         tidy.releaseBloomFilter();
         this.bf = new AlwaysPresentFilter();
+    }
+
+    public void removeBloomFilter() throws IOException
+    {
         descriptor.getMetadataSerializer().removeBloomFilter(descriptor);
+    }
+
+    public boolean hasBloomFilter()
+    {
+        return descriptor.getMetadataSerializer().hasBloomFilter(descriptor);
+    }
+
+    public void reloadBloomFilter() throws IOException
+    {
+        if (!hasBloomFilter())
+        {
+            throw new RuntimeException(String.format("SStable %s has no bloom filter to reload.", getFilename()));
+        }
+        tidy.releaseBloomFilter();
+        loadBloomFilter(descriptor.version.hasOldBfHashOrder());
+        tidy.setBloomFilter(this.bf);
     }
 
     private void validate()
@@ -2244,6 +2265,11 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             summary.close();
             assert summary.isCleanedUp();
             summary = null;
+        }
+
+        void setBloomFilter(IFilter filter)
+        {
+            bf = filter;
         }
 
         void releaseBloomFilter()

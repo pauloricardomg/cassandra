@@ -293,7 +293,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     @Override
     public void addSSTable(SSTableReader added)
     {
-        manifest.add(added, !isActive); //batchAdd only during super.startup()
+        manifest.add(added, isActive);
     }
 
     @Override
