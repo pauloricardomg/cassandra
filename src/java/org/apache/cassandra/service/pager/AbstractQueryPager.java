@@ -86,8 +86,20 @@ abstract class AbstractQueryPager implements QueryPager
         pageSize = Math.min(pageSize, remaining);
         UnfilteredPager pager = new UnfilteredPager(limits.forPaging(pageSize), command.nowInSec());
         return Transformation.apply(nextPageReadCommand(pageSize).executeLocally(executionController), pager);
-
     }
+
+    public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata, ReadExecutionController executionController)
+    {
+        if (isExhausted())
+            return EmptyIterators.unfilteredPartition(metadata, false);
+
+        pageSize = Math.min(pageSize, remaining);
+        UnfilteredPager pager = new UnfilteredPager(limits.forPaging(pageSize), command.nowInSec());
+        PartitionRangeReadCommand prrc = (PartitionRangeReadCommand) nextPageReadCommand(pageSize);
+        return Transformation.apply(prrc.executeUnfiltered(consistency), pager);
+    }
+
+
     // todo: mostly the same code as Pager below - we could perhaps generify
     private class UnfilteredPager extends Transformation<UnfilteredRowIterator>
     {

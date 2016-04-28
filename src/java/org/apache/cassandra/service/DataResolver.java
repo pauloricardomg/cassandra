@@ -38,6 +38,7 @@ import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 
 public class DataResolver extends ResponseResolver
 {
@@ -50,14 +51,38 @@ public class DataResolver extends ResponseResolver
 
     public PartitionIterator getData()
     {
+        return UnfilteredPartitionIterators.filter(getUnfilteredData(), command.nowInSec());
+    }
+
+    public UnfilteredPartitionIterator getUnfilteredData()
+    {
         ReadResponse response = responses.iterator().next().payload;
-        return UnfilteredPartitionIterators.filter(response.makeIterator(command), command.nowInSec());
+        return response.makeIterator(command);
     }
 
     public PartitionIterator resolve()
     {
+        Pair<List<UnfilteredPartitionIterator>, InetAddress[]> sources = getSources();
+        // Even though every responses should honor the limit, we might have more than requested post reconciliation,
+        // so ensure we're respecting the limit.
+        DataLimits.Counter counter = command.limits().newCounter(command.nowInSec(), true);
+        return counter.applyTo(UnfilteredPartitionIterators.filter(mergeWithShortReadProtection(sources.left, sources.right, counter), command.nowInSec()));
+    }
+
+    public UnfilteredPartitionIterator resolveUnfiltered()
+    {
+        DataLimits.Counter counter = command.limits().newCounter(command.nowInSec(), true);
+        Pair<List<UnfilteredPartitionIterator>, InetAddress[]> sources = getSources();
+        return counter.applyTo(mergeWithShortReadProtection(sources.left, sources.right, counter));
+    }
+
+    private Pair<List<UnfilteredPartitionIterator>, InetAddress[]> getSources()
+    {
         // We could get more responses while this method runs, which is ok (we're happy to ignore any response not here
         // at the beginning of this method), so grab the response count once and use that through the method.
+
+        // Even though every responses should honor the limit, we might have more than requested post reconciliation,
+        // so ensure we're respecting the limit.
         int count = responses.size();
         List<UnfilteredPartitionIterator> iters = new ArrayList<>(count);
         InetAddress[] sources = new InetAddress[count];
@@ -67,18 +92,14 @@ public class DataResolver extends ResponseResolver
             iters.add(msg.payload.makeIterator(command));
             sources[i] = msg.from;
         }
-
-        // Even though every responses should honor the limit, we might have more than requested post reconciliation,
-        // so ensure we're respecting the limit.
-        DataLimits.Counter counter = command.limits().newCounter(command.nowInSec(), true);
-        return counter.applyTo(mergeWithShortReadProtection(iters, sources, counter));
+        return Pair.create(iters, sources);
     }
 
-    private PartitionIterator mergeWithShortReadProtection(List<UnfilteredPartitionIterator> results, InetAddress[] sources, DataLimits.Counter resultCounter)
+    private UnfilteredPartitionIterator mergeWithShortReadProtection(List<UnfilteredPartitionIterator> results, InetAddress[] sources, DataLimits.Counter resultCounter)
     {
         // If we have only one results, there is no read repair to do and we can't get short reads
         if (results.size() == 1)
-            return UnfilteredPartitionIterators.filter(results.get(0), command.nowInSec());
+            return results.get(0);
 
         UnfilteredPartitionIterators.MergeListener listener = new RepairMergeListener(sources);
 
@@ -89,8 +110,8 @@ public class DataResolver extends ResponseResolver
             for (int i = 0; i < results.size(); i++)
                 results.set(i, Transformation.apply(results.get(i), new ShortReadProtection(sources[i], resultCounter)));
         }
-
-        return UnfilteredPartitionIterators.mergeAndFilter(results, command.nowInSec(), listener);
+        // todo: before we did mergeAndFilter, now we first merge, then filter, this is slower
+        return UnfilteredPartitionIterators.merge(results, command.nowInSec(), listener);
     }
 
     private class RepairMergeListener implements UnfilteredPartitionIterators.MergeListener

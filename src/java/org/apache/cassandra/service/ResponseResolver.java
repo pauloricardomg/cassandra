@@ -46,6 +46,8 @@ public abstract class ResponseResolver
 
     public abstract PartitionIterator getData();
     public abstract PartitionIterator resolve() throws DigestMismatchException;
+    public abstract UnfilteredPartitionIterator getUnfilteredData();
+    public abstract UnfilteredPartitionIterator resolveUnfiltered() throws DigestMismatchException;
 
     public abstract boolean isDataPresent();
 

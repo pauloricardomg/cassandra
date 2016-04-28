@@ -70,6 +70,11 @@ public interface QueryPager
             return EmptyIterators.unfilteredPartition(metadata, false);
         }
 
+        public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata, ReadExecutionController executionController)
+        {
+            return EmptyIterators.unfilteredPartition(metadata, false);
+        }
+
         public boolean isExhausted()
         {
             return true;
@@ -118,6 +123,7 @@ public interface QueryPager
     public PartitionIterator fetchPageInternal(int pageSize, ReadExecutionController executionController) throws RequestValidationException, RequestExecutionException;
 
     public UnfilteredPartitionIterator fetchUnfilteredPageInternal(int pageSize, CFMetaData metadata, ReadExecutionController executionController);
+    public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata, ReadExecutionController executionController);
     /**
      * Whether or not this pager is exhausted, i.e. whether or not a call to
      * fetchPage may return more result.

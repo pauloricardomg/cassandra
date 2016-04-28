@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionIterator;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.net.MessageIn;
 
@@ -47,8 +48,13 @@ public class DigestResolver extends ResponseResolver
      */
     public PartitionIterator getData()
     {
+        return UnfilteredPartitionIterators.filter(getUnfilteredData(), command.nowInSec());
+    }
+
+    public UnfilteredPartitionIterator getUnfilteredData()
+    {
         assert isDataPresent();
-        return UnfilteredPartitionIterators.filter(dataResponse.makeIterator(command), command.nowInSec());
+        return dataResponse.makeIterator(command);
     }
 
     /*
@@ -63,8 +69,13 @@ public class DigestResolver extends ResponseResolver
      */
     public PartitionIterator resolve() throws DigestMismatchException
     {
+        return UnfilteredPartitionIterators.filter(resolveUnfiltered(), command.nowInSec());
+    }
+
+    public UnfilteredPartitionIterator resolveUnfiltered() throws DigestMismatchException
+    {
         if (responses.size() == 1)
-            return getData();
+            return getUnfilteredData();
 
         if (logger.isTraceEnabled())
             logger.trace("resolving {} responses", responses.size());
@@ -88,7 +99,7 @@ public class DigestResolver extends ResponseResolver
         if (logger.isTraceEnabled())
             logger.trace("resolve: {} ms.", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
 
-        return UnfilteredPartitionIterators.filter(dataResponse.makeIterator(command), command.nowInSec());
+        return dataResponse.makeIterator(command);
     }
 
     public boolean isDataPresent()

@@ -28,6 +28,7 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
+import org.apache.cassandra.db.partitions.BasePartitionIterator;
 import org.apache.cassandra.index.TargetParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

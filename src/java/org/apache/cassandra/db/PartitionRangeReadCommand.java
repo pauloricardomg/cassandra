@@ -163,6 +163,11 @@ public class PartitionRangeReadCommand extends ReadCommand
         return StorageProxy.getRangeSlice(this, consistency);
     }
 
+    public UnfilteredPartitionIterator executeUnfiltered(ConsistencyLevel consistency) throws RequestExecutionException
+    {
+        return StorageProxy.getUnfilteredRangeSlice(this, consistency);
+    }
+
     public QueryPager getPager(PagingState pagingState, int protocolVersion)
     {
             return new PartitionRangeQueryPager(this, pagingState, protocolVersion);

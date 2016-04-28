@@ -45,6 +45,7 @@ import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.db.marshal.EmptyType;
+import org.apache.cassandra.db.partitions.BasePartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.*;

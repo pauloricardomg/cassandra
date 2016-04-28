@@ -143,7 +143,17 @@ public class MultiPartitionPager implements QueryPager
     public UnfilteredPartitionIterator fetchUnfilteredPageInternal(int pageSize, CFMetaData metadata, ReadExecutionController executionController)
     {
         int toQuery = Math.min(remaining, pageSize);
-        UnfilteredLocalPagersIterator iter = new UnfilteredLocalPagersIterator(toQuery, metadata, executionController);
+        UnfilteredPagersIterator iter = new UnfilteredPagersIterator(toQuery, null, null, metadata, executionController);
+        DataLimits.Counter counter = limit.forPaging(toQuery).newCounter(nowInSec, true);
+        iter.setCounter(counter);
+        return counter.applyTo(iter);
+    }
+
+    @SuppressWarnings("resource") // iter closed via countingIter
+    public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata, ReadExecutionController executionController)
+    {
+        int toQuery = Math.min(remaining, pageSize);
+        UnfilteredPagersIterator iter = new UnfilteredPagersIterator(toQuery, consistency, clientState, metadata, executionController);
         DataLimits.Counter counter = limit.forPaging(toQuery).newCounter(nowInSec, true);
         iter.setCounter(counter);
         return counter.applyTo(iter);
@@ -152,21 +162,25 @@ public class MultiPartitionPager implements QueryPager
     /**
      * pages through local data, without filtering!
      */
-    private class UnfilteredLocalPagersIterator extends AbstractIterator<UnfilteredRowIterator> implements UnfilteredPartitionIterator
+    private class UnfilteredPagersIterator extends AbstractIterator<UnfilteredRowIterator> implements UnfilteredPartitionIterator
     {
         private final int pageSize;
         private final CFMetaData metadata;
+        private final ConsistencyLevel consistency;
+        private final ClientState clientState;
         private UnfilteredPartitionIterator result;
         private DataLimits.Counter counter;
 
         // For internal queries
         private final ReadExecutionController executionController;
 
-        public UnfilteredLocalPagersIterator(int pageSize, CFMetaData metadata, ReadExecutionController executionController)
+        public UnfilteredPagersIterator(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata, ReadExecutionController executionController)
         {
             this.pageSize = pageSize;
             this.executionController = executionController;
             this.metadata = metadata;
+            this.consistency = consistency;
+            this.clientState = clientState;
         }
 
         public void setCounter(DataLimits.Counter counter)
@@ -187,7 +201,9 @@ public class MultiPartitionPager implements QueryPager
 
                 int toQuery = pageSize - counter.counted();
                 // todo: handle "normal" queries?
-                result = pagers[current].fetchUnfilteredPageInternal(toQuery, metadata, executionController);
+                result = consistency == null
+                       ? pagers[current].fetchUnfilteredPageInternal(toQuery, metadata, executionController)
+                       : pagers[current].fetchUnfilteredPage(toQuery, consistency, clientState, metadata, executionController);
             }
             return result.next();
         }

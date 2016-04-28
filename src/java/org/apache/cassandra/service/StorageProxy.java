@@ -50,7 +50,10 @@ import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.monitoring.ConstructionTime;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.db.rows.BaseRowIterator;
 import org.apache.cassandra.db.rows.RowIterator;
+import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.view.ViewUtils;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.exceptions.*;
@@ -74,6 +77,7 @@ import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.AbstractIterator;
 
 import static com.google.common.collect.Iterables.contains;
+import static org.apache.hadoop.mapred.NotificationTestCase.NotificationServlet.counter;
 
 public class StorageProxy implements StorageProxyMBean
 {
@@ -2016,25 +2020,75 @@ public class StorageProxy implements StorageProxyMBean
         }
     }
 
-    private static class RangeCommandIterator extends AbstractIterator<RowIterator> implements PartitionIterator
+    private static class SingleUnfilteredRangeResponse extends AbstractIterator<UnfilteredRowIterator> implements UnfilteredPartitionIterator
     {
-        private final Iterator<RangeForQuery> ranges;
+        private final ReadCallback handler;
+        private final boolean isForThrift;
+        private final CFMetaData metadata;
+        private UnfilteredPartitionIterator result;
+
+        private SingleUnfilteredRangeResponse(ReadCallback handler, CFMetaData metadata, boolean isForThrift)
+        {
+            this.handler = handler;
+            this.metadata = metadata;
+            this.isForThrift = isForThrift;
+        }
+
+        private void waitForResponse() throws ReadTimeoutException
+        {
+            if (result != null)
+                return;
+
+            try
+            {
+                result = handler.getUnfiltered();
+            }
+            catch (DigestMismatchException e)
+            {
+                throw new AssertionError(e); // no digests in range slices yet
+            }
+        }
+
+        protected UnfilteredRowIterator computeNext()
+        {
+            waitForResponse();
+            return result.hasNext() ? result.next() : endOfData();
+        }
+
+        public void close()
+        {
+            if (result != null)
+                result.close();
+        }
+
+        public boolean isForThrift()
+        {
+            return isForThrift;
+        }
+
+        public CFMetaData metadata()
+        {
+            return metadata;
+        }
+    }
+
+    private static abstract class AbstractRangeCommandIterator<T extends BaseRowIterator<?>> extends AbstractIterator<T>
+    {
+        final Iterator<RangeForQuery> ranges;
         private final int totalRangeCount;
-        private final PartitionRangeReadCommand command;
+        final PartitionRangeReadCommand command;
         private final Keyspace keyspace;
         private final ConsistencyLevel consistency;
-
-        private final long startTime;
-        private DataLimits.Counter counter;
-        private PartitionIterator sentQueryIterator;
-
-        private int concurrencyFactor;
+        final long startTime;
+        int concurrencyFactor;
         // The two following "metric" are maintained to improve the concurrencyFactor
         // when it was not good enough initially.
-        private int liveReturned;
-        private int rangesQueried;
+        int liveReturned;
+        int rangesQueried;
+        BasePartitionIterator<T> sentQueryIterator;
+        DataLimits.Counter counter;
 
-        public RangeCommandIterator(RangeIterator ranges, PartitionRangeReadCommand command, int concurrencyFactor, Keyspace keyspace, ConsistencyLevel consistency)
+        public AbstractRangeCommandIterator(RangeIterator ranges, PartitionRangeReadCommand command, int concurrencyFactor, Keyspace keyspace, ConsistencyLevel consistency)
         {
             this.command = command;
             this.concurrencyFactor = concurrencyFactor;
@@ -2043,9 +2097,10 @@ public class StorageProxy implements StorageProxyMBean
             this.totalRangeCount = ranges.rangeCount();
             this.consistency = consistency;
             this.keyspace = keyspace;
+
         }
 
-        public RowIterator computeNext()
+        public T computeNext()
         {
             while (sentQueryIterator == null || !sentQueryIterator.hasNext())
             {
@@ -2069,7 +2124,9 @@ public class StorageProxy implements StorageProxyMBean
             return sentQueryIterator.next();
         }
 
-        private void updateConcurrencyFactor()
+        abstract BasePartitionIterator<T> sendNextRequests();
+
+        void updateConcurrencyFactor()
         {
             if (liveReturned == 0)
             {
@@ -2087,7 +2144,7 @@ public class StorageProxy implements StorageProxyMBean
                          rowsPerRange, (int) remainingRows, concurrencyFactor);
         }
 
-        private SingleRangeResponse query(RangeForQuery toQuery)
+        protected ReadCallback query(RangeForQuery toQuery)
         {
             PartitionRangeReadCommand rangeCommand = command.forSubRange(toQuery.range);
 
@@ -2114,23 +2171,7 @@ public class StorageProxy implements StorageProxyMBean
                 }
             }
 
-            return new SingleRangeResponse(handler);
-        }
-
-        private PartitionIterator sendNextRequests()
-        {
-            List<PartitionIterator> concurrentQueries = new ArrayList<>(concurrencyFactor);
-            for (int i = 0; i < concurrencyFactor && ranges.hasNext(); i++)
-            {
-                concurrentQueries.add(query(ranges.next()));
-                ++rangesQueried;
-            }
-
-            Tracing.trace("Submitted {} concurrent range requests", concurrentQueries.size());
-            // We want to count the results for the sake of updating the concurrency factor (see updateConcurrencyFactor) but we don't want to
-            // enforce any particular limit at this point (this could break code than rely on postReconciliationProcessing), hence the DataLimits.NONE.
-            counter = DataLimits.NONE.newCounter(command.nowInSec(), true);
-            return counter.applyTo(PartitionIterators.concat(concurrentQueries));
+            return handler;
         }
 
         public void close()
@@ -2146,6 +2187,66 @@ public class StorageProxy implements StorageProxyMBean
                 rangeMetrics.addNano(latency);
                 Keyspace.openAndGetStore(command.metadata()).metric.coordinatorScanLatency.update(latency, TimeUnit.NANOSECONDS);
             }
+        }
+    }
+
+    private static class RangeCommandIterator extends AbstractRangeCommandIterator<RowIterator> implements PartitionIterator
+    {
+        public RangeCommandIterator(RangeIterator ranges, PartitionRangeReadCommand command, int concurrencyFactor, Keyspace keyspace, ConsistencyLevel consistency)
+        {
+            super(ranges, command, concurrencyFactor, keyspace, consistency);
+        }
+
+        BasePartitionIterator<RowIterator> sendNextRequests()
+        {
+            List<PartitionIterator> concurrentQueries = new ArrayList<>(concurrencyFactor);
+            for (int i = 0; i < concurrencyFactor && ranges.hasNext(); i++)
+            {
+                SingleRangeResponse q = new SingleRangeResponse(query(ranges.next()));
+                concurrentQueries.add(q);
+                ++rangesQueried;
+            }
+
+            Tracing.trace("Submitted {} concurrent range requests", concurrentQueries.size());
+            // We want to count the results for the sake of updating the concurrency factor (see updateConcurrencyFactor) but we don't want to
+            // enforce any particular limit at this point (this could break code than rely on postReconciliationProcessing), hence the DataLimits.NONE.
+            counter = DataLimits.NONE.newCounter(command.nowInSec(), true);
+            return counter.applyTo(PartitionIterators.concat(concurrentQueries));
+        }
+    }
+
+    private static class UnfilteredRangeCommandIterator extends AbstractRangeCommandIterator<UnfilteredRowIterator> implements UnfilteredPartitionIterator
+    {
+        public UnfilteredRangeCommandIterator(RangeIterator ranges, PartitionRangeReadCommand command, int concurrencyFactor, Keyspace keyspace, ConsistencyLevel consistency)
+        {
+            super(ranges, command, concurrencyFactor, keyspace, consistency);
+        }
+
+        BasePartitionIterator<UnfilteredRowIterator> sendNextRequests()
+        {
+            List<UnfilteredPartitionIterator> concurrentQueries = new ArrayList<>(concurrencyFactor);
+            for (int i = 0; i < concurrencyFactor && ranges.hasNext(); i++)
+            {
+                SingleUnfilteredRangeResponse q = new SingleUnfilteredRangeResponse(query(ranges.next()), command.metadata(), command.isForThrift());
+                concurrentQueries.add(q);
+                ++rangesQueried;
+            }
+
+            Tracing.trace("Submitted {} concurrent range requests", concurrentQueries.size());
+            // We want to count the results for the sake of updating the concurrency factor (see updateConcurrencyFactor) but we don't want to
+            // enforce any particular limit at this point (this could break code than rely on postReconciliationProcessing), hence the DataLimits.NONE.
+            counter = DataLimits.NONE.newCounter(command.nowInSec(), true);
+            return counter.applyTo(UnfilteredPartitionIterators.mergeLazily(concurrentQueries, command.nowInSec()));
+        }
+
+        public boolean isForThrift()
+        {
+            return command.isForThrift();
+        }
+
+        public CFMetaData metadata()
+        {
+            return command.metadata();
         }
     }
 
@@ -2173,6 +2274,30 @@ public class StorageProxy implements StorageProxyMBean
         // Note that in general, a RangeCommandIterator will honor the command limit for each range, but will not enforce it globally.
 
         return command.limits().filter(command.postReconciliationProcessing(new RangeCommandIterator(ranges, command, concurrencyFactor, keyspace, consistencyLevel)), command.nowInSec());
+    }
+
+    public static UnfilteredPartitionIterator getUnfilteredRangeSlice(PartitionRangeReadCommand command, ConsistencyLevel consistencyLevel)
+    {
+        Tracing.trace("Computing ranges to query");
+
+        Keyspace keyspace = Keyspace.open(command.metadata().ksName);
+        RangeIterator ranges = new RangeIterator(command, keyspace, consistencyLevel);
+
+        // our estimate of how many result rows there will be per-range
+        float resultsPerRange = estimateResultsPerRange(command, keyspace);
+        // underestimate how many rows we will get per-range in order to increase the likelihood that we'll
+        // fetch enough rows in the first round
+        resultsPerRange -= resultsPerRange * CONCURRENT_SUBREQUESTS_MARGIN;
+        int concurrencyFactor = resultsPerRange == 0.0
+                              ? 1
+                              : Math.max(1, Math.min(ranges.rangeCount(), (int) Math.ceil(command.limits().count() / resultsPerRange)));
+        logger.trace("Estimated result rows per range: {}; requested rows: {}, ranges.size(): {}; concurrent range requests: {}",
+                     resultsPerRange, command.limits().count(), ranges.rangeCount(), concurrencyFactor);
+        Tracing.trace("Submitting range requests on {} ranges with a concurrency of {} ({} rows per range expected)", ranges.rangeCount(), concurrencyFactor, resultsPerRange);
+
+        // todo: do we need postReconciliationProcessing?
+        //return command.limits().filter(command.postReconciliationProcessing(new UnfilteredRangeCommandIterator(ranges, command, concurrencyFactor, keyspace, consistencyLevel)), command.nowInSec());
+        return command.limits().filter(new UnfilteredRangeCommandIterator(ranges, command, concurrencyFactor, keyspace, consistencyLevel), command.nowInSec());
     }
 
     public Map<String, List<String>> getSchemaVersions()

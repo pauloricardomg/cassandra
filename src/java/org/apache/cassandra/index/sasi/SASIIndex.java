@@ -32,6 +32,7 @@ import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.lifecycle.Tracker;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.partitions.BasePartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.Row;

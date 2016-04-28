@@ -30,6 +30,7 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -56,11 +57,15 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowDiffListener;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.Rows;
+import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
+import org.apache.cassandra.exceptions.RequestExecutionException;
+import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.service.ClientState;
+import org.apache.cassandra.service.pager.PagingState;
 import org.apache.cassandra.service.pager.QueryPager;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.FBUtilities;
@@ -218,7 +223,6 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
         QueryPager pager = rc.getPager(null, Server.CURRENT_VERSION);
         while (!pager.isExhausted())
         {
-            ClientState.forInternalCalls();
             // TODO: we need to fetch unfiltered pages here.
             try (PartitionIterator pi = pager.fetchPage(MBRService.WINDOW_SIZE, ConsistencyLevel.ALL, ClientState.forInternalCalls()))
             {
