@@ -150,10 +150,10 @@ public class MultiPartitionPager implements QueryPager
     }
 
     @SuppressWarnings("resource") // iter closed via countingIter
-    public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata, ReadExecutionController executionController)
+    public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata)
     {
         int toQuery = Math.min(remaining, pageSize);
-        UnfilteredPagersIterator iter = new UnfilteredPagersIterator(toQuery, consistency, clientState, metadata, executionController);
+        UnfilteredPagersIterator iter = new UnfilteredPagersIterator(toQuery, consistency, clientState, metadata, null);
         DataLimits.Counter counter = limit.forPaging(toQuery).newCounter(nowInSec, true);
         iter.setCounter(counter);
         return counter.applyTo(iter);
@@ -203,7 +203,7 @@ public class MultiPartitionPager implements QueryPager
                 // todo: handle "normal" queries?
                 result = consistency == null
                        ? pagers[current].fetchUnfilteredPageInternal(toQuery, metadata, executionController)
-                       : pagers[current].fetchUnfilteredPage(toQuery, consistency, clientState, metadata, executionController);
+                       : pagers[current].fetchUnfilteredPage(toQuery, consistency, clientState, metadata);
             }
             return result.next();
         }

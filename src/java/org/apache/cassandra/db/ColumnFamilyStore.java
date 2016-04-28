@@ -2595,9 +2595,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return keyspace.getColumnFamilyStore(id);
     }
 
-    public void enableMutationBasedRepair()
+    public void enableMutationBasedRepair(int windowSize, int rowsPerSecondToRepair, boolean waitForFinish)
     {
-        mutationBasedRepairService.start(this);
+        Future<?> f = mutationBasedRepairService.start(this, windowSize, rowsPerSecondToRepair);
+        if (waitForFinish)
+            FBUtilities.waitOnFuture(f);
     }
     public void stopMutationBasedRepair()
     {

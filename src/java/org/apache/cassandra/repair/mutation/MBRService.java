@@ -26,8 +26,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Sets;
@@ -75,50 +77,54 @@ public class MBRService
                                                                                      new LinkedBlockingQueue<>(),
                                                                                      new NamedThreadFactory("MutationRepair"),
                                                                                      "internal");
-    private ColumnFamilyStore cfs;
-    public static final int WINDOW_SIZE = 1000;
-    private static final int ROWS_PER_SECOND_LIMIT = 3000;
-    private volatile boolean stopped = false;
+    private final AtomicBoolean stopped = new AtomicBoolean(false);
 
-    public void start(ColumnFamilyStore cfs)
+    public Future<?> start(ColumnFamilyStore cfs, int windowSize, int rowsPerSecondToRepair)
     {
-        this.cfs = cfs;
-        stopped = false;
-        executor.submit(new MutationBasedRepairRunner(this));
+        stopped.set(false);
+        return executor.submit(new MutationBasedRepairRunner(cfs, windowSize, rowsPerSecondToRepair, stopped));
     }
 
     public void stop()
     {
-        stopped = true;
+        stopped.set(true);
     }
 
     public static class MutationBasedRepairRunner implements Runnable
     {
-        private final MBRService mbrs;
 
-        public MutationBasedRepairRunner(MBRService mbrs)
+
+        private final ColumnFamilyStore cfs;
+        private final int windowSize;
+        private final int rowsPerSecondToRepair;
+        private final AtomicBoolean stopped;
+
+        public MutationBasedRepairRunner(ColumnFamilyStore cfs, int windowSize, int rowsPerSecondToRepair, AtomicBoolean stopped)
         {
-            this.mbrs = mbrs;
+            this.cfs = cfs;
+            this.windowSize = windowSize;
+            this.rowsPerSecondToRepair = rowsPerSecondToRepair;
+            this.stopped = stopped;
         }
 
         public void run()
         {
-
-            Collection<Range<Token>> rangesToRepair = StorageService.instance.getLocalRanges(mbrs.cfs.keyspace.getName());
+            Collection<Range<Token>> rangesToRepair = StorageService.instance.getLocalRanges(cfs.keyspace.getName());
             while (rangesToRepair == null || rangesToRepair.isEmpty())
             {
-                rangesToRepair = StorageService.instance.getLocalRanges(mbrs.cfs.keyspace.getName());
+                rangesToRepair = StorageService.instance.getLocalRanges(cfs.keyspace.getName());
                 FBUtilities.sleepQuietly(1000);
                 logger.info("waiting for ranges to repair");
             }
-            RateLimiter limiter = RateLimiter.create(ROWS_PER_SECOND_LIMIT); // todo: make rows/s configurable
+            RateLimiter limiter = RateLimiter.create(rowsPerSecondToRepair); // todo: make rows/s configurable
             for (Range<Token> r : rangesToRepair)
             {
+                logger.debug("repairing range {}, windowSize={}, rowsPerSecond={}", r, windowSize, rowsPerSecondToRepair);
                 DataRange dr = new DataRange(Range.makeRowRange(r), new ClusteringIndexSliceFilter(Slices.ALL, false));
                 int nowInSeconds = FBUtilities.nowInSeconds();
-                PartitionRangeReadCommand rc = new PartitionRangeReadCommand(mbrs.cfs.metadata,
+                PartitionRangeReadCommand rc = new PartitionRangeReadCommand(cfs.metadata,
                                                                              nowInSeconds,
-                                                                             ColumnFilter.all(mbrs.cfs.metadata),
+                                                                             ColumnFilter.all(cfs.metadata),
                                                                              RowFilter.NONE,
                                                                              DataLimits.NONE,
                                                                              dr,
@@ -141,20 +147,21 @@ public class MBRService
                  */
                 while (!pager.isExhausted())
                 {
-                    if (mbrs.stopped)
+                    if (stopped.get())
                         return;
-                    limiter.acquire(WINDOW_SIZE);
+                    limiter.acquire(windowSize);
                     byte[] hash;
                     int count;
                     try (ReadExecutionController executionController = rc.executionController();
-                         UnfilteredPartitionIterator pi = pager.fetchUnfilteredPageInternal(WINDOW_SIZE, mbrs.cfs.metadata, executionController))
+                         UnfilteredPartitionIterator pi = pager.fetchUnfilteredPageInternal(windowSize, cfs.metadata, executionController))
                     {
                         DataLimits.Counter c = rc.limits().newCounter(nowInSeconds, true).onlyCount();
                         hash = digest(rc, c.applyTo(pi));
                         count = c.counted();
                     }
+                    logger.debug("read up {} rows", count);
                     PagingState ps = pager.state();
-                    PartitionPosition readUntil = ps == null ? r.right.maxKeyBound() : PartitionPosition.ForKey.get(ps.partitionKey, mbrs.cfs.getPartitioner());
+                    PartitionPosition readUntil = ps == null ? r.right.maxKeyBound() : PartitionPosition.ForKey.get(ps.partitionKey, cfs.getPartitioner());
                     // if the pager is exhausted we need to read until the end of the range on the remote node to make sure
                     // we don't miss any tokens between our last token and the end of the range
                     PartitionPosition pageEnd = pager.isExhausted() ? r.right.maxKeyBound() : readUntil;
@@ -162,17 +169,17 @@ public class MBRService
                     // we need to read all the (remaining) data on the remote node
                     ByteBuffer pageClusteringEnd = (pager.isExhausted() || ps == null || ps.rowMark == null) ? ByteBufferUtil.EMPTY_BYTE_BUFFER : ps.rowMark.mark;
                     boolean isStartKeyInclusive = ps == null || ps.remainingInPartition > 0;
-                    MBRRepairPage rp = new MBRRepairPage(start, pageEnd, clusteringFrom, pageClusteringEnd, hash, count, isStartKeyInclusive); // cast to int should be safe - window size is small
-                    Set<InetAddress> targets = StorageService.instance.getLiveNaturalEndpoints(mbrs.cfs.keyspace, r.right).stream().filter(i -> !FBUtilities.getBroadcastAddress().equals(i)).collect(Collectors.toSet());
+                    MBRRepairPage rp = new MBRRepairPage(start, pageEnd, clusteringFrom, pageClusteringEnd, hash, count, windowSize, isStartKeyInclusive); // cast to int should be safe - window size is small
+                    Set<InetAddress> targets = StorageService.instance.getLiveNaturalEndpoints(cfs.keyspace, r.right).stream().filter(i -> !FBUtilities.getBroadcastAddress().equals(i)).collect(Collectors.toSet());
                     CountDownLatch cdl = new CountDownLatch(targets.size());
-                    MBRResponseCallback callback = new MBRResponseCallback(mbrs.cfs, rp, nowInSeconds, cdl, targets.size());
+                    MBRResponseCallback callback = new MBRResponseCallback(cfs, rp, nowInSeconds, cdl, targets.size());
                     for (InetAddress address : targets) // since we are repairing one local range at a time, all keys in that range will have the same replicas
-                        MessagingService.instance().sendRR(new MBRCommand(mbrs.cfs.metadata.cfId, nowInSeconds, rp).createMessage(), address, callback);
+                        MessagingService.instance().sendRR(new MBRCommand(cfs.metadata.cfId, nowInSeconds, rp).createMessage(), address, callback);
 
                     try
                     {
                         cdl.await(1, TimeUnit.MINUTES);
-                        mbrs.cfs.metric.repairedPages.inc();
+                        cfs.metric.repairedPages.inc();
                     }
                     catch (InterruptedException e)
                     {

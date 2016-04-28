@@ -127,14 +127,13 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                         // handle this
                         break;
                     case MATCH:
-                        logger.info("matching");
                         break;
                 }
             }
 
             if (hugeResponses.isEmpty() && remoteIterators.isEmpty())
             {
-                logger.debug("Nothing to write, all matching");
+                logger.debug("all matching");
             }
             else if (!hugeResponses.isEmpty())
             {
@@ -197,7 +196,6 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
             {
                 cdl.countDown();
             }
-
         }
     }
 
@@ -223,12 +221,11 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
         QueryPager pager = rc.getPager(null, Server.CURRENT_VERSION);
         while (!pager.isExhausted())
         {
-            // TODO: we need to fetch unfiltered pages here.
-            try (PartitionIterator pi = pager.fetchPage(MBRService.WINDOW_SIZE, ConsistencyLevel.ALL, ClientState.forInternalCalls()))
+            try (UnfilteredPartitionIterator pi = pager.fetchUnfilteredPage(repairPage.windowSize, ConsistencyLevel.ALL, ClientState.forInternalCalls(), rc.metadata()))
             {
                 while (pi.hasNext())
                 {
-                    try (RowIterator ri = pi.next())
+                    try (UnfilteredRowIterator ri = pi.next())
                     {
                         // todo: throttle this!
                         PartitionUpdate pu = PartitionUpdate.fromIterator(ri, ColumnFilter.all(cfs.metadata));

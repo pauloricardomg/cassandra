@@ -52,7 +52,7 @@ public class MBRVerbHandler implements IVerbHandler<MBRCommand>
         ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(message.payload.cfid);
         assert cfs != null;
         cfs.metric.receivedPageHashes.inc();
-        PartitionRangeReadCommand rc = mbrc.repairPage.createReadCommand(cfs, mbrc.nowInSeconds, MBRService.WINDOW_SIZE * 2);
+        PartitionRangeReadCommand rc = mbrc.repairPage.createReadCommand(cfs, mbrc.nowInSeconds, mbrc.repairPage.windowSize * 2);
         boolean match = true;
         long rowCount = 0;
         try (ReadExecutionController rce = rc.executionController();
@@ -65,7 +65,7 @@ public class MBRVerbHandler implements IVerbHandler<MBRCommand>
                 match = false;
         }
         MBRResponse response;
-        if (rowCount >= MBRService.WINDOW_SIZE * 2) // this means the limit was hit
+        if (rowCount >= mbrc.repairPage.windowSize * 2) // this means the limit was hit
         {
             response = MBRResponse.HUGE;
         }

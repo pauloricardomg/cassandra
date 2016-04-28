@@ -92,6 +92,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.cassandra.tools.nodetool.GetTimeout;
+import org.apache.cassandra.utils.FBUtilities;
 
 /**
  * JMX client operations for Cassandra.
@@ -350,6 +351,12 @@ public class NodeProbe implements AutoCloseable
                 out.println("Exception occurred during clean-up. " + e);
             }
         }
+    }
+
+    public void enableMutationBasedRepair(String keyspace, String table, int windowSize, int rowsPerSecondToRepair)
+    {
+        ColumnFamilyStoreMBean cfsProxy = getCfsProxy(keyspace, table);
+        cfsProxy.enableMutationBasedRepair(windowSize, rowsPerSecondToRepair, true);
     }
 
     public Map<Sampler, CompositeData> getPartitionSample(String ks, String cf, int capacity, int duration, int count, List<Sampler> samplers) throws OpenDataException

@@ -51,9 +51,10 @@ public class MBRRepairPage
     public final ByteBuffer clusteringTo;
     public final byte[] hash;
     public final int rowCount;
+    public final int windowSize;
     private final boolean isStartKeyInclusive;
 
-    public MBRRepairPage(PartitionPosition firstKey, PartitionPosition lastKey, ByteBuffer clusteringFrom, ByteBuffer clusteringTo, byte [] hash, int rowCount, boolean isStartKeyInclusive)
+    public MBRRepairPage(PartitionPosition firstKey, PartitionPosition lastKey, ByteBuffer clusteringFrom, ByteBuffer clusteringTo, byte [] hash, int rowCount, int windowSize, boolean isStartKeyInclusive)
     {
         this.firstKey = firstKey;
         this.lastKey = lastKey;
@@ -61,6 +62,7 @@ public class MBRRepairPage
         this.clusteringTo = clusteringTo;
         this.hash = hash;
         this.rowCount = rowCount;
+        this.windowSize = windowSize;
         this.isStartKeyInclusive = isStartKeyInclusive;
     }
 
@@ -72,6 +74,7 @@ public class MBRRepairPage
         ByteBufferUtil.writeWithShortLength(clusteringTo, out);
         ByteBufferUtil.writeWithShortLength(hash, out);
         out.writeInt(rowCount);
+        out.writeInt(windowSize);
         out.writeBoolean(isStartKeyInclusive);
     }
 
@@ -85,8 +88,9 @@ public class MBRRepairPage
         byte [] hash = new byte[hashLen];
         in.readFully(hash);
         int rowCount = in.readInt();
+        int windowSize = in.readInt();
         boolean isStartKeyInclusive = in.readBoolean();
-        return new MBRRepairPage(firstKey, lastKey, clusteringFrom, clusteringTo, hash, rowCount, isStartKeyInclusive);
+        return new MBRRepairPage(firstKey, lastKey, clusteringFrom, clusteringTo, hash, rowCount, windowSize, isStartKeyInclusive);
     }
 
     public long serializedSize(int version)
@@ -98,6 +102,7 @@ public class MBRRepairPage
         size += TypeSizes.sizeof((short)hash.length);
         size += hash.length;
         size += TypeSizes.sizeof(rowCount);
+        size += TypeSizes.sizeof(windowSize);
         size += TypeSizes.sizeof(isStartKeyInclusive);
         return size;
     }
@@ -111,6 +116,7 @@ public class MBRRepairPage
                ", clusteringTo=" + clusteringString(metadata, clusteringTo) +
                ", hash=" + Arrays.toString(hash) +
                ", rowCount=" + rowCount +
+               ", windowSize=" + windowSize +
                ", inclusiveStartKey=" + isStartKeyInclusive +
                '}';
     }

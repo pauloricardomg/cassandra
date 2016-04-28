@@ -88,7 +88,7 @@ abstract class AbstractQueryPager implements QueryPager
         return Transformation.apply(nextPageReadCommand(pageSize).executeLocally(executionController), pager);
     }
 
-    public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata, ReadExecutionController executionController)
+    public UnfilteredPartitionIterator fetchUnfilteredPage(int pageSize, ConsistencyLevel consistency, ClientState clientState, CFMetaData metadata)
     {
         if (isExhausted())
             return EmptyIterators.unfilteredPartition(metadata, false);

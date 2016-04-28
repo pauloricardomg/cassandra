@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.OpenDataException;
@@ -170,6 +171,6 @@ public interface ColumnFamilyStoreMBean
      */
     public CompositeData finishLocalSampling(String sampler, int count) throws OpenDataException;
 
-    public void enableMutationBasedRepair();
+    public void enableMutationBasedRepair(int windowSize, int rowsPerSecondToRepair, boolean waitForFinish);
     public void stopMutationBasedRepair();
 }
