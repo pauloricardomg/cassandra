@@ -20,6 +20,7 @@ package org.apache.cassandra.streaming;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -117,6 +118,7 @@ import org.apache.cassandra.utils.concurrent.Refs;
 public class StreamSession implements IEndpointStateChangeSubscriber
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
+    private static final Integer SOCKET_TIMEOUT_MULTIPLIER = 3;
 
     /**
      * Streaming endpoint.
@@ -143,7 +145,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public final ConnectionHandler handler;
 
-    private int retries;
+    private int retries = 0;
 
     private AtomicBoolean isAborted = new AtomicBoolean(false);
     private final boolean keepSSTableLevel;
@@ -521,7 +523,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public void onError(Throwable e)
     {
-        logger.error("[Stream #{}] Streaming error occurred", planId(), e);
+        if (state() == State.WAIT_COMPLETE && e instanceof SocketTimeoutException)
+            logger.error("[Stream #{}] Received stream socket timeout on WAIT_COMPLETE state and will fail stream session. " +
+                         "The other peer might still be processing received data. If that's the case, consider increasing " +
+                         "streaming_socket_timeout_in_ms property to allow more time for the other peer to process received data.",
+                         planId());
+        else
+            logger.error("[Stream #{}] Streaming error occurred", planId(), e);
         // send session failure message
         if (handler.isOutgoingConnected())
             handler.sendMessage(new SessionFailedMessage());
@@ -717,6 +725,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 completeSent = true;
                 state(State.WAIT_COMPLETE);
                 handler.closeOutgoing();
+                //Increase incoming socket timeout to allow more time for receiver
+                //to process data without failing stream session (CASSANDRA-8343)
+                handler.setIncomingSocketTimeout((int)Math.min((long) SOCKET_TIMEOUT_MULTIPLIER *
+                                                               DatabaseDescriptor.getStreamingSocketTimeout(),
+                                                               Integer.MAX_VALUE));
             }
         }
         return completed;
