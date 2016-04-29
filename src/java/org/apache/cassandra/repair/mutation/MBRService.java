@@ -120,6 +120,7 @@ public class MBRService
             RateLimiter limiter = RateLimiter.create(rowsPerSecondToRepair); // todo: make rows/s configurable
             for (Range<Token> r : rangesToRepair)
             {
+                MBRMetricHolder metrics = new MBRMetricHolder(r);
                 logger.debug("repairing range {}, windowSize={}, rowsPerSecond={}", r, windowSize, rowsPerSecondToRepair);
                 DataRange dr = new DataRange(Range.makeRowRange(r), new ClusteringIndexSliceFilter(Slices.ALL, false));
                 int nowInSeconds = FBUtilities.nowInSeconds();
@@ -160,7 +161,7 @@ public class MBRService
                         hash = digest(rc, c.applyTo(pi));
                         count = c.counted();
                     }
-                    logger.debug("read up {} rows", count);
+                    metrics.increaseRowsHashed(count);
                     PagingState ps = pager.state();
                     PartitionPosition readUntil = ps == null ? r.right.maxKeyBound() : PartitionPosition.ForKey.get(ps.partitionKey, cfs.getPartitioner());
                     // if the pager is exhausted we need to read until the end of the range on the remote node to make sure
@@ -171,9 +172,11 @@ public class MBRService
                     ByteBuffer pageClusteringEnd = (pager.isExhausted() || ps == null || ps.rowMark == null) ? ByteBufferUtil.EMPTY_BYTE_BUFFER : ps.rowMark.mark;
                     boolean isStartKeyInclusive = ps == null || ps.remainingInPartition > 0;
                     MBRRepairPage rp = new MBRRepairPage(start, pageEnd, clusteringFrom, pageClusteringEnd, hash, count, windowSize, isStartKeyInclusive); // cast to int should be safe - window size is small
+                    if (logger.isTraceEnabled())
+                        logger.trace("Repairing page = {}", rp.toString(cfs.metadata));
                     Set<InetAddress> targets = StorageService.instance.getLiveNaturalEndpoints(cfs.keyspace, r.right).stream().filter(i -> !FBUtilities.getBroadcastAddress().equals(i)).collect(Collectors.toSet());
                     CountDownLatch cdl = new CountDownLatch(targets.size());
-                    MBRResponseCallback callback = new MBRResponseCallback(cfs, rp, nowInSeconds, cdl, targets.size());
+                    MBRResponseCallback callback = new MBRResponseCallback(cfs, rp, nowInSeconds, cdl, targets.size(), metrics);
                     for (InetAddress address : targets) // since we are repairing one local range at a time, all keys in that range will have the same replicas
                         MessagingService.instance().sendRR(new MBRCommand(cfs.metadata.cfId, nowInSeconds, rp).createMessage(), address, callback);
 
@@ -189,6 +192,7 @@ public class MBRService
                     start = readUntil;
                     clusteringFrom = (ps == null || ps.rowMark == null) ? ByteBufferUtil.EMPTY_BYTE_BUFFER : ps.rowMark.mark;
                 }
+                logger.info("Range finished: {}", metrics);
             }
         }
     }

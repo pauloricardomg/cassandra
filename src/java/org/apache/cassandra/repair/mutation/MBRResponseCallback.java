@@ -30,7 +30,6 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringBound;
@@ -47,7 +46,6 @@ import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.filter.ColumnFilter;
-import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
@@ -56,17 +54,12 @@ import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowDiffListener;
-import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.Rows;
-import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
-import org.apache.cassandra.exceptions.RequestExecutionException;
-import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.service.pager.PagingState;
 import org.apache.cassandra.service.pager.QueryPager;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.FBUtilities;
@@ -81,14 +74,16 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
     private final CountDownLatch cdl;
     private final int expectedResponses;
     private final Set<MessageIn<MBRResponse>> responses = new CopyOnWriteArraySet<>();
+    private final MBRMetricHolder metrics;
 
-    public MBRResponseCallback(ColumnFamilyStore cfs, MBRRepairPage rp, int nowInSeconds, CountDownLatch cdl, int expectedResponses)
+    public MBRResponseCallback(ColumnFamilyStore cfs, MBRRepairPage rp, int nowInSeconds, CountDownLatch cdl, int expectedResponses, MBRMetricHolder metrics)
     {
         repairPage = rp;
         this.cfs = cfs;
         this.nowInSeconds = nowInSeconds;
         this.cdl = cdl;
         this.expectedResponses = expectedResponses;
+        this.metrics = metrics;
     }
 
     public void response(MessageIn<MBRResponse> msg)
@@ -138,11 +133,12 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
             }
             else if (!hugeResponses.isEmpty())
             {
+                metrics.hugePage();
                 handleHugeResponses(rc); // we also need to read the data from the diffing nodes
             }
             else
             {
-
+                metrics.mismatchedPage();
                 try (ReadExecutionController rec = rc.executionController();
                      UnfilteredPartitionIterator existingData = rc.executeLocally(rec))
                 {
@@ -152,7 +148,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                     {
                         allIterators.add(0, existingData);
 
-                        try (UnfilteredPartitionIterator it = UnfilteredPartitionIterators.merge(allIterators, nowInSeconds, new PartitionMergeListener(cfs)))
+                        try (UnfilteredPartitionIterator it = UnfilteredPartitionIterators.merge(allIterators, nowInSeconds, new PartitionMergeListener(cfs, metrics)))
                         {
                             while (it.hasNext())
                                 try (UnfilteredRowIterator ri = it.next())
@@ -167,7 +163,6 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                     {
                         try (UnfilteredPartitionIterator it = UnfilteredPartitionIterators.merge(allIterators, nowInSeconds, new EmptyMergeListener()))
                         {
-                            logger.info("no local data");
                             while (it.hasNext())
                             {
                                 try (UnfilteredRowIterator ri = it.next())
@@ -175,6 +170,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                                     PartitionUpdate pu = PartitionUpdate.fromIterator(ri, ColumnFilter.all(cfs.metadata));
                                     Mutation m = new Mutation(pu);
                                     m.apply();
+                                    metrics.appliedMutation();
                                 }
                             }
                         }
@@ -228,6 +224,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                 {
                     try (UnfilteredRowIterator ri = pi.next())
                     {
+                        metrics.appliedHugeResponseMutation();
                         // todo: throttle this!
                         PartitionUpdate pu = PartitionUpdate.fromIterator(ri, ColumnFilter.all(cfs.metadata));
                         Mutation m = new Mutation(pu);
@@ -242,14 +239,17 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
     private static class PartitionMergeListener implements UnfilteredPartitionIterators.MergeListener
     {
         private final ColumnFamilyStore cfs;
-        public PartitionMergeListener(ColumnFamilyStore cfs)
+        private final MBRMetricHolder metrics;
+
+        public PartitionMergeListener(ColumnFamilyStore cfs, MBRMetricHolder metrics)
         {
             this.cfs = cfs;
+            this.metrics = metrics;
         }
 
         public UnfilteredRowIterators.MergeListener getRowMergeListener(DecoratedKey partitionKey, List<UnfilteredRowIterator> versions)
         {
-            return new RowMerger(cfs, partitionKey, columns(versions), isReversed(versions));
+            return new RowMerger(cfs, partitionKey, columns(versions), isReversed(versions), metrics);
         }
 
         private boolean isReversed(List<UnfilteredRowIterator> versions)
@@ -299,6 +299,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
         private final boolean isReversed;
         private final ColumnFamilyStore cfs;
         private final DecoratedKey partitionKey;
+        private final MBRMetricHolder metrics;
         private ClusteringBound markerOpen;
         private DeletionTime markerTime;
         private Row.Builder currentRow = null;
@@ -340,12 +341,13 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
             }
         };
 
-        public RowMerger(ColumnFamilyStore cfs, DecoratedKey key, PartitionColumns columns, boolean isReversed)
+        public RowMerger(ColumnFamilyStore cfs, DecoratedKey key, PartitionColumns columns, boolean isReversed, MBRMetricHolder metrics)
         {
             updater = new PartitionUpdate(cfs.metadata, key, columns, 1);
             this.isReversed = isReversed;
             this.cfs = cfs;
             this.partitionKey = key;
+            this.metrics = metrics;
         }
 
         public void onMergedPartitionLevelDeletion(DeletionTime mergedDeletion, DeletionTime[] versions)
@@ -391,7 +393,10 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
             // todo:    - be able to run this with DTCS (or make flushing align with dtcs windows)
             cfs.metric.totalRows.inc();
             if (!updater.isEmpty())
+            {
+                metrics.appliedMutation();
                 new Mutation(cfs.keyspace.getName(), partitionKey).add(updater).apply();
+            }
         }
     }
 
