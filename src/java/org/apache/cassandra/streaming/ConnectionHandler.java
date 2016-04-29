@@ -148,6 +148,19 @@ public class ConnectionHandler
         return outgoing != null && !outgoing.isClosed();
     }
 
+    public void setIncomingSocketTimeout(int timeout)
+    {
+        try
+        {
+            if (incoming.socket != null)
+                incoming.socket.setSoTimeout(timeout);
+        }
+        catch (SocketException e)
+        {
+            logger.warn("Could not set socket timeout", e);
+        }
+    }
+
     abstract static class MessageHandler implements Runnable
     {
         protected final StreamSession session;

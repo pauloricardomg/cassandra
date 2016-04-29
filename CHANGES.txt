@@ -6,6 +6,7 @@
  * clqsh: COPY FROM throws TypeError with Cython extensions enabled (CASSANDRA-11574)
  * cqlsh: COPY FROM ignores NULL values in conversion (CASSANDRA-11549)
  * Validate levels when building LeveledScanner to avoid overlaps with orphaned sstables (CASSANDRA-9935)
+ * Increase incoming socket timeout on sender to give more time for 2i/MV rebuild (CASSANDRA-8343)
 
 
 2.1.14
