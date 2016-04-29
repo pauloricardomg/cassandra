@@ -40,6 +40,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.StageManager;
+import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
@@ -202,8 +203,8 @@ public class MBRService
     public static class MBRDataRange extends DataRange
     {
 
-        private final Slice.Bound until;
-        private final Slice.Bound start;
+        private final ClusteringBound until;
+        private final ClusteringBound start;
         private final ClusteringComparator comparator;
 
         /**
@@ -212,7 +213,7 @@ public class MBRService
          *
          * @param range                 the range over partition keys to use.
          */
-        public MBRDataRange(AbstractBounds<PartitionPosition> range, ClusteringComparator comparator, Slice.Bound start, Slice.Bound until)
+        public MBRDataRange(AbstractBounds<PartitionPosition> range, ClusteringComparator comparator, ClusteringBound start, ClusteringBound until)
         {
             super(range, new ClusteringIndexSliceFilter(Slices.ALL, false));
             this.start = start;
@@ -230,12 +231,12 @@ public class MBRService
             }
             else if (startKey().equals(key))
             {
-                Slices s = new Slices.Builder(comparator).add(Slice.make(start, Slice.Bound.TOP)).build();
+                Slices s = new Slices.Builder(comparator).add(Slice.make(start, ClusteringBound.TOP)).build();
                 return new ClusteringIndexSliceFilter(s, false);
             }
             else if (stopKey().equals(key))
             {
-                Slices s = new Slices.Builder(comparator).add(Slice.make(Slice.Bound.BOTTOM, until)).build();
+                Slices s = new Slices.Builder(comparator).add(Slice.make(ClusteringBound.BOTTOM, until)).build();
                 return new ClusteringIndexSliceFilter(s, false);
             }
             return clusteringIndexFilter;

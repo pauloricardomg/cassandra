@@ -25,6 +25,7 @@ import java.util.Set;
 import org.junit.Test;
 
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.PartitionPosition;
@@ -74,8 +75,8 @@ public class MBRDataRangeTest extends CQLTester
         expectedPks.add(Pair.create(4,3));
 
         AbstractBounds<PartitionPosition> range = AbstractBounds.bounds(cfs.decorateKey(ByteBufferUtil.bytes(0)), true, cfs.decorateKey(ByteBufferUtil.bytes(4)), true);
-        Slice.Bound start = Slice.Bound.exclusiveStartOf(ByteBufferUtil.bytes(5));
-        Slice.Bound end = Slice.Bound.inclusiveEndOf(ByteBufferUtil.bytes(3));
+        ClusteringBound start = ClusteringBound.exclusiveStartOf(ByteBufferUtil.bytes(5));
+        ClusteringBound end = ClusteringBound.inclusiveEndOf(ByteBufferUtil.bytes(3));
 
         DataRange dr3 = new MBRService.MBRDataRange(range, cfs.metadata.comparator, start, end);
         PartitionRangeReadCommand prrc = new PartitionRangeReadCommand(cfs.metadata,
@@ -105,8 +106,8 @@ public class MBRDataRangeTest extends CQLTester
             expectedPks.add(Pair.create(1, i + 30));
 
         AbstractBounds<PartitionPosition> range = AbstractBounds.bounds(cfs.decorateKey(ByteBufferUtil.bytes(1)), true, cfs.decorateKey(ByteBufferUtil.bytes(1)), true);
-        Slice.Bound start = Slice.Bound.exclusiveStartOf(ByteBufferUtil.bytes(29));
-        Slice.Bound end = Slice.Bound.inclusiveEndOf(ByteBufferUtil.bytes(39));
+        ClusteringBound start = ClusteringBound.exclusiveStartOf(ByteBufferUtil.bytes(29));
+        ClusteringBound end = ClusteringBound.inclusiveEndOf(ByteBufferUtil.bytes(39));
 
         DataRange dr3 = new MBRService.MBRDataRange(range, cfs.metadata.comparator, start, end);
         PartitionRangeReadCommand prrc = new PartitionRangeReadCommand(cfs.metadata,

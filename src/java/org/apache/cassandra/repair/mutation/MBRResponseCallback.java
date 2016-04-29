@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Columns;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -298,7 +299,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
         private final boolean isReversed;
         private final ColumnFamilyStore cfs;
         private final DecoratedKey partitionKey;
-        private Slice.Bound markerOpen;
+        private ClusteringBound markerOpen;
         private DeletionTime markerTime;
         private Row.Builder currentRow = null;
 
@@ -371,8 +372,8 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
             // Note that boundaries are both close and open, so it's not one or the other
             if (merged.isClose(isReversed) && markerOpen != null)
             {
-                Slice.Bound open = markerOpen;
-                Slice.Bound close = merged.closeBound(isReversed);
+                ClusteringBound open = markerOpen;
+                ClusteringBound close = merged.closeBound(isReversed);
                 updater.add(new RangeTombstone(Slice.make(isReversed ? close : open, isReversed ? open : close), markerTime));
             }
             if (merged.isOpen(isReversed) && (localMarker == null || merged.openDeletionTime(isReversed).supersedes(localMarker.openDeletionTime(isReversed))))

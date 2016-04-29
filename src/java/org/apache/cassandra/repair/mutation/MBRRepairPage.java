@@ -25,6 +25,7 @@ import java.util.Optional;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.PartitionPosition;
@@ -139,8 +140,8 @@ public class MBRRepairPage
     {
         Clustering startClustering = clusteringFrom.equals(ByteBufferUtil.EMPTY_BYTE_BUFFER) ? null : Clustering.serializer.deserialize(clusteringFrom, MessagingService.VERSION_30, PagingState.RowMark.makeClusteringTypes(cfs.metadata));
         Clustering stopClustering = clusteringTo.equals(ByteBufferUtil.EMPTY_BYTE_BUFFER) ? null : Clustering.serializer.deserialize(clusteringTo, MessagingService.VERSION_30, PagingState.RowMark.makeClusteringTypes(cfs.metadata));
-        Slice.Bound start = startClustering == null ? Slice.Bound.BOTTOM : Slice.Bound.exclusiveStartOf(startClustering);
-        Slice.Bound end = stopClustering == null ? Slice.Bound.TOP : Slice.Bound.inclusiveEndOf(stopClustering);
+        ClusteringBound start = startClustering == null ? ClusteringBound.BOTTOM : ClusteringBound.exclusiveStartOf(startClustering);
+        ClusteringBound end = stopClustering == null ? ClusteringBound.TOP : ClusteringBound.inclusiveEndOf(stopClustering);
         AbstractBounds<PartitionPosition> bounds = AbstractBounds.bounds(firstKey, isStartKeyInclusive, lastKey, true);
         DataRange dr = new MBRService.MBRDataRange(bounds, cfs.getComparator(), start, end);
         DataLimits dataLimit = DataLimits.cqlLimits(limit);
