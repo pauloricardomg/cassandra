@@ -45,7 +45,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
 
     private static final String SSTABLE_SIZE_OPTION = "sstable_size_in_mb";
     protected static final String DISABLE_TOP_LEVEL_BLOOM_FILTER_OPTION = "disable_top_level_bloom_filter";
-    private static final String DEFAULT_DISABLE_TOP_LEVEL_BLOOM_FILTER = "false";
+    private static final String DEFAULT_DISABLE_TOP_LEVEL_BLOOM_FILTER = "true";
 
     @VisibleForTesting
     final LeveledManifest manifest;
