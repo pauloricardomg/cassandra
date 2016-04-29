@@ -60,6 +60,7 @@
  * Resolve some eclipse-warnings (CASSANDRA-11086)
  * (cqlsh) Show static columns in a different color (CASSANDRA-11059)
  * Allow to remove TTLs on table with default_time_to_live (CASSANDRA-11207)
+ * Add option to disable top level bloom filter on LCS (CASSANDRA-9830)
 Merged from 3.0:
  * Fix paging for range queries where all clustering columns are specified (CASSANDRA-11669)
  * Don't require HEAP_NEW_SIZE to be set when using G1 (CASSANDRA-11600)

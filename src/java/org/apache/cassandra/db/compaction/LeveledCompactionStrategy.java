@@ -37,16 +37,20 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.schema.CompactionParams;
 
 public class LeveledCompactionStrategy extends AbstractCompactionStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(LeveledCompactionStrategy.class);
+
     private static final String SSTABLE_SIZE_OPTION = "sstable_size_in_mb";
+    protected static final String DISABLE_TOP_LEVEL_BLOOM_FILTER_OPTION = "disable_top_level_bloom_filter";
+    private static final String DEFAULT_DISABLE_TOP_LEVEL_BLOOM_FILTER = "false";
 
     @VisibleForTesting
     final LeveledManifest manifest;
     private final int maxSSTableSizeInMB;
+    private final boolean disableTopLevelBloomFilter;
 
     public LeveledCompactionStrategy(ColumnFamilyStore cfs, Map<String, String> options)
     {
@@ -70,6 +74,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             }
         }
         maxSSTableSizeInMB = configuredMaxSSTableSize;
+
+        disableTopLevelBloomFilter = Boolean.parseBoolean(options.getOrDefault(DISABLE_TOP_LEVEL_BLOOM_FILTER_OPTION,
+                                                                                 DEFAULT_DISABLE_TOP_LEVEL_BLOOM_FILTER));
 
         manifest = new LeveledManifest(cfs, this.maxSSTableSizeInMB, localOptions);
         logger.trace("Created {}", manifest);
@@ -118,7 +125,8 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             LifecycleTransaction txn = cfs.getTracker().tryModify(candidate.sstables, OperationType.COMPACTION);
             if (txn != null)
             {
-                LeveledCompactionTask newTask = new LeveledCompactionTask(cfs, txn, candidate.level, gcBefore, candidate.maxSSTableBytes, false);
+                LeveledCompactionTask newTask = new LeveledCompactionTask(cfs, txn, candidate.level, gcBefore,
+                                                                          candidate.maxSSTableBytes, false);
                 newTask.setCompactionType(op);
                 return newTask;
             }
@@ -137,7 +145,6 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         if (txn == null)
             return null;
         return Arrays.<AbstractCompactionTask>asList(new LeveledCompactionTask(cfs, txn, 0, gcBefore, getMaxSSTableBytes(), true));
-
     }
 
     @Override
@@ -289,6 +296,34 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     public void addSSTable(SSTableReader added)
     {
         manifest.add(added);
+    }
+
+    @Override
+    public synchronized void addSSTables(Iterable<SSTableReader> added)
+    {
+        manifest.add(added);
+    }
+
+    public void startup()
+    {
+        super.startup();
+        if (disableTopLevelBloomFilter)
+            manifest.disableTopLevelBloomFilter();
+    }
+
+    public void shutdown(Optional<CompactionParams> newParamsOpt)
+    {
+        super.shutdown(newParamsOpt);
+        if (disableTopLevelBloomFilter && newParamsOpt.isPresent())
+        {
+            CompactionParams newParams = newParamsOpt.get();
+            String newDisableBloomFilter = newParams.asMap().get(DISABLE_TOP_LEVEL_BLOOM_FILTER_OPTION);
+            if (!newParams.klass().equals(LeveledCompactionStrategy.class) ||
+                  newDisableBloomFilter != null && !Boolean.valueOf(newDisableBloomFilter))
+            {
+                manifest.enableTopLevelBloomFilter();
+            }
+        }
     }
 
     @Override
@@ -462,7 +497,17 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             throw new ConfigurationException(String.format("%s is not a parsable int (base10) for %s", size, SSTABLE_SIZE_OPTION), ex);
         }
 
+        String disableTopLevelBloomFilter = options.get(DISABLE_TOP_LEVEL_BLOOM_FILTER_OPTION);
+        if (disableTopLevelBloomFilter != null)
+        {
+            if (!disableTopLevelBloomFilter.equalsIgnoreCase("true") && !disableTopLevelBloomFilter.equalsIgnoreCase("false"))
+                throw new ConfigurationException(String.format("'%s' should be either 'true' or 'false', not '%s'",
+                                                               DISABLE_TOP_LEVEL_BLOOM_FILTER_OPTION,
+                                                               disableTopLevelBloomFilter));
+        }
+
         uncheckedOptions.remove(SSTABLE_SIZE_OPTION);
+        uncheckedOptions.remove(DISABLE_TOP_LEVEL_BLOOM_FILTER_OPTION);
 
         uncheckedOptions = SizeTieredCompactionStrategyOptions.validateOptions(options, uncheckedOptions);
 

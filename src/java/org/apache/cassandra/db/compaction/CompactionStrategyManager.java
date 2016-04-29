@@ -22,10 +22,14 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
+
 import org.apache.cassandra.index.Index;
+
+import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 
 import org.slf4j.Logger;
@@ -150,17 +154,63 @@ public class CompactionStrategyManager implements INotificationConsumer
         writeLock.lock();
         try
         {
+            List<SSTableReader> toAdd = new LinkedList<>();
             for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
             {
                 if (sstable.openReason != SSTableReader.OpenReason.EARLY)
-                    getCompactionStrategyFor(sstable).addSSTable(sstable);
+                    toAdd.add(sstable);
             }
+            addSSTables(toAdd);
             repaired.forEach(AbstractCompactionStrategy::startup);
             unrepaired.forEach(AbstractCompactionStrategy::startup);
         }
         finally
         {
             writeLock.unlock();
+        }
+    }
+
+    private void addSSTables(Iterable<SSTableReader> toAdd)
+    {
+        readLock.lock();
+        try
+        {
+            getCompactionStrategiesFor(toAdd).forEach((k, v) -> k.addSSTables(v));
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+    }
+
+    /**
+     * groups sstables by compaction strategy
+     *
+     * returns differently based on the repaired status and which vnode the compaction strategy belongs to
+     * @return
+     */
+    private Map<AbstractCompactionStrategy, Set<SSTableReader>> getCompactionStrategiesFor(Iterable<SSTableReader> sstables)
+    {
+        readLock.lock();
+        try
+        {
+            Map<AbstractCompactionStrategy, Set<SSTableReader>> result = new HashMap<>();
+            for (SSTableReader sstable : sstables)
+            {
+                AbstractCompactionStrategy strategy = getCompactionStrategyFor(sstable);
+                Set<SSTableReader> strategySSTables = result.get(strategy);
+                if (strategySSTables == null)
+                {
+                    strategySSTables = Sets.newHashSet();
+                    result.put(strategy, strategySSTables);
+                }
+                strategySSTables.add(sstable);
+            }
+            return result;
+        }
+        finally
+        {
+            readLock.unlock();
         }
     }
 
@@ -232,8 +282,8 @@ public class CompactionStrategyManager implements INotificationConsumer
         try
         {
             isActive = false;
-            repaired.forEach(AbstractCompactionStrategy::shutdown);
-            unrepaired.forEach(AbstractCompactionStrategy::shutdown);
+            repaired.forEach(s -> s.shutdown(Optional.empty()));
+            unrepaired.forEach(s -> s.shutdown(Optional.empty()));
         }
         finally
         {
@@ -265,7 +315,8 @@ public class CompactionStrategyManager implements INotificationConsumer
      * Called after changing configuration and at startup.
      * @param metadata
      */
-    private void reload(CFMetaData metadata)
+    @VisibleForTesting
+    protected void reload(CFMetaData metadata)
     {
         boolean disabledWithJMX = !enabled && shouldBeEnabled();
         if (!metadata.params.compaction.equals(schemaCompactionParams))
@@ -383,20 +434,6 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
-    private void handleFlushNotification(Iterable<SSTableReader> added)
-    {
-        readLock.lock();
-        try
-        {
-            for (SSTableReader sstable : added)
-                getCompactionStrategyFor(sstable).addSSTable(sstable);
-        }
-        finally
-        {
-            readLock.unlock();
-        }
-    }
-
     private void handleListChangedNotification(Iterable<SSTableReader> added, Iterable<SSTableReader> removed)
     {
         // a bit of gymnastics to be able to replace sstables in compaction strategies
@@ -462,18 +499,24 @@ public class CompactionStrategyManager implements INotificationConsumer
         writeLock.lock();
         try
         {
-            for (SSTableReader sstable : sstables)
+
+            for (Map.Entry<Boolean, List<SSTableReader>> repairGroup : groupSSTablesByRepairStatus(sstables).entrySet())
             {
-                int index = getCompactionStrategyIndex(cfs, getDirectories(), sstable);
-                if (sstable.isRepaired())
+                boolean isRepaired = repairGroup.getKey();
+                for (Map.Entry<Integer, List<SSTableReader>> bucketGroup : groupSSTablesByBucket(repairGroup.getValue()).entrySet())
                 {
-                    unrepaired.get(index).removeSSTable(sstable);
-                    repaired.get(index).addSSTable(sstable);
-                }
-                else
-                {
-                    repaired.get(index).removeSSTable(sstable);
-                    unrepaired.get(index).addSSTable(sstable);
+                    int bucketIndex = bucketGroup.getKey();
+                    List<SSTableReader> bucketSSTables = bucketGroup.getValue();
+                    if (isRepaired)
+                    {
+                        unrepaired.get(bucketIndex).removeSSTables(bucketSSTables);
+                        this.repaired.get(bucketIndex).addSSTables(bucketSSTables);
+                    }
+                    else
+                    {
+                        this.repaired.get(bucketIndex).removeSSTables(bucketSSTables);
+                        unrepaired.get(bucketIndex).addSSTables(bucketSSTables);
+                    }
                 }
             }
         }
@@ -501,7 +544,7 @@ public class CompactionStrategyManager implements INotificationConsumer
         maybeReload(cfs.metadata);
         if (notification instanceof SSTableAddedNotification)
         {
-            handleFlushNotification(((SSTableAddedNotification) notification).added);
+            addSSTables(((SSTableAddedNotification) notification).added);
         }
         else if (notification instanceof SSTableListChangedNotification)
         {
@@ -617,7 +660,7 @@ public class CompactionStrategyManager implements INotificationConsumer
         readLock.lock();
         try
         {
-            Map<Integer, List<SSTableReader>> groups = sstablesToGroup.stream().collect(Collectors.groupingBy((s) -> getCompactionStrategyIndex(cfs, getDirectories(), s)));
+            Map<Integer, List<SSTableReader>> groups = groupSSTablesByBucket(sstablesToGroup);
             Collection<Collection<SSTableReader>> anticompactionGroups = new ArrayList<>();
 
             for (Map.Entry<Integer, List<SSTableReader>> group : groups.entrySet())
@@ -628,6 +671,16 @@ public class CompactionStrategyManager implements INotificationConsumer
         {
             readLock.unlock();
         }
+    }
+
+    private static Map<Boolean, List<SSTableReader>> groupSSTablesByRepairStatus(Iterable<SSTableReader> sstables)
+    {
+        return StreamSupport.stream(sstables.spliterator(), false).collect(Collectors.groupingBy((s) -> s.isRepaired()));
+    }
+
+    private Map<Integer, List<SSTableReader>> groupSSTablesByBucket(Iterable<SSTableReader> sstablesToGroup)
+    {
+        return StreamSupport.stream(sstablesToGroup.spliterator(), false).collect(Collectors.groupingBy((s) -> getCompactionStrategyIndex(cfs, getDirectories(), s)));
     }
 
     public long getMaxSSTableBytes()
@@ -790,8 +843,8 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     private void setStrategy(CompactionParams params)
     {
-        repaired.forEach(AbstractCompactionStrategy::shutdown);
-        unrepaired.forEach(AbstractCompactionStrategy::shutdown);
+        repaired.forEach(s -> s.shutdown(Optional.of(params)));
+        unrepaired.forEach(s -> s.shutdown(Optional.of(params)));
         repaired.clear();
         unrepaired.clear();
 

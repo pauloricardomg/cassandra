@@ -73,4 +73,6 @@ public interface IMetadataSerializer
      * Mutate repairedAt time
      */
     void mutateRepairedAt(Descriptor descriptor, long newRepairedAt) throws IOException;
+
+    boolean hasBloomFilter(Descriptor descriptor);
 }

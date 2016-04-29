@@ -19,13 +19,13 @@ package org.apache.cassandra.db.compaction;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.StreamSupport;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 
@@ -71,6 +71,10 @@ public class LeveledManifest
     private final SizeTieredCompactionStrategyOptions options;
     private final int [] compactionCounter;
 
+    /* Users may opt to disable loading bloom filter on top level sstables to reduce memory usage, when there are
+       few key misses during reads. Bloom filters are still relevant to skip lower level sstables. (CASSANDRA-9830) */
+    private Boolean disableTopLevelBloomFilter = false;
+
     LeveledManifest(ColumnFamilyStore cfs, int maxSSTableSizeInMB, SizeTieredCompactionStrategyOptions options)
     {
         this.cfs = cfs;
@@ -92,15 +96,13 @@ public class LeveledManifest
         return create(cfs, maxSSTableSize, sstables, new SizeTieredCompactionStrategyOptions());
     }
 
-    public static LeveledManifest create(ColumnFamilyStore cfs, int maxSSTableSize, Iterable<SSTableReader> sstables, SizeTieredCompactionStrategyOptions options)
+    public static LeveledManifest create(ColumnFamilyStore cfs, int maxSSTableSize, Iterable<SSTableReader> sstables,
+                                         SizeTieredCompactionStrategyOptions options)
     {
         LeveledManifest manifest = new LeveledManifest(cfs, maxSSTableSize, options);
 
         // ensure all SSTables are in the manifest
-        for (SSTableReader ssTableReader : sstables)
-        {
-            manifest.add(ssTableReader);
-        }
+        manifest.add(sstables);
         for (int i = 1; i < manifest.getAllLevelSize().length; i++)
         {
             manifest.repairOverlappingSSTables(i);
@@ -109,6 +111,24 @@ public class LeveledManifest
     }
 
     public synchronized void add(SSTableReader reader)
+    {
+        add(Collections.singleton(reader));
+    }
+
+    public synchronized void add(Iterable<SSTableReader> added)
+    {
+        int maxLevelBefore = disableTopLevelBloomFilter? getLevelCount() : 0;
+
+        added.forEach(s -> internalAdd(s));
+
+        // reload lower level bloom filters when a new level is created
+        if (disableTopLevelBloomFilter && cfs.isBloomFilterEnabled() && maxLevelBefore != getLevelCount())
+        {
+            reloadOverlappingLowerLevelBloomFilters();
+        }
+    }
+
+    private void internalAdd(SSTableReader reader)
     {
         int level = reader.getSSTableLevel();
 
@@ -122,6 +142,8 @@ public class LeveledManifest
         }
         else
         {
+            logger.trace("Demoting {} from L{} to L0", reader, reader.getSSTableLevel());
+
             // this can happen if:
             // * a compaction has promoted an overlapping sstable to the given level, or
             //   was also supposed to add an sstable at the given level.
@@ -138,8 +160,11 @@ public class LeveledManifest
             {
                 logger.error("Could not change sstable level - adding it at level 0 anyway, we will find it at restart.", e);
             }
+
             generations[0].add(reader);
         }
+        if (disableTopLevelBloomFilter)
+            maybeUpdateBloomFilter(reader);
     }
 
     public synchronized void replace(Collection<SSTableReader> removed, Collection<SSTableReader> added)
@@ -166,8 +191,8 @@ public class LeveledManifest
         if (logger.isTraceEnabled())
             logger.trace("Adding [{}]", toString(added));
 
-        for (SSTableReader ssTableReader : added)
-            add(ssTableReader);
+        add(added);
+
         lastCompactedKeys[minLevel] = SSTableReader.sstableOrdering.max(added).last;
     }
 
@@ -490,7 +515,7 @@ public class LeveledManifest
         return level;
     }
 
-    private static Set<SSTableReader> overlapping(Collection<SSTableReader> candidates, Iterable<SSTableReader> others)
+    private static Set<SSTableReader> overlapping(Set<SSTableReader> candidates, Iterable<SSTableReader> others)
     {
         assert !candidates.isEmpty();
         /*
@@ -543,6 +568,17 @@ public class LeveledManifest
                 overlapped.add(pair.getKey());
         }
         return overlapped;
+    }
+
+    @VisibleForTesting
+    protected boolean overlapsWithHigherLevel(SSTableReader candidate, int maxLevel)
+    {
+        HashSet<SSTableReader> higherLevelSSTables = Sets.newHashSet();
+        for (int level = candidate.getSSTableLevel() + 1; level < maxLevel; level++)
+        {
+            higherLevelSSTables.addAll(generations[level]);
+        }
+        return !overlapping(Collections.singleton(candidate), higherLevelSSTables).isEmpty();
     }
 
     private static final Predicate<SSTableReader> suspectP = new Predicate<SSTableReader>()
@@ -796,6 +832,83 @@ public class LeveledManifest
             this.sstables = sstables;
             this.level = level;
             this.maxSSTableBytes = maxSSTableBytes;
+        }
+    }
+
+    /* disable_top_level_bloom_filter methods */
+
+    public synchronized void disableTopLevelBloomFilter()
+    {
+        disableTopLevelBloomFilter = true;
+        getAllSSTables().forEach(s -> maybeUpdateBloomFilter(s));
+    }
+
+    public synchronized void enableTopLevelBloomFilter()
+    {
+        disableTopLevelBloomFilter = false;
+        getAllSSTables().forEach(s -> maybeReloadBloomFilter(s));
+    }
+
+    private void reloadOverlappingLowerLevelBloomFilters()
+    {
+        int maxLevel = getLevelCount();
+        // in order to avoid reloading *ALL* lower level bloom filters when a new
+        // level is created we reload only those that overlaps higher level sstables
+        for (int level = 1; level < maxLevel - 1; level++)
+        {
+            generations[level].stream()
+                              .filter(s -> s.getBloomFilter().isAlwaysPresent())
+                              .filter(s -> overlapsWithHigherLevel(s, maxLevel))
+                              .forEach(s -> maybeReloadBloomFilter(s));
+        }
+    }
+
+    /**
+     * Check if bloom filter needs to be released or reloaded
+     */
+    private void maybeUpdateBloomFilter(SSTableReader reader)
+    {
+        int maxLevel = getLevelCount();
+        //check if is top-level
+        if (maxLevel > 0 && reader.getSSTableLevel() == maxLevel)
+        {
+            //release bloom filter of top-level sstable, if BF enabled and not already released
+            if (cfs.isBloomFilterEnabled() && !reader.getBloomFilter().isAlwaysPresent())
+            {
+                try
+                {
+                    logger.trace("Releasing bloom filter of top level sstable {}.", reader);
+                    reader.releaseBloomFilter();
+                }
+                catch (Exception e)
+                {
+                    logger.warn("Could not release bloom filter of sstable {}.", reader.getFilename(), e);
+                }
+            }
+        }
+        else
+        {
+            //if not top level, reload bloom filter
+            maybeReloadBloomFilter(reader);
+        }
+    }
+
+    /**
+     * Reload bloom filter if BF is enabled on the CF and BF was previously released
+     */
+    private void maybeReloadBloomFilter(SSTableReader reader)
+    {
+        if (reader.getBloomFilter().isAlwaysPresent() && cfs.isBloomFilterEnabled())
+        {
+            try
+            {
+                logger.trace("Reloading bloom filter of sstable {}.", reader.getFilename());
+                reader.reloadBloomFilter();
+            }
+            catch (Exception e)
+            {
+                logger.warn("Could not reload bloom filter of sstable {}.", reader.getFilename(), e);
+            }
         }
     }
 }

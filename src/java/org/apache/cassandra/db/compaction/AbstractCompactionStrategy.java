@@ -45,6 +45,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
+import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 
 /**
@@ -158,7 +159,7 @@ public abstract class AbstractCompactionStrategy
     /**
      * Releases any resources if this strategy is shutdown (when the CFS is reloaded after a schema change).
      */
-    public void shutdown()
+    public void shutdown(Optional<CompactionParams> newParams)
     {
         isActive = false;
     }
@@ -312,12 +313,13 @@ public abstract class AbstractCompactionStrategy
 
     public synchronized void replaceSSTables(Collection<SSTableReader> removed, Collection<SSTableReader> added)
     {
-        for (SSTableReader remove : removed)
-            removeSSTable(remove);
-        for (SSTableReader add : added)
-            addSSTable(add);
+        removeSSTables(removed);
+        addSSTables(added);
     }
 
+    /**
+     * Prefer using {@link this#addSSTables(Iterable)} since it may have optimizations when doing bulk add
+     */
     public abstract void addSSTable(SSTableReader added);
 
     public synchronized void addSSTables(Iterable<SSTableReader> added)
@@ -327,6 +329,15 @@ public abstract class AbstractCompactionStrategy
     }
 
     public abstract void removeSSTable(SSTableReader sstable);
+
+    /**
+     * Prefer using {@link this#addSSTables(Iterable)} since it may have optimizations when doing bulk remove
+     */
+    public synchronized void removeSSTables(Iterable<SSTableReader> removed)
+    {
+        for (SSTableReader sstable : removed)
+            removeSSTable(sstable);
+    }
 
     public static class ScannerList implements AutoCloseable
     {

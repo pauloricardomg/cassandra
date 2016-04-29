@@ -2025,6 +2025,19 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /**
+     * This method must be only used for testing and must be preceded by the clearUnsafe() method.
+     */
+    @VisibleForTesting
+    public synchronized void reloadSSTablesUnsafe()
+    {
+        logger.info("Reloading SSTables for {}/{}...", keyspace.getName(), name);
+        Directories.SSTableLister sstableFiles = directories.sstableLister(Directories.OnTxnErr.IGNORE).skipTemporary(true);
+        Collection<SSTableReader> sstables = SSTableReader.openAll(sstableFiles.list().entrySet(), metadata);
+        data.addInitialSSTables(sstables);
+        logger.info("Done reloading SSTables for {}/{}", keyspace.getName(), name);
+    }
+
+    /**
      * Truncate deletes the entire column family's data with no expensive tombstone creation
      */
     public void truncateBlocking()
@@ -2399,9 +2412,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return data.getView().isEmpty();
     }
 
+    public boolean isBloomFilterEnabled()
+    {
+        return metadata.params.bloomFilterFpChance != 1.0;
+    }
+
     public boolean isRowCacheEnabled()
     {
-
         boolean retval = metadata.params.caching.cacheRows() && CacheService.instance.rowCache.getCapacity() > 0;
         assert(!retval || !isIndex());
         return retval;

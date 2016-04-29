@@ -319,8 +319,7 @@ public class DateTieredCompactionStrategyTest extends SchemaLoader
         options.put(DateTieredCompactionStrategyOptions.MAX_SSTABLE_AGE_KEY, Double.toString((1d / (24 * 60 * 60))));
         options.put(DateTieredCompactionStrategyOptions.EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_KEY, "0");
         DateTieredCompactionStrategy dtcs = new DateTieredCompactionStrategy(cfs, options);
-        for (SSTableReader sstable : cfs.getLiveSSTables())
-            dtcs.addSSTable(sstable);
+        dtcs.addSSTables(cfs.getLiveSSTables());
         dtcs.startup();
         assertNull(dtcs.getNextBackgroundTask((int) (System.currentTimeMillis() / 1000)));
         Thread.sleep(2000);
@@ -367,8 +366,7 @@ public class DateTieredCompactionStrategyTest extends SchemaLoader
         Map<String, String> options = new HashMap<>();
         options.put(SizeTieredCompactionStrategyOptions.MIN_SSTABLE_SIZE_KEY, "1");
         DateTieredCompactionStrategy dtcs = new DateTieredCompactionStrategy(cfs, options);
-        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
-            dtcs.addSSTable(sstable);
+        dtcs.addSSTables(cfs.getSSTables(SSTableSet.CANONICAL));
         AbstractCompactionTask task = dtcs.getNextBackgroundTask(0);
         assertEquals(20, task.transaction.originals().size());
         task.transaction.abort();

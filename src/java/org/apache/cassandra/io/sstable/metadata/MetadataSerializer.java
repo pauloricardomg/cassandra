@@ -147,6 +147,11 @@ public class MetadataSerializer implements IMetadataSerializer
         rewriteSSTableMetadata(descriptor, currentComponents);
     }
 
+    public boolean hasBloomFilter(Descriptor descriptor)
+    {
+        return new File(descriptor.filenameFor(Component.FILTER)).exists();
+    }
+
     private void rewriteSSTableMetadata(Descriptor descriptor, Map<MetadataType, MetadataComponent> currentComponents) throws IOException
     {
         String filePath = descriptor.tmpFilenameFor(Component.STATS);

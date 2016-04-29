@@ -196,7 +196,7 @@ public class CompactionController implements AutoCloseable
         {
             // if we don't have bloom filter(bf_fp_chance=1.0 or filter file is missing),
             // we check index file instead.
-            if ((sstable.getBloomFilter() instanceof AlwaysPresentFilter && sstable.getPosition(key, SSTableReader.Operator.EQ, false) != null)
+            if ((sstable.getBloomFilter().isAlwaysPresent() && sstable.getPosition(key, SSTableReader.Operator.EQ, false) != null)
                 || sstable.getBloomFilter().isPresent(key))
                 min = Math.min(min, sstable.getMinTimestamp());
         }

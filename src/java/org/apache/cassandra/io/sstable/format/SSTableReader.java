@@ -135,6 +135,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     private static final Logger logger = LoggerFactory.getLogger(SSTableReader.class);
 
     private static final ScheduledThreadPoolExecutor syncExecutor = new ScheduledThreadPoolExecutor(1);
+
     static
     {
         // Immediately remove readMeter sync task when cancelled.
@@ -465,7 +466,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         ValidationMetadata validationMetadata = (ValidationMetadata) sstableMetadata.get(MetadataType.VALIDATION);
         StatsMetadata statsMetadata = (StatsMetadata) sstableMetadata.get(MetadataType.STATS);
         SerializationHeader.Component header = (SerializationHeader.Component) sstableMetadata.get(MetadataType.HEADER);
-        assert !descriptor.version.storeRows() || header != null;
+        assert !descriptor.version.storeRows() || header != null : "Header component is missing for sstable " + descriptor;
 
         // Check if sstable is created using same partitioner.
         // Partitioner can be null, which indicates older version of sstable or no stats available.
@@ -1253,6 +1254,28 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     {
         tidy.releaseSummary();
         indexSummary = null;
+    }
+
+    public void releaseBloomFilter() throws IOException
+    {
+        tidy.releaseBloomFilter();
+        this.bf = new AlwaysPresentFilter();
+    }
+
+    public boolean hasBloomFilter()
+    {
+        return descriptor.getMetadataSerializer().hasBloomFilter(descriptor);
+    }
+
+    public void reloadBloomFilter() throws IOException
+    {
+        if (!hasBloomFilter())
+        {
+            throw new RuntimeException(String.format("SStable %s has no bloom filter to reload.", getFilename()));
+        }
+        tidy.releaseBloomFilter();
+        loadBloomFilter(descriptor.version.hasOldBfHashOrder());
+        tidy.setBloomFilter(this.bf);
     }
 
     private void validate()
@@ -2236,6 +2259,18 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             summary.close();
             assert summary.isCleanedUp();
             summary = null;
+        }
+
+        void setBloomFilter(IFilter filter)
+        {
+            bf = filter;
+        }
+
+        void releaseBloomFilter()
+        {
+            if (bf != null)
+                bf.close();
+            bf = null;
         }
     }
 
