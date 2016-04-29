@@ -1,5 +1,6 @@
 3.7
 Merged from 2.2:
+ * Increase incoming socket timeout on sender during 2i/MV rebuild on receiver (CASSANDRA-8343)
  * cqlsh: correctly handle non-ascii chars in error messages (CASSANDRA-11626)
 
 3.6
