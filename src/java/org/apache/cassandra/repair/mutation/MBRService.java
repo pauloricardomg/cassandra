@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -93,8 +94,6 @@ public class MBRService
 
     public static class MutationBasedRepairRunner implements Runnable
     {
-
-
         private final ColumnFamilyStore cfs;
         private final int windowSize;
         private final int rowsPerSecondToRepair;
@@ -118,7 +117,7 @@ public class MBRService
                 logger.info("waiting for ranges to repair");
             }
             RateLimiter limiter = RateLimiter.create(rowsPerSecondToRepair); // todo: make rows/s configurable
-            for (Range<Token> r : rangesToRepair)
+            for (Range<Token> r : rangesToRepair.stream().map(range -> Range.normalize(Collections.singleton(range))).flatMap(Collection::stream).collect(Collectors.toSet()))
             {
                 MBRMetricHolder metrics = new MBRMetricHolder(r);
                 logger.debug("repairing range {}, windowSize={}, rowsPerSecond={}", r, windowSize, rowsPerSecondToRepair);
