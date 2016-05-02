@@ -20,6 +20,7 @@ package org.apache.cassandra.repair.mutation;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 
@@ -33,10 +34,12 @@ public class MBRMetricHolder
     private final AtomicInteger hugePages = new AtomicInteger();
     private final AtomicInteger appliedMutations = new AtomicInteger();
     private final AtomicInteger appliedHugeResponsePage = new AtomicInteger();
+    private final ColumnFamilyStore cfs;
 
-    public MBRMetricHolder(Range<Token> range)
+    public MBRMetricHolder(ColumnFamilyStore cfs, Range<Token> range)
     {
         this.range = range;
+        this.cfs = cfs;
     }
 
     public void increaseRowsHashed(int hashed)
@@ -67,12 +70,13 @@ public class MBRMetricHolder
     public String toString()
     {
         StringBuilder sb = new StringBuilder();
-        sb.append("time spent: ").append(System.currentTimeMillis() - startTime).append("ms").append(", ");
-        sb.append("hashed rows: ").append(hashedRows).append(", ");
-        sb.append("mismatched pages: ").append(mismatchedPages).append(", ");
-        sb.append("huge pages: ").append(hugePages).append(", ");
-        sb.append("applied mutations: ").append(appliedMutations).append(", ");
-        sb.append("applied huge responses: ").append(appliedHugeResponsePage);
+        sb.append(String.format("repaired page for %s.%s - ", cfs.keyspace.getName(), cfs.getTableName()));
+        sb.append(String.format("time spent: %dms, ", System.currentTimeMillis() - startTime));
+        sb.append(String.format("hashed rows: %d, ", hashedRows.get()));
+        sb.append(String.format("mismatched pages: %d, ", mismatchedPages.get()));
+        sb.append(String.format("huge pages: %d, ", hugePages.get()));
+        sb.append(String.format("applied mutations: %d, ", appliedMutations.get()));
+        sb.append(String.format("applied huge response mutations: %d, ", appliedHugeResponsePage.get()));
         return sb.toString();
     }
 }

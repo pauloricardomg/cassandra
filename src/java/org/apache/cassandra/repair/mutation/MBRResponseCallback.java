@@ -30,6 +30,9 @@ import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.SEPExecutor;
+import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringBound;
@@ -113,14 +116,11 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                 switch (response.payload.type)
                 {
                     case DATA:
-                        logger.info("got data response");
                         UnfilteredPartitionIterator it = response.payload.response.makeIterator(rc);
                         remoteIterators.add(it);
                         break;
                     case HUGE:
                         hugeResponses.add(response.from);
-                        logger.error("HUGE response");
-                        // handle this
                         break;
                     case MATCH:
                         break;
@@ -129,7 +129,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
 
             if (hugeResponses.isEmpty() && remoteIterators.isEmpty())
             {
-                logger.debug("all matching");
+                logger.trace("all matching");
             }
             else if (!hugeResponses.isEmpty())
             {
@@ -214,7 +214,6 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
      */
     private void handleHugeResponses(ReadCommand rc)
     {
-        logger.info("handling a huge response");
         QueryPager pager = rc.getPager(null, Server.CURRENT_VERSION);
         while (!pager.isExhausted())
         {

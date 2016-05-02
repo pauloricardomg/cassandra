@@ -31,7 +31,6 @@ import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
-import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;

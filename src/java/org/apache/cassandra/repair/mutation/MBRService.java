@@ -21,6 +21,7 @@ package org.apache.cassandra.repair.mutation;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
@@ -40,12 +41,15 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.cassandra.concurrent.SEPExecutor;
+import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadCommand;
@@ -119,7 +123,7 @@ public class MBRService
             RateLimiter limiter = RateLimiter.create(rowsPerSecondToRepair); // todo: make rows/s configurable
             for (Range<Token> r : rangesToRepair.stream().map(range -> Range.normalize(Collections.singleton(range))).flatMap(Collection::stream).collect(Collectors.toSet()))
             {
-                MBRMetricHolder metrics = new MBRMetricHolder(r);
+                MBRMetricHolder metrics = new MBRMetricHolder(cfs, r);
                 logger.debug("repairing range {}, windowSize={}, rowsPerSecond={}", r, windowSize, rowsPerSecondToRepair);
                 DataRange dr = new DataRange(Range.makeRowRange(r), new ClusteringIndexSliceFilter(Slices.ALL, false));
                 int nowInSeconds = FBUtilities.nowInSeconds();
@@ -150,7 +154,6 @@ public class MBRService
                 {
                     if (stopped.get())
                         return;
-                    limiter.acquire(windowSize);
                     byte[] hash;
                     int count;
                     try (ReadExecutionController executionController = rc.executionController();
@@ -160,6 +163,7 @@ public class MBRService
                         hash = digest(rc, c.applyTo(pi));
                         count = c.counted();
                     }
+
                     metrics.increaseRowsHashed(count);
                     PagingState ps = pager.state();
                     PartitionPosition readUntil = ps == null ? r.right.maxKeyBound() : PartitionPosition.ForKey.get(ps.partitionKey, cfs.getPartitioner());
@@ -190,8 +194,10 @@ public class MBRService
                     }
                     start = readUntil;
                     clusteringFrom = (ps == null || ps.rowMark == null) ? ByteBufferUtil.EMPTY_BYTE_BUFFER : ps.rowMark.mark;
+                    if (count > 0)
+                        limiter.acquire(count);
                 }
-                logger.info("Range finished: {}", metrics);
+                logger.debug("Range finished: {}", metrics);
             }
         }
     }

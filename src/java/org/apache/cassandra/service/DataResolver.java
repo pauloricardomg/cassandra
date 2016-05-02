@@ -73,7 +73,8 @@ public class DataResolver extends ResponseResolver
     {
         DataLimits.Counter counter = command.limits().newCounter(command.nowInSec(), true);
         Pair<List<UnfilteredPartitionIterator>, InetAddress[]> sources = getSources();
-        return counter.applyTo(mergeWithShortReadProtection(sources.left, sources.right, counter));
+        // TODO: short read protection and read repair?
+        return counter.applyTo(UnfilteredPartitionIterators.mergeLazily(sources.left, command.nowInSec()));
     }
 
     private Pair<List<UnfilteredPartitionIterator>, InetAddress[]> getSources()
