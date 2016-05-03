@@ -397,6 +397,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
             Rows.diff(diffListener, merged, versions[0]);
             if (currentRow != null)
                  updater.add(currentRow.build());
+            currentRow = null;
         }
 
         public void onMergedRangeTombstoneMarkers(RangeTombstoneMarker merged, RangeTombstoneMarker[] versions)
