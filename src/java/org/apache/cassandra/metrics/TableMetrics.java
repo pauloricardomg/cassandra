@@ -156,11 +156,11 @@ public class TableMetrics
     public final Counter droppedMutations;
 
     /** Mutation based repair metrics */
-    public final Counter repairedPages;
-    public final Counter mismatchedPageHashes;
-    public final Counter receivedPageHashes;
-    public final Counter diffingRows;
-    public final Counter totalRows;
+    public final Counter mbrMismatchedPageHashes;
+    public final Counter mbrTotalRows;
+    public final Counter mbrHugePage;
+    public final Counter mbrAppliedHugeResponseMutations;
+    public final Counter mbrRowsHashed;
 
     private final MetricNameFactory factory;
     private final MetricNameFactory aliasFactory;
@@ -700,11 +700,11 @@ public class TableMetrics
         casPropose = new LatencyMetrics(factory, "CasPropose", cfs.keyspace.metric.casPropose);
         casCommit = new LatencyMetrics(factory, "CasCommit", cfs.keyspace.metric.casCommit);
 
-        repairedPages = createTableCounter("MBR.RepairedPages");
-        mismatchedPageHashes = createTableCounter("MBR.MissedHashes");
-        receivedPageHashes = createTableCounter("MBR.ReceivedHashes");
-        diffingRows = createTableCounter("MBR.DiffingRows");
-        totalRows = createTableCounter("MBR.TotalRows");
+        mbrMismatchedPageHashes = createTableCounter("MBRMissedHashes");
+        mbrTotalRows = createTableCounter("MBRTotalRows");
+        mbrHugePage = createTableCounter("MBRHugePage");
+        mbrAppliedHugeResponseMutations = createTableCounter("MBRAppliedHugeResponseMutations");
+        mbrRowsHashed = createTableCounter("MBRRowsHashed");
     }
 
     public void updateSSTableIterated(int count)

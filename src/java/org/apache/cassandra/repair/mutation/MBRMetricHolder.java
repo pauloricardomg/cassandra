@@ -24,7 +24,6 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 
-// todo: update global metrics
 public class MBRMetricHolder
 {
     private final Range<Token> range;
@@ -44,26 +43,31 @@ public class MBRMetricHolder
 
     public void increaseRowsHashed(int hashed)
     {
+        cfs.metric.mbrRowsHashed.inc();
         hashedRows.addAndGet(hashed);
     }
 
     public void mismatchedPage()
     {
+        cfs.metric.mbrMismatchedPageHashes.inc();
         mismatchedPages.incrementAndGet();
     }
 
     public void hugePage()
     {
+        cfs.metric.mbrHugePage.inc();
         hugePages.incrementAndGet();
     }
 
     public void appliedMutation()
     {
+        cfs.metric.mbrTotalRows.inc();
         appliedMutations.incrementAndGet();
     }
 
     public void appliedHugeResponseMutation()
     {
+        cfs.metric.mbrAppliedHugeResponseMutations.inc();
         appliedHugeResponsePage.incrementAndGet();
     }
 

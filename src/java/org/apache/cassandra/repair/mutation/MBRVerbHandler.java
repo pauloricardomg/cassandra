@@ -40,7 +40,8 @@ import org.apache.cassandra.net.MessagingService;
  *
  * We get a RepairPage from another node, we figure out what we should read based on the RepairPage and we
  * hash that data. Then we compare the hashes and if the hashes don't match, we read up the data and return that
- * to the remote node.
+ * to the remote node. If the number of rows is too large, we return a "HUGE" response and let the repairing node
+ * page the data back.
  */
 public class MBRVerbHandler implements IVerbHandler<MBRCommand>
 {
@@ -51,7 +52,6 @@ public class MBRVerbHandler implements IVerbHandler<MBRCommand>
         MBRCommand mbrc = message.payload;
         ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(message.payload.cfid);
         assert cfs != null;
-        cfs.metric.receivedPageHashes.inc();
         PartitionRangeReadCommand rc = mbrc.repairPage.createReadCommand(cfs, mbrc.nowInSeconds, mbrc.repairPage.windowSize * 2);
         boolean match = true;
         long rowCount = 0;

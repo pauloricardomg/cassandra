@@ -24,12 +24,18 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.SEPExecutor;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
@@ -67,8 +73,22 @@ import org.apache.cassandra.service.pager.QueryPager;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.FBUtilities;
 
+
+/**
+ * Callback for the RR sent to replicas during mutation based repair
+ *
+ * We use an internal response thread to receive the message, but heavy lifting (applying mutations) is offloaded to
+ * another thread. MBRService will block until the count down latch is 0, and this means that
+ * it will block until the repair page has been written to the memtable.
+ */
 public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
 {
+    private static final ExecutorService executor = new JMXEnabledThreadPoolExecutor(1,
+                                                                                     StageManager.KEEPALIVE,
+                                                                                     TimeUnit.SECONDS,
+                                                                                     new LinkedBlockingQueue<>(),
+                                                                                     new NamedThreadFactory("MutationRepairMutations"),
+                                                                                     "internal");
     private static final Logger logger = LoggerFactory.getLogger(MBRResponseCallback.class);
 
     private final MBRRepairPage repairPage;
@@ -77,6 +97,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
     private final CountDownLatch cdl;
     private final int expectedResponses;
     private final Set<MessageIn<MBRResponse>> responses = new CopyOnWriteArraySet<>();
+    private final AtomicInteger responseCount = new AtomicInteger();
     private final MBRMetricHolder metrics;
 
     public MBRResponseCallback(ColumnFamilyStore cfs, MBRRepairPage rp, int nowInSeconds, CountDownLatch cdl, int expectedResponses, MBRMetricHolder metrics)
@@ -91,11 +112,21 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
 
     public void response(MessageIn<MBRResponse> msg)
     {
-        responses.add(msg);
-        if (responses.size() == expectedResponses)
-            resolveDiff(repairPage, responses);
-
-        cdl.countDown();
+        responseCount.incrementAndGet();
+        if (msg.payload.type != MBRResponse.Type.MATCH)
+            responses.add(msg);
+        if (responseCount.get() == expectedResponses && !responses.isEmpty())
+        {
+            executor.submit(() ->
+                            {
+                                resolveDiff(repairPage, responses);
+                                cdl.countDown();
+                            });
+        }
+        else
+        {
+            cdl.countDown();
+        }
     }
 
     public boolean isLatencyForSnitch()
@@ -123,6 +154,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                         hugeResponses.add(response.from);
                         break;
                     case MATCH:
+                        assert false : "We should not see MATCH types here";
                         break;
                 }
             }
@@ -390,7 +422,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
             // todo: separate memtable for this?
             // todo:    - allow incremental repairs (flush to repaired sstable)
             // todo:    - be able to run this with DTCS (or make flushing align with dtcs windows)
-            cfs.metric.totalRows.inc();
+
             if (!updater.isEmpty())
             {
                 metrics.appliedMutation();

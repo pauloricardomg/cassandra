@@ -74,6 +74,20 @@ import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
+/**
+ * 1. Read up a page of our local data, figure out where the returned page starts and ends
+ * 2. Hash the page and send hash + page start & end to remote nodes
+ *    - first page sent starts at the beginning of the range (and with Slice.Bound.BOTTOM)
+ *    - last page sent ends at the end of the range (and Slice.Bound.TOP)
+ * 3. Remote nodes start reading from the start sent in #2 above
+ *    - it hashes rows until the end token/clustering found in #1 OR until 2x WINDOW SIZE rows have been found
+ * 4. If remote node reads at least 2x WINDOW SIZE rows, it is considered a 'HUGE' result and we will
+ *    page back all the data from the remote nodes.
+ * 5. If the hashes mismatch but we read a reasonable amount of rows we reply with the data and initiator
+ *     diffs its local data with the received data and puts the difference in the memtable
+ * 6. If the hashes match, continue
+ * 7. Goto #1.
+ */
 public class MBRService
 {
     private static final Logger logger = LoggerFactory.getLogger(MBRService.class);
@@ -137,19 +151,7 @@ public class MBRService
                 QueryPager pager = rc.getPager(null, Server.CURRENT_VERSION);
                 PartitionPosition start = r.left.maxKeyBound();
                 ByteBuffer clusteringFrom = ByteBufferUtil.EMPTY_BYTE_BUFFER;
-                /*
-                1. page through our local data, figuring out where the returned page starts and ends
-                2. hash the page and send hash + page start & end to remote nodes
-                   - first page sent starts at the beginning of the range (and with Slice.Bound.BOTTOM)
-                   - last page sent ends at the end of the range (and Slice.Bound.TOP)
-                3. remote nodes start reading from the start sent in #2 above
-                   - it hashes rows until the end token/clustering found in #1 OR until 2x WINDOW SIZE rows have been found
-                4. if we read 2x WINDOW SIZE rows, it is considered a 'HUGE' result and we will page back all the data
-                   from the remote nodes
-                5. if the hashes mismatch but we read a reasonable amount of rows we reply with the data and initiator
-                   diffs its local data with the received data and puts the difference in the memtable
-                6. if the hashes match, we continue with the next page of data.
-                 */
+
                 while (!pager.isExhausted())
                 {
                     if (stopped.get())
@@ -186,7 +188,6 @@ public class MBRService
                     try
                     {
                         cdl.await(1, TimeUnit.MINUTES);
-                        cfs.metric.repairedPages.inc();
                     }
                     catch (InterruptedException e)
                     {
