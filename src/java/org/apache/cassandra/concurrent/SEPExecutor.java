@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.cassandra.metrics.SEPMetrics;
+import org.apache.cassandra.utils.ThreadDumper;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
@@ -46,6 +47,8 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
     // producers wait on this when there is no room on the queue
     private final WaitQueue hasRoom = new WaitQueue();
     private final AtomicLong completedTasks = new AtomicLong();
+    private final ThreadDumper threadDumper = new ThreadDumper();
+    private final boolean enableThreadDumping;
 
     volatile boolean shuttingDown = false;
     final SimpleCondition shutdown = new SimpleCondition();
@@ -53,7 +56,8 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
     // TODO: see if other queue implementations might improve throughput
     protected final ConcurrentLinkedQueue<FutureTask<?>> tasks = new ConcurrentLinkedQueue<>();
 
-    SEPExecutor(SharedExecutorPool pool, int maxWorkers, int maxTasksQueued, String jmxPath, String name)
+    SEPExecutor(SharedExecutorPool pool, int maxWorkers, int maxTasksQueued, String jmxPath, String name,
+                boolean enableThreadDumping)
     {
         this.pool = pool;
         this.name = name;
@@ -61,6 +65,9 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
         this.maxTasksQueued = maxTasksQueued;
         this.permits.set(combine(0, maxWorkers));
         this.metrics = new SEPMetrics(this, jmxPath, name);
+        this.enableThreadDumping = enableThreadDumping;
+        if (enableThreadDumping)
+            this.threadDumper.init(name);
     }
 
     protected void onCompletion()
@@ -121,6 +128,8 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
 
                 metrics.totalBlocked.inc();
                 metrics.currentBlocked.inc();
+                if (enableThreadDumping)
+                    threadDumper.maybeLogThreadDump();
                 s.awaitUninterruptibly();
                 metrics.currentBlocked.dec();
             }
