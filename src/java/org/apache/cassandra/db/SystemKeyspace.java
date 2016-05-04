@@ -97,6 +97,7 @@ public final class SystemKeyspace
     public static final String AVAILABLE_RANGES = "available_ranges";
     public static final String VIEWS_BUILDS_IN_PROGRESS = "views_builds_in_progress";
     public static final String BUILT_VIEWS = "built_views";
+    public static final String MBR_LAST_POSITION = "mbr_last_position";
 
     @Deprecated public static final String LEGACY_HINTS = "hints";
     @Deprecated public static final String LEGACY_BATCHLOG = "batchlog";
@@ -264,6 +265,16 @@ public final class SystemKeyspace
                 + "view_name text,"
                 + "status_replicated boolean,"
                 + "PRIMARY KEY ((keyspace_name), view_name))");
+
+    private static final CFMetaData MBRLastPosition =
+        compile(MBR_LAST_POSITION,
+                "mutation based repair last repair",
+                "CREATE TABLE %s ("
+                + "keyspace_name text,"
+                + "table_name text,"
+                + "range blob,"
+                + "start_time int,"
+                + "PRIMARY KEY (keyspace_name, table_name))");
 
     @Deprecated
     public static final CFMetaData LegacyHints =
@@ -433,6 +444,7 @@ public final class SystemKeyspace
                          AvailableRanges,
                          ViewsBuildsInProgress,
                          BuiltViews,
+                         MBRLastPosition,
                          LegacyHints,
                          LegacyBatchlog,
                          LegacyKeyspaces,
@@ -1277,6 +1289,38 @@ public final class SystemKeyspace
             }
         }
         return ImmutableSet.copyOf(result);
+    }
+
+    /**
+     * Stores a mutation based repair range, to know where we should continue after restarting
+     * @param keyspace name of keyspace
+     * @param table table name
+     * @param range the range we just repaired
+     * @param startTimeInSeconds nowInSeconds used for the repair basically
+     */
+    public static synchronized void storeRepairedRange(String keyspace, String table, Range<Token> range, int startTimeInSeconds)
+    {
+        String cql = "UPDATE system.%s SET range = ?, start_time = ? WHERE keyspace_name = ? and table_name = ?";
+        executeInternal(String.format(cql, MBR_LAST_POSITION), rangeToBytes(range), startTimeInSeconds, keyspace, table);
+    }
+
+    /**
+     * get the last repaired range for the given table
+     * @param keyspace the keyspace
+     * @param table the table
+     * @param partitioner the partitioner to use when reading the range
+     * @return the last repaired range or null if it does not exist
+     */
+    public static synchronized Range<Token> getLastRepairedRange(String keyspace, String table, IPartitioner partitioner)
+    {
+        String cql = String.format("SELECT range FROM system.%s where keyspace_name = ? and table_name = ?", MBR_LAST_POSITION);
+        UntypedResultSet rs = executeInternal(cql, keyspace, table);
+        for (UntypedResultSet.Row row : rs)
+        {
+            ByteBuffer range = row.getBytes("range");
+            return byteBufferToRange(range, partitioner);
+        }
+        return null;
     }
 
     public static void resetAvailableRanges()

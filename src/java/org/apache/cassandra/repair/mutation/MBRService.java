@@ -21,9 +21,10 @@ package org.apache.cassandra.repair.mutation;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -41,21 +42,19 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
-import org.apache.cassandra.concurrent.SEPExecutor;
-import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.db.ClusteringBound;
 import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -127,15 +126,8 @@ public class MBRService
 
         public void run()
         {
-            Collection<Range<Token>> rangesToRepair = StorageService.instance.getLocalRanges(cfs.keyspace.getName());
-            while (rangesToRepair == null || rangesToRepair.isEmpty())
-            {
-                rangesToRepair = StorageService.instance.getLocalRanges(cfs.keyspace.getName());
-                FBUtilities.sleepQuietly(1000);
-                logger.info("waiting for ranges to repair");
-            }
             RateLimiter limiter = RateLimiter.create(rowsPerSecondToRepair); // todo: make rows/s configurable
-            for (Range<Token> r : rangesToRepair.stream().map(range -> Range.normalize(Collections.singleton(range))).flatMap(Collection::stream).collect(Collectors.toSet()))
+            for (Range<Token> r : getRangesWithSavedStartPoint(cfs))
             {
                 MBRMetricHolder metrics = new MBRMetricHolder(cfs, r);
                 logger.debug("repairing range {}, windowSize={}, rowsPerSecond={}", r, windowSize, rowsPerSecondToRepair);
@@ -191,16 +183,68 @@ public class MBRService
                     }
                     catch (InterruptedException e)
                     {
-                        logger.warn("Missing reply from {} - not repairing this page", Sets.difference(targets, callback.replies()));
+                        String message = String.format("Missing reply from %s - repair failed", Sets.difference(targets, callback.replies()));
+                        logger.error(message);
+                        throw new RuntimeException(message);
                     }
                     start = readUntil;
                     clusteringFrom = (ps == null || ps.rowMark == null) ? ByteBufferUtil.EMPTY_BYTE_BUFFER : ps.rowMark.mark;
                     if (count > 0)
                         limiter.acquire(count);
                 }
+                try
+                {
+                    SystemKeyspace.storeRepairedRange(cfs.keyspace.getName(), cfs.getTableName(), r, nowInSeconds);
+                }
+                catch (Throwable t)
+                {
+                    logger.warn("Unable to store last repaired range "+r, t);
+                }
                 logger.debug("Range finished: {}", metrics);
             }
         }
+    }
+
+    /**
+     * Figure out where we should start repairing - reads the last repaired range from a system keyspace
+     * and starts at the next one.
+     *
+     * Still returns all local ranges, just that the first one to repair will be the next range after the one
+     * that we repaired last in the last round;
+     *
+     * @param cfs
+     * @return
+     */
+    private static Iterable<Range<Token>> getRangesWithSavedStartPoint(ColumnFamilyStore cfs)
+    {
+        Range<Token> start = SystemKeyspace.getLastRepairedRange(cfs.keyspace.getName(), cfs.getTableName(), cfs.getPartitioner());
+        Collection<Range<Token>> rangesToRepair = StorageService.instance.getLocalRanges(cfs.keyspace.getName());
+        while (rangesToRepair == null || rangesToRepair.isEmpty())
+        {
+            rangesToRepair = StorageService.instance.getLocalRanges(cfs.keyspace.getName());
+            FBUtilities.sleepQuietly(1000);
+            logger.info("waiting for ranges to repair");
+        }
+        // todo: consider if we should normalize the full ranges. thinking here is that having many small ranges gives us natural
+        // todo: points to save progress (we could save at given time points or something instead)
+        List<Range<Token>> ranges = Range.sort(rangesToRepair.stream().map(range -> Range.normalize(Collections.singleton(range))).flatMap(Collection::stream).collect(Collectors.toList()));
+        if (start == null)
+            return ranges;
+        int idx = 0;
+        for (Range<Token> r : ranges)
+        {
+            if (start.right.compareTo(r.right) < 0)
+                break;
+            idx++;
+        }
+        if (idx >= ranges.size())
+            idx = 0;
+
+        List<Range<Token>> res = new ArrayList<>(ranges.size());
+        res.addAll(ranges.subList(idx, ranges.size()));
+        res.addAll(ranges.subList(0, idx));
+        assert res.size() == ranges.size();
+        return res;
     }
 
     public static byte[] digest(ReadCommand rc, UnfilteredPartitionIterator pi)
