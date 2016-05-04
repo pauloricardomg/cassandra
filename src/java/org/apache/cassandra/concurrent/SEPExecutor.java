@@ -17,19 +17,26 @@
  */
 package org.apache.cassandra.concurrent;
 
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
+
 import org.apache.cassandra.metrics.SEPMetrics;
+import org.apache.cassandra.utils.ThreadDumpLogger;
+import org.apache.cassandra.utils.ThreadDumper;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 import static org.apache.cassandra.concurrent.SEPWorker.Work;
 
-public class SEPExecutor extends AbstractLocalAwareExecutorService
+public class SEPExecutor extends AbstractLocalAwareExecutorService implements SEPExecutorMBean
 {
     private final SharedExecutorPool pool;
 
@@ -51,6 +58,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
 
     // TODO: see if other queue implementations might improve throughput
     protected final ConcurrentLinkedQueue<FutureTask<?>> tasks = new ConcurrentLinkedQueue<>();
+    private AtomicBoolean logThreadDumpOnNextContention = new AtomicBoolean(false);
 
     SEPExecutor(SharedExecutorPool pool, int maxWorkers, int maxTasksQueued, String jmxPath, String name)
     {
@@ -59,6 +67,17 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
         this.maxTasksQueued = maxTasksQueued;
         this.permits.set(combine(0, maxWorkers));
         this.metrics = new SEPMetrics(this, jmxPath, name);
+
+        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+        String mbeanName = "org.apache.cassandra." + jmxPath + ":type=" + name;
+        try
+        {
+            mbs.registerMBean(this, new ObjectName(mbeanName));
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
     protected void onCompletion()
@@ -119,6 +138,10 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
 
                 metrics.totalBlocked.inc();
                 metrics.currentBlocked.inc();
+                if (logThreadDumpOnNextContention.get())
+                {
+                    ThreadDumper.unsetAndLogThreadDump(logThreadDumpOnNextContention, logger);
+                }
                 s.awaitUninterruptibly();
                 metrics.currentBlocked.dec();
             }
@@ -276,5 +299,15 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
     private static long combine(int taskPermits, int workPermits)
     {
         return (((long) workPermits) << 32) | taskPermits;
+    }
+
+    public void setLogThreadDumpOnNextContention(boolean enabled)
+    {
+        logThreadDumpOnNextContention.set(enabled);
+    }
+
+    public boolean getLogThreadDumpOnNextContention()
+    {
+        return this.logThreadDumpOnNextContention.get();
     }
 }
