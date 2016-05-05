@@ -526,8 +526,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         if (state() == State.WAIT_COMPLETE && e instanceof SocketTimeoutException)
             logger.error("[Stream #{}] Received stream socket timeout on WAIT_COMPLETE state and will fail stream session. " +
                          "The other peer might still be processing received data. If that's the case, consider increasing " +
-                         "streaming_socket_timeout_in_ms property to allow more time for the other peer to process received data.",
-                         planId());
+                         "streaming_socket_timeout_in_ms property to allow more time for the other peer to rebuild indexes and views.",
+                         planId(), e);
         else
             logger.error("[Stream #{}] Streaming error occurred", planId(), e);
         // send session failure message
