@@ -27,7 +27,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,6 +53,7 @@ public class StreamReceiveTask extends StreamTask
 {
     private static final ExecutorService executor = Executors.newCachedThreadPool(new NamedThreadFactory("StreamReceiveTask"));
     private static final Logger logger = LoggerFactory.getLogger(StreamReceiveTask.class);
+    private static final Integer TEST_SLEEP_BEFORE_COMPLETE = Integer.getInteger("cassandra.dtest.sleep_before_complete_stream_task");
 
     // number of files to receive
     private final int totalFiles;
@@ -172,6 +175,8 @@ public class StreamReceiveTask extends StreamTask
                     }
                 }
 
+                if (TEST_SLEEP_BEFORE_COMPLETE != null)
+                    Thread.sleep(TEST_SLEEP_BEFORE_COMPLETE);
                 task.session.taskCompleted(task);
             }
             catch (Throwable t)

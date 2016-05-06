@@ -230,7 +230,10 @@ public class ConnectionHandler
             // We can now close the socket
             try
             {
+                logger.info("socket is closed? {}", socket.isClosed());
+                logger.info("closing socket: {} -- {}", socket.getLocalSocketAddress(), socket.getRemoteSocketAddress());
                 socket.close();
+                logger.info("socket is closed? {}", socket.isClosed());
             }
             catch (IOException e)
             {
@@ -264,6 +267,7 @@ public class ConnectionHandler
                 ReadableByteChannel in = getReadChannel(socket);
                 while (!isClosed())
                 {
+                    logger.info("got here #1");
                     // receive message
                     StreamMessage message = StreamMessage.deserialize(in, protocolVersion, session);
                     logger.debug("[Stream #{}] Received {}", session.planId(), message);
@@ -277,6 +281,7 @@ public class ConnectionHandler
             }
             catch (SocketException e)
             {
+                logger.info("got here #2");
                 // socket is closed
                 close();
             }
@@ -287,6 +292,7 @@ public class ConnectionHandler
             }
             finally
             {
+                logger.info("got here #3");
                 signalCloseDone();
             }
         }
@@ -365,20 +371,28 @@ public class ConnectionHandler
 
         private void sendMessage(DataOutputStreamPlus out, StreamMessage message)
         {
-            try
+            try {
+                try
+                {
+                    logger.info("#3");
+                    StreamMessage.serialize(message, out, protocolVersion, session);
+                    out.flush();
+                    logger.info("#4");
+                }
+                catch (SocketException e)
+                {
+                    session.onError(e);
+                    close();
+                }
+                catch (IOException e)
+                {
+                    session.onError(e);
+                }
+            } catch (Throwable t)
             {
-                StreamMessage.serialize(message, out, protocolVersion, session);
-                out.flush();
+                logger.error("MWHAAHAHAH", t);
             }
-            catch (SocketException e)
-            {
-                session.onError(e);
-                close();
-            }
-            catch (IOException e)
-            {
-                session.onError(e);
-            }
+
         }
     }
 }
