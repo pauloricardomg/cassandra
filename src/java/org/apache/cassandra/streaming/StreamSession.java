@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.google.common.base.Function;
 import com.google.common.collect.*;
 
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.slf4j.Logger;
@@ -117,6 +118,8 @@ import org.apache.cassandra.utils.concurrent.Refs;
 public class StreamSession implements IEndpointStateChangeSubscriber
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamSession.class);
+    private static final ScheduledExecutorService keepAliveExecutor = Executors.newSingleThreadScheduledExecutor(new NamedThreadFactory("StreamKeepAliveExecutor"));
+    private static final int KEEPALIVE_SEQ_NUM = -1;
 
     /**
      * Streaming endpoint.
@@ -148,6 +151,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     private AtomicBoolean isAborted = new AtomicBoolean(false);
     private final boolean keepSSTableLevel;
     private final boolean isIncremental;
+    private ScheduledFuture<?> keepAliveFuture = null;
 
     public static enum State
     {
@@ -427,6 +431,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                     task.abort();
             }
 
+            if (keepAliveFuture != null)
+            {
+                keepAliveFuture.cancel(false);
+                keepAliveFuture = null;
+            }
+
             // Note that we shouldn't block on this close because this method is called on the handler
             // incoming thread (so we would deadlock).
             handler.close();
@@ -596,7 +606,19 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public void received(UUID cfId, int sequenceNumber)
     {
-        transfers.get(cfId).complete(sequenceNumber);
+        //While we don't have a KeepAlive message we reuse the "Received" message
+        //with a special sequence number (-1) to represent a KeepAlive message (#8343)
+        if (state() == State.WAIT_COMPLETE && sequenceNumber == KEEPALIVE_SEQ_NUM)
+        {
+            logger.debug("[Stream #{}] Received keep-alive message.");
+            return;
+        }
+
+        StreamTransferTask task = transfers.get(cfId);
+        if (task != null)
+            task.complete(sequenceNumber);
+        else
+            logger.warn("Received 'received' message for unknown CF {}. Ignoring.", cfId);
     }
 
     /**
@@ -627,9 +649,18 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
         else
         {
+            scheduleKeepAliveTask();
             state(State.WAIT_COMPLETE);
             handler.closeIncoming();
         }
+    }
+
+    private void scheduleKeepAliveTask()
+    {
+        KeepAliveTask task = new KeepAliveTask();
+        int keepAlivePeriod = DatabaseDescriptor.getStreamingSocketTimeout() / 2;
+        if (keepAliveFuture != null)
+            keepAliveFuture = keepAliveExecutor.scheduleAtFixedRate(task, keepAlivePeriod, keepAlivePeriod, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -752,6 +783,23 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 handler.sendMessages(messages);
             else
                 taskCompleted(task); // there is no file to send
+        }
+    }
+
+    class KeepAliveTask implements Runnable
+    {
+        public void run()
+        {
+            // we don't threat exceptions here because task
+            // will be simply cancelled if there is an
+            // exception while sending message
+            handler.sendMessage(createKeepAliveMessage());
+        }
+
+        //TODO: create exclusive KeepAlive message in next stream protocol version bump
+        private StreamMessage createKeepAliveMessage()
+        {
+            return new ReceivedMessage(planId(), KEEPALIVE_SEQ_NUM);
         }
     }
 }
