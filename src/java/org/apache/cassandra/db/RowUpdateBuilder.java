@@ -272,6 +272,13 @@ public class RowUpdateBuilder
         return add(c, value);
     }
 
+    public int sizeOf(String columnName, Object value)
+    {
+        ColumnDefinition c = getDefinition(columnName);
+        assert c != null : "Cannot find column " + columnName;
+        return sizeOf(c, value);
+    }
+
     private Cell makeCell(ColumnDefinition c, ByteBuffer value, CellPath path)
     {
         return value == null
@@ -284,6 +291,13 @@ public class RowUpdateBuilder
         assert columnDefinition.isStatic() || update.metadata().comparator.size() == 0 || regularBuilder != null : "Cannot set non static column " + columnDefinition + " since no clustering hasn't been provided";
         builder(columnDefinition).addCell(makeCell(columnDefinition, bb(value, columnDefinition.type), null));
         return this;
+    }
+
+    private int sizeOf(ColumnDefinition columnDefinition, Object value)
+    {
+        assert columnDefinition.isStatic() || update.metadata().comparator.size() == 0 || regularBuilder != null : "Cannot set non static column " + columnDefinition + " since no clustering hasn't been provided";
+        Cell cell = makeCell(columnDefinition, bb(value, columnDefinition.type), null);
+        return cell.dataSize();
     }
 
     public RowUpdateBuilder delete(String columnName)
@@ -336,7 +350,7 @@ public class RowUpdateBuilder
         ColumnDefinition c = getDefinition(columnName);
         assert c.isStatic() || regularBuilder != null : "Cannot set non static column " + c + " since no clustering has been provided";
         assert c.type instanceof ListType && !c.type.isMultiCell() : "Column " + c + " is not a frozen list";
-        builder(c).addCell(makeCell(c, bb(((AbstractType)c.type).decompose(list), c.type), null));
+        builder(c).addCell(makeCell(c, bb(((AbstractType) c.type).decompose(list), c.type), null));
         return this;
     }
 
@@ -371,11 +385,24 @@ public class RowUpdateBuilder
     public RowUpdateBuilder addListEntry(String columnName, Object value)
     {
         ColumnDefinition c = getDefinition(columnName);
+        Cell cell = makeListCell(value, c);
+        builder(c).addCell(cell);
+        return this;
+    }
+
+    private Cell makeListCell(Object value, ColumnDefinition c)
+    {
         assert c.isStatic() || regularBuilder != null : "Cannot set non static column " + c + " since no clustering has been provided";
         assert c.type instanceof ListType && c.type.isMultiCell() : "Column " + c + " is not a non-frozen list";
         ListType lt = (ListType)c.type;
-        builder(c).addCell(makeCell(c, bb(value, lt.getElementsType()), CellPath.create(ByteBuffer.wrap(UUIDGen.getTimeUUIDBytes()))));
-        return this;
+        return makeCell(c, bb(value, lt.getElementsType()), CellPath.create(ByteBuffer.wrap(UUIDGen.getTimeUUIDBytes())));
+    }
+
+    public int sizeOfListEntry(String columnName, Object value)
+    {
+        ColumnDefinition c = getDefinition(columnName);
+        Cell cell = makeListCell(value, c);
+        return cell.dataSize();
     }
 
     public RowUpdateBuilder addSetEntry(String columnName, Object value)

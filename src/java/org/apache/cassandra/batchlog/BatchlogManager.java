@@ -36,6 +36,7 @@ import org.apache.cassandra.concurrent.DebuggableScheduledThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.commitlog.CommitLogSegment;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
@@ -144,6 +145,69 @@ public class BatchlogManager implements BatchlogManagerMBean
         }
 
         builder.build().apply(durableWrites);
+    }
+
+    /**
+     * Stores the collection of mutations in the batchlog observing the maximum
+     * size of <code>max_mutation_size_in_kb</code> for a single batch. Every time
+     * the current batch exceeds this limit, a new batch is created with the
+     * remaining mutations until all mutations are stored in the batchlog.
+     *
+     * WARNING: don't use this if you need the mutations to be in a single batch.
+     *
+     * @param mutations The mutations to store in the batchlog
+     * @param creationTime The time of creation of this operation
+     * @param durableWrites If writes should be durable
+     * @return The ids of created batches
+     */
+    public static Set<UUID> storeMultiBatch(Collection<Mutation> mutations, long creationTime, boolean durableWrites)
+    {
+        Integer maxBatchSize = DatabaseDescriptor.getMaxMutationSize() - CommitLogSegment.ENTRY_OVERHEAD_SIZE;
+
+        Map<UUID, RowUpdateBuilder> createdBatches = new HashMap<>();
+
+        UUID currentId = UUIDGen.getTimeUUID();
+        RowUpdateBuilder currentBatch = new RowUpdateBuilder(SystemKeyspace.Batches, creationTime, currentId)
+                                        .clustering()
+                                        .add("version", MessagingService.current_version);
+        long currentBatchSize = currentBatch.sizeOf("version", MessagingService.current_version);
+
+        for (Mutation mutation : mutations)
+        {
+            try (DataOutputBuffer buffer = new DataOutputBuffer())
+            {
+                Mutation.serializer.serialize(mutation, buffer, MessagingService.current_version);
+                long mutationSize = currentBatch.sizeOfListEntry("mutations", buffer.buffer());
+                if (mutationSize > maxBatchSize)
+                {
+                    throw new IllegalArgumentException(String.format("Mutation of %s is too large for the maximum size of %s",
+                                                                     FBUtilities.prettyPrintMemory(mutationSize),
+                                                                     FBUtilities.prettyPrintMemory(maxBatchSize)));
+                }
+                if (currentBatchSize + mutationSize > maxBatchSize)
+                {
+                    createdBatches.put(currentId, currentBatch);
+                    currentId = UUIDGen.getTimeUUID();
+                    currentBatch = new RowUpdateBuilder(SystemKeyspace.Batches, creationTime, currentId)
+                                                    .clustering()
+                                                    .add("version", MessagingService.current_version);
+                    currentBatchSize = currentBatch.sizeOf("version", MessagingService.current_version);
+                }
+                currentBatch.addListEntry("mutations", buffer.buffer());
+                currentBatchSize += mutationSize;
+            }
+            catch (IOException e)
+            {
+                // shouldn't happen
+                throw new AssertionError(e);
+            }
+        }
+        createdBatches.put(currentId, currentBatch);
+
+        //store created batches
+        createdBatches.values().forEach(b -> b.build().apply(durableWrites));
+
+        return createdBatches.keySet();
     }
 
     @VisibleForTesting

@@ -72,8 +72,6 @@ import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.AbstractIterator;
 
-import static com.google.common.collect.Iterables.contains;
-
 public class StorageProxy implements StorageProxyMBean
 {
     public static final String MBEAN_NAME = "org.apache.cassandra.db:type=StorageProxy";
@@ -716,7 +714,6 @@ public class StorageProxy implements StorageProxyMBean
 
         long startTime = System.nanoTime();
 
-
         try
         {
             // if we haven't joined the ring, write everything to batchlog because paired replicas may be stale
@@ -724,8 +721,7 @@ public class StorageProxy implements StorageProxyMBean
 
             if (StorageService.instance.isStarting() || StorageService.instance.isJoining() || StorageService.instance.isMoving())
             {
-                BatchlogManager.store(Batch.createLocal(batchUUID, FBUtilities.timestampMicros(),
-                                                        mutations), writeCommitLog);
+                BatchlogManager.storeMultiBatch(mutations, FBUtilities.timestampMicros(), writeCommitLog);
             }
             else
             {
