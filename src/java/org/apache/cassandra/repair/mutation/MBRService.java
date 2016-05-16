@@ -27,6 +27,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -60,6 +62,7 @@ import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
+import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.dht.AbstractBounds;
@@ -126,7 +129,7 @@ public class MBRService
 
         public void run()
         {
-            RateLimiter limiter = RateLimiter.create(rowsPerSecondToRepair); // todo: make rows/s configurable
+            RateLimiter limiter = RateLimiter.create(rowsPerSecondToRepair);
             for (Range<Token> r : getRangesWithSavedStartPoint(cfs))
             {
                 MBRMetricHolder metrics = new MBRMetricHolder(cfs, r);
@@ -168,7 +171,7 @@ public class MBRService
                     // we need to read all the (remaining) data on the remote node
                     ByteBuffer pageClusteringEnd = (pager.isExhausted() || ps == null || ps.rowMark == null) ? ByteBufferUtil.EMPTY_BYTE_BUFFER : ps.rowMark.mark;
                     boolean isStartKeyInclusive = ps == null || ps.remainingInPartition > 0;
-                    MBRRepairPage rp = new MBRRepairPage(start, pageEnd, clusteringFrom, pageClusteringEnd, hash, count, windowSize, isStartKeyInclusive); // cast to int should be safe - window size is small
+                    MBRRepairPage rp = new MBRRepairPage(start, pageEnd, clusteringFrom, pageClusteringEnd, hash, count, windowSize, isStartKeyInclusive);
                     if (logger.isTraceEnabled())
                         logger.trace("Repairing page = {}", rp.toString(cfs.metadata));
                     Set<InetAddress> targets = StorageService.instance.getLiveNaturalEndpoints(cfs.keyspace, r.right).stream().filter(i -> !FBUtilities.getBroadcastAddress().equals(i)).collect(Collectors.toSet());
