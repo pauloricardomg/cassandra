@@ -1,6 +1,5 @@
- * Fix commit log replay after out-of-order flush completion (CASSANDRA-9669)
-
 2.2.7
+ * Fix commit log replay after out-of-order flush completion (CASSANDRA-9669)
  * Add seconds to cqlsh tracing session duration (CASSANDRA-11753)
  * Prohibit Reverse Counter type as part of the PK (CASSANDRA-9395)
  * cqlsh: correctly handle non-ascii chars in error messages (CASSANDRA-11626)
@@ -18,6 +17,7 @@
  * Always close cluster with connection in CqlRecordWriter (CASSANDRA-11553)
  * Fix slice queries on ordered COMPACT tables (CASSANDRA-10988)
 Merged from 2.1:
+ * Set default streaming_socket_timeout_in_ms to 48 hours (CASSANDRA-11826)
  * Add option to disable use of severity in DynamicEndpointSnitch (CASSANDRA-11737)
  * cqlsh COPY FROM fails for null values with non-prepared statements (CASSANDRA-11631)
  * Make cython optional in pylib/setup.py (CASSANDRA-11630)
