@@ -14,8 +14,8 @@ Merged from 2.2:
  * Prohibit Reversed Counter type as part of the PK (CASSANDRA-9395)
  * cqlsh: correctly handle non-ascii chars in error messages (CASSANDRA-11626)
 Merged from 2.1:
+ * Set default streaming_socket_timeout_in_ms to 24 hours (CASSANDRA-11840)
  * Avoid holding SSTableReaders for duration of incremental repair (CASSANDRA-11739)
-
 
 3.6
  * Correctly migrate schema for frozen UDTs during 2.x -> 3.x upgrades
