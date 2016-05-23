@@ -10,6 +10,7 @@ Merged from 2.2:
  * Add seconds to cqlsh tracing session duration (CASSANDRA-11753)
  * Prohibit Reversed Counter type as part of the PK (CASSANDRA-9395)
 Merged from 2.1:
+ * Do not consider local node a valid source during replace (CASSANDRA-11848)
  * Avoid holding SSTableReaders for duration of incremental repair (CASSANDRA-11739)
 
 
