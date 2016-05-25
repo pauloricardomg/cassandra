@@ -60,13 +60,15 @@ public class ConnectionHandler
     private static final Logger logger = LoggerFactory.getLogger(ConnectionHandler.class);
 
     private final StreamSession session;
+    private int incomingSocketTimeout;
 
     private IncomingMessageHandler incoming;
     private OutgoingMessageHandler outgoing;
 
-    ConnectionHandler(StreamSession session)
+    ConnectionHandler(StreamSession session, int incomingSocketTimeout)
     {
         this.session = session;
+        this.incomingSocketTimeout = incomingSocketTimeout;
         this.incoming = new IncomingMessageHandler(session);
         this.outgoing = new OutgoingMessageHandler(session);
     }
@@ -83,13 +85,15 @@ public class ConnectionHandler
     {
         logger.debug("[Stream #{}] Sending stream init for incoming stream", session.planId());
         Socket incomingSocket = session.createConnection();
-        incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION);
+        incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION, incomingSocketTimeout);
         incoming.sendInitMessage(incomingSocket, true);
+        incomingSocket.shutdownOutput();
 
         logger.debug("[Stream #{}] Sending stream init for outgoing stream", session.planId());
         Socket outgoingSocket = session.createConnection();
         outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
         outgoing.sendInitMessage(outgoingSocket, false);
+        outgoingSocket.shutdownInput();
     }
 
     /**
@@ -102,9 +106,15 @@ public class ConnectionHandler
     public void initiateOnReceivingSide(Socket socket, boolean isForOutgoing, int version) throws IOException
     {
         if (isForOutgoing)
+        {
             outgoing.start(socket, version);
+            socket.shutdownInput();
+        }
         else
-            incoming.start(socket, version);
+        {
+            incoming.start(socket, version, incomingSocketTimeout);
+            socket.shutdownOutput();
+        }
     }
 
     public ListenableFuture<?> close()
@@ -253,6 +263,19 @@ public class ConnectionHandler
             super(session);
         }
 
+        public void start(Socket socket, int protocolVersion, int timeout)
+        {
+            try
+            {
+                socket.setSoTimeout(timeout);
+            }
+            catch (SocketException e)
+            {
+                logger.warn("Could not set incoming socket timeout to {}", timeout, e);
+            }
+            super.start(socket, protocolVersion);
+        }
+
         protected String name()
         {
             return "STREAM-IN";
@@ -371,6 +394,7 @@ public class ConnectionHandler
             {
                 StreamMessage.serialize(message, out, protocolVersion, session);
                 out.flush();
+                message.sent();
             }
             catch (SocketException e)
             {
