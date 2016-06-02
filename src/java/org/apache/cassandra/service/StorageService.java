@@ -59,6 +59,7 @@ import javax.management.openmbean.TabularData;
 import javax.management.openmbean.TabularDataSupport;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
@@ -128,7 +129,6 @@ import org.apache.cassandra.gms.GossipDigestSynVerbHandler;
 import org.apache.cassandra.gms.GossipShutdownVerbHandler;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
-import org.apache.cassandra.gms.IFailureDetector;
 import org.apache.cassandra.gms.TokenSerializer;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.io.sstable.SSTableDeletingTask;
@@ -2317,7 +2317,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         InetAddress myAddress = FBUtilities.getBroadcastAddress();
         Multimap<Range<Token>, InetAddress> rangeAddresses = Keyspace.open(keyspaceName).getReplicationStrategy().getRangeAddresses(tokenMetadata.cloneOnlyTokenMap());
         Multimap<InetAddress, Range<Token>> sourceRanges = HashMultimap.create();
-        IFailureDetector failureDetector = FailureDetector.instance;
 
         // find alive sources for our new ranges
         for (Range<Token> range : ranges)
@@ -2330,7 +2329,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             for (InetAddress source : sources)
             {
-                if (failureDetector.isAlive(source))
+                if (StorageService.isAvailable(source, false))
                 {
                     sourceRanges.put(source, range);
                     break;
@@ -2349,10 +2348,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         // notify the remote token
         MessageOut msg = new MessageOut(MessagingService.Verb.REPLICATION_FINISHED);
-        IFailureDetector failureDetector = FailureDetector.instance;
         if (logger.isDebugEnabled())
             logger.debug("Notifying {} of replication completion\n", remote);
-        while (failureDetector.isAlive(remote))
+        while (StorageService.isAvailable(remote, false))
         {
             AsyncOneResponse iar = MessagingService.instance().sendRR(msg, remote);
             try
@@ -3391,11 +3389,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         for (InetAddress endpoint : endpoints)
         {
-            if (FailureDetector.instance.isAlive(endpoint))
+            if (isAvailable(endpoint, false))
                 liveEps.add(endpoint);
         }
 
         return liveEps;
+    }
+
+    public static boolean isAvailable(InetAddress endpoint, boolean isPendingEndpoint)
+    {
+        return FailureDetector.instance.isAlive(endpoint) && (isPendingEndpoint || Gossiper.instance.isNormalStatus(endpoint));
     }
 
     public void setLoggingLevel(String classQualifier, String rawLevel) throws Exception
@@ -3624,7 +3627,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (Iterator<InetAddress> iter = candidates.iterator(); iter.hasNext(); )
         {
             InetAddress address = iter.next();
-            if (!FailureDetector.instance.isAlive(address))
+            if (!isAvailable(address, false))
                 iter.remove();
         }
 
@@ -3958,10 +3961,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // get all ranges that change ownership (that is, a node needs
             // to take responsibility for new range)
             Multimap<Range<Token>, InetAddress> changedRanges = getChangedRangesForLeaving(keyspaceName, endpoint);
-            IFailureDetector failureDetector = FailureDetector.instance;
             for (InetAddress ep : changedRanges.values())
             {
-                if (failureDetector.isAlive(ep))
+                if (isAvailable(ep, false))
                     replicatingNodes.add(ep);
                 else
                     logger.warn("Endpoint {} is down and will not receive data for re-replication of {}", ep, endpoint);

@@ -495,10 +495,20 @@ public class StorageProxy implements StorageProxyMBean
         }
 
         MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_COMMIT, proposal, Commit.serializer);
-        for (InetAddress destination : Iterables.concat(naturalEndpoints, pendingEndpoints))
-        {
+        doPaxosCommit(proposal, shouldHint, shouldBlock, naturalEndpoints, responseHandler, message, false);
+        doPaxosCommit(proposal, shouldHint, shouldBlock, pendingEndpoints, responseHandler, message, true);
 
-            if (FailureDetector.instance.isAlive(destination))
+        if (shouldBlock)
+            responseHandler.get();
+    }
+
+    private static void doPaxosCommit(Commit proposal, boolean shouldHint, boolean shouldBlock, Collection<InetAddress> endpoints,
+                                      AbstractWriteResponseHandler<Commit> responseHandler, MessageOut<Commit> message,
+                                      boolean isPendingEndpoint)
+    {
+        for (InetAddress destination : endpoints)
+        {
+            if (StorageService.isAvailable(destination, isPendingEndpoint))
             {
                 if (shouldBlock)
                 {
@@ -517,9 +527,6 @@ public class StorageProxy implements StorageProxyMBean
                 submitHint(proposal.makeMutation(), destination, null);
             }
         }
-
-        if (shouldBlock)
-            responseHandler.get();
     }
 
     /**

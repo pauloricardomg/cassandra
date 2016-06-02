@@ -43,7 +43,6 @@ import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.WriteFailureException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
-import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -389,7 +388,7 @@ public class BatchlogManager implements BatchlogManagerMBean
             {
                 if (endpoint.equals(FBUtilities.getBroadcastAddress()))
                     mutation.apply();
-                else if (FailureDetector.instance.isAlive(endpoint))
+                else if (StorageService.isAvailable(endpoint, false))
                     liveEndpoints.add(endpoint); // will try delivering directly instead of writing a hint.
                 else
                     StorageProxy.writeHintForMutation(mutation, writtenAt, ttl, endpoint);
@@ -529,7 +528,7 @@ public class BatchlogManager implements BatchlogManagerMBean
         @VisibleForTesting
         protected boolean isValid(InetAddress input)
         {
-            return !input.equals(FBUtilities.getBroadcastAddress()) && FailureDetector.instance.isAlive(input);
+            return !input.equals(FBUtilities.getBroadcastAddress()) && StorageService.isAvailable(input, false);
         }
 
         @VisibleForTesting

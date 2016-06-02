@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.service;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -49,7 +48,6 @@ import org.apache.cassandra.gms.IFailureDetector;
 import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
 import org.apache.cassandra.gms.IFailureDetectionEventListener;
 import org.apache.cassandra.gms.VersionedValue;
-import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
@@ -285,7 +283,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
         for (InetAddress neighbour : endpoints)
         {
-            if (FailureDetector.instance.isAlive(neighbour))
+            if (StorageService.isAvailable(neighbour, false))
             {
                 CassandraVersion peerVersion = SystemKeyspace.getReleaseVersion(neighbour);
                 boolean isGlobal = options.isGlobal() && peerVersion != null && peerVersion.compareTo(SUPPORTS_GLOBAL_PREPARE_FLAG_VERSION) >= 0;

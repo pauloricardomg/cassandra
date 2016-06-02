@@ -57,7 +57,7 @@ class MigrationTask extends WrappedRunnable
             return;
         }
 
-        if (!FailureDetector.instance.isAlive(endpoint))
+        if (!StorageService.isAvailable(endpoint, false))
         {
             logger.debug("Can't send schema pull request: node {} is down.", endpoint);
             return;

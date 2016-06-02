@@ -49,6 +49,7 @@ public class EndpointState
     /* fields below do not get serialized */
     private volatile long updateTimestamp;
     private volatile boolean isAlive;
+    private volatile boolean normalStatus;
 
     EndpointState(HeartBeatState initialHbState)
     {
@@ -61,6 +62,7 @@ public class EndpointState
         applicationState = new AtomicReference<Map<ApplicationState, VersionedValue>>(new EnumMap<>(states));
         updateTimestamp = System.nanoTime();
         isAlive = true;
+        normalStatus = false;
     }
 
     HeartBeatState getHeartBeatState()
@@ -98,14 +100,19 @@ public class EndpointState
     {
         while (true)
         {
-            Map<ApplicationState, VersionedValue> orig = applicationState.get();
-            Map<ApplicationState, VersionedValue> copy = new EnumMap<>(orig);
+            Map<ApplicationState, VersionedValue> oldState = applicationState.get();
+            Map<ApplicationState, VersionedValue> mergedState = new EnumMap<>(oldState);
 
-            for (Map.Entry<ApplicationState, VersionedValue> value : values)
-                copy.put(value.getKey(), value.getValue());
+            for (Map.Entry<ApplicationState, VersionedValue> newState : values)
+            {
+                mergedState.put(newState.getKey(), newState.getValue());
+            }
 
-            if (applicationState.compareAndSet(orig, copy))
+            if (applicationState.compareAndSet(oldState, mergedState))
+            {
+                normalStatus = VersionedValue.STATUS_NORMAL.equals(mergedState.get(ApplicationState.STATUS));
                 return;
+            }
         }
     }
 
@@ -158,6 +165,11 @@ public class EndpointState
     public String toString()
     {
         return "EndpointState: HeartBeatState = " + hbState + ", AppStateMap = " + applicationState.get();
+    }
+
+    public boolean isNormalStatus()
+    {
+        return normalStatus;
     }
 }
 

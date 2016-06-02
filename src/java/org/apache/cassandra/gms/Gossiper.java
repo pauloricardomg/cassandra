@@ -1067,10 +1067,17 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     private static String getGossipStatus(EndpointState epState)
     {
-        if (epState == null || epState.getApplicationState(ApplicationState.STATUS) == null)
+        if (epState == null)
+            return "";
+        return parseGossipStatus(epState.getApplicationState(ApplicationState.STATUS));
+    }
+
+    protected static String parseGossipStatus(VersionedValue status)
+    {
+        if (status == null)
             return "";
 
-        String value = epState.getApplicationState(ApplicationState.STATUS).value;
+        String value = status.value;
         String[] pieces = value.split(VersionedValue.DELIMITER_STR, -1);
         assert (pieces.length > 0);
         return pieces[0];
@@ -1515,6 +1522,17 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             logger.debug("adding expire time for endpoint : {} ({})", endpoint, expireTime);
         }
         expireTimeEndpointMap.put(endpoint, expireTime);
+    }
+
+    public boolean isNormalStatus(InetAddress ep)
+    {
+        EndpointState epState = Gossiper.instance.getEndpointStateForEndpoint(ep);
+        // we could assert not-null, but having isNormalStatus fail screws a node over so badly that
+        // it's worth being defensive here so minor bugs don't cause disproportionate
+        // badness.
+        if (epState == null)
+            logger.error("unknown endpoint {}", ep);
+        return epState != null && epState.isNormalStatus();
     }
 
     public static long computeExpireTime()

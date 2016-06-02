@@ -28,11 +28,11 @@ import com.google.common.util.concurrent.AbstractFuture;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.AnticompactionRequest;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.CassandraVersion;
 
 public class AnticompactionTask extends AbstractFuture<InetAddress> implements Runnable
@@ -56,7 +56,7 @@ public class AnticompactionTask extends AbstractFuture<InetAddress> implements R
 
     public void run()
     {
-        if (FailureDetector.instance.isAlive(neighbor))
+        if (StorageService.isAvailable(neighbor, false))
         {
             AnticompactionRequest acr = new AnticompactionRequest(parentSession, successfulRanges);
             CassandraVersion peerVersion = SystemKeyspace.getReleaseVersion(neighbor);

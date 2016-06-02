@@ -247,7 +247,7 @@ public class FailureDetector implements IFailureDetector, FailureDetectorMBean
         // badness.  (See CASSANDRA-1463 for an example).
         if (epState == null)
             logger.error("unknown endpoint {}", ep);
-        return epState != null && epState.isAlive();
+        return epState != null && epState.isAlive() && !epState.isNormalStatus();
     }
 
     public void report(InetAddress ep)
