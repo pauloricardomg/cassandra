@@ -289,7 +289,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (logger.isDebugEnabled())
             logger.debug("Setting tokens to {}", tokens);
         SystemKeyspace.updateTokens(tokens);
-        tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
+        //tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
         Collection<Token> localTokens = getLocalTokens();
         setGossipTokens(localTokens);
         setMode(Mode.NORMAL, false);
@@ -564,7 +564,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 // ignore local node or empty status
                 if (entry.getKey().equals(FBUtilities.getBroadcastAddress()) || entry.getValue().getApplicationState(ApplicationState.STATUS) == null)
                     continue;
-                String[] pieces = entry.getValue().getApplicationState(ApplicationState.STATUS).value.split(VersionedValue.DELIMITER_STR, -1);
+                String[] pieces = splitValue(entry.getValue().getApplicationState(ApplicationState.STATUS));
                 assert (pieces.length > 0);
                 String state = pieces[0];
                 if (state.equals(VersionedValue.STATUS_BOOTSTRAPPING) || state.equals(VersionedValue.STATUS_LEAVING) || state.equals(VersionedValue.STATUS_MOVING))
@@ -773,8 +773,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 if (!DatabaseDescriptor.isAutoBootstrap())
                     throw new RuntimeException("Trying to replace_address with auto_bootstrap disabled will not work, check your configuration");
                 bootstrapTokens = prepareReplacementInfo();
-                appStates.put(ApplicationState.TOKENS, valueFactory.tokens(bootstrapTokens));
-                appStates.put(ApplicationState.STATUS, valueFactory.hibernate(true));
+//                appStates.put(ApplicationState.TOKENS, valueFactory.tokens(bootstrapTokens));
+//                appStates.put(ApplicationState.STATUS, valueFactory.replacing(DatabaseDescriptor.getReplaceAddress()));
             }
             else if (shouldBootstrap())
             {
@@ -791,6 +791,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             appStates.put(ApplicationState.HOST_ID, valueFactory.hostId(localHostId));
             appStates.put(ApplicationState.RPC_ADDRESS, valueFactory.rpcaddress(DatabaseDescriptor.getBroadcastRpcAddress()));
             appStates.put(ApplicationState.RELEASE_VERSION, valueFactory.releaseVersion());
+            appStates.put(ApplicationState.STATUS, valueFactory.hibernate(true));
             logger.info("Starting up server gossip");
             Gossiper.instance.register(this);
             Gossiper.instance.start(SystemKeyspace.incrementAndGetGeneration(), appStates); // needed for node-ring gathering.
@@ -972,6 +973,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // if we don't have system_traces keyspace at this point, then create it manually
         maybeAddOrUpdateKeyspace(TraceKeyspace.definition());
         maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.definition());
+
+        if (replacing && dataAvailable)
+        {
+            replacing = false;
+        }
 
         if (!isSurveyMode)
         {
@@ -1219,22 +1225,33 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         isBootstrapMode = true;
         SystemKeyspace.updateTokens(tokens); // DON'T use setToken, that makes us part of the ring locally which is incorrect until we are done bootstrapping
-        if (!replacing)
-        {
-            // if not an existing token then bootstrap
-            List<Pair<ApplicationState, VersionedValue>> states = new ArrayList<>();
-            states.add(Pair.create(ApplicationState.TOKENS, valueFactory.tokens(tokens)));
-            states.add(Pair.create(ApplicationState.STATUS, valueFactory.bootstrapping(tokens)));
-            Gossiper.instance.addLocalApplicationStates(states);
-            setMode(Mode.JOINING, "sleeping " + RING_DELAY + " ms for pending range setup", true);
-            Uninterruptibles.sleepUninterruptibly(RING_DELAY, TimeUnit.MILLISECONDS);
-        }
-        else
-        {
-            // Dont set any state for the node which is bootstrapping the existing token...
-            tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
-            SystemKeyspace.removeEndpoint(DatabaseDescriptor.getReplaceAddress());
-        }
+
+        // if not an existing token then bootstrap
+        List<Pair<ApplicationState, VersionedValue>> states = new ArrayList<>();
+        states.add(Pair.create(ApplicationState.TOKENS, valueFactory.tokens(tokens)));
+        states.add(Pair.create(ApplicationState.STATUS, replacing?
+                                                        valueFactory.bootReplacing(DatabaseDescriptor.getReplaceAddress()) :
+                                                        valueFactory.bootstrapping(tokens)));
+        Gossiper.instance.addLocalApplicationStates(states);
+        setMode(Mode.JOINING, "sleeping " + RING_DELAY + " ms for pending range setup", true);
+        Uninterruptibles.sleepUninterruptibly(RING_DELAY, TimeUnit.MILLISECONDS);
+
+//        if (!replacing)
+//        {
+//            // if not an existing token then bootstrap
+//            List<Pair<ApplicationState, VersionedValue>> states = new ArrayList<>();
+//            states.add(Pair.create(ApplicationState.TOKENS, valueFactory.tokens(tokens)));
+//            states.add(Pair.create(ApplicationState.STATUS, valueFactory.bootstrapping(tokens)));
+//            Gossiper.instance.addLocalApplicationStates(states);
+//            setMode(Mode.JOINING, "sleeping " + RING_DELAY + " ms for pending range setup", true);
+//            Uninterruptibles.sleepUninterruptibly(RING_DELAY, TimeUnit.MILLISECONDS);
+//        }
+//        else
+//        {
+//            // Dont set any state for the node which is bootstrapping the existing token...
+//            tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
+//            SystemKeyspace.removeEndpoint(DatabaseDescriptor.getReplaceAddress());
+//        }
         if (!Gossiper.instance.seenAnySeed())
             throw new IllegalStateException("Unable to contact any seeds!");
 
@@ -1672,14 +1689,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         if (state == ApplicationState.STATUS)
         {
-            String apStateValue = value.value;
-            String[] pieces = apStateValue.split(VersionedValue.DELIMITER_STR, -1);
+            String[] pieces = splitValue(value);
             assert (pieces.length > 0);
 
             String moveName = pieces[0];
 
             switch (moveName)
             {
+                case VersionedValue.STATUS_BOOTSTRAPPING_REPLACE:
+                    handleStateReplace(endpoint, pieces);
+                    break;
                 case VersionedValue.STATUS_BOOTSTRAPPING:
                     handleStateBootstrap(endpoint);
                     break;
@@ -1751,6 +1770,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 }
             }
         }
+    }
+
+    private String[] splitValue(VersionedValue value)
+    {
+        return value.value.split(VersionedValue.DELIMITER_STR, -1);
     }
 
     public void updateTopology(InetAddress endpoint)
@@ -1922,6 +1946,47 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         tokenMetadata.updateHostId(Gossiper.instance.getHostId(endpoint), endpoint);
     }
 
+
+    private void handleStateReplace(InetAddress newNode, String[] pieces)
+    {
+        InetAddress oldNode;
+        try
+        {
+            oldNode = InetAddress.getByName(pieces[1]);
+        }
+        catch (Exception e)
+        {
+            logger.error("Node {} tried to replace malformed endpoint {}.", newNode, pieces[1], e);
+            return;
+        }
+
+        if (FailureDetector.instance.isAlive(oldNode))
+        {
+            throw new RuntimeException(String.format("Node %s is trying to replace alive node %s.", newNode, oldNode));
+        }
+
+        Optional<InetAddress> replacingNode = tokenMetadata.getReplacingNode(newNode);
+        if (replacingNode.isPresent())
+        {
+            if (!replacingNode.equals(oldNode))
+            {
+                throw new RuntimeException(String.format("Node %s is already replacing %s but is trying to replace.",
+                                                         newNode, replacingNode.get(), oldNode));
+            }
+            return; //node is already being replaced on TMD
+        }
+
+        Collection<Token> tokens = getTokensFor(newNode);
+
+        if (logger.isDebugEnabled())
+            logger.debug("Node {} state replacing {}, tokens {}", newNode, oldNode, tokens);
+
+        tokenMetadata.addReplaceTokens(tokens, newNode, oldNode);
+        PendingRangeCalculatorService.instance.update();
+
+        tokenMetadata.updateHostId(Gossiper.instance.getHostId(newNode), newNode);
+    }
+
     /**
      * Handle node move to normal state. That is, node is entering token ring and participating
      * in reads.
@@ -1945,6 +2010,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             logger.error("Node {} is in state normal but it has no tokens, state: {}",
                          endpoint,
                          Gossiper.instance.getEndpointStateForEndpoint(endpoint));
+
+        Optional<InetAddress> replacementNode = tokenMetadata.getReplacementNode(endpoint);
+        if (replacementNode.isPresent())
+        {
+            logger.warn("Node {} is currently being replaced by node {}.", endpoint, replacementNode.get());
+        }
 
         updatePeerInfo(endpoint);
         // Order Matters, TM.updateHostID() should be called before TM.updateNormalToken(), (see CASSANDRA-4300).
@@ -2021,6 +2092,29 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                                            currentOwner,
                                            token,
                                            endpoint));
+            }
+        }
+
+        Optional<InetAddress> oldNode = tokenMetadata.getReplacingNode(endpoint);
+        if (oldNode.isPresent())
+        {
+            logger.info("Node {} will complete replacement of {} for tokens {}", endpoint, oldNode.get(), tokens);
+            if (!endpoint.equals(oldNode.isPresent()))
+            {
+                EndpointState epState = Gossiper.instance.getEndpointStateForEndpoint(oldNode.get());
+                VersionedValue applicationState = epState.getApplicationState(ApplicationState.STATUS);
+                String[] pieces = applicationState == null? null : splitValue(applicationState);
+                if (pieces != null && pieces[0].equals(VersionedValue.REPLACING_NODE))
+                {
+                    excise(tokens, oldNode.get(), extractExpireTime(pieces));
+                }
+                else
+                {
+                    logger.warn("Node {} replaced {} which was not in replacing state in gossip. " +
+                                "Old node might need to be manually removed from gossip.",
+                                endpoint, oldNode.get());
+                    excise(tokens, oldNode.get());
+                }
             }
         }
 
@@ -2158,7 +2252,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 PendingRangeCalculatorService.instance.update();
 
                 // find the endpoint coordinating this removal that we need to notify when we're done
-                String[] coordinator = Gossiper.instance.getEndpointStateForEndpoint(endpoint).getApplicationState(ApplicationState.REMOVAL_COORDINATOR).value.split(VersionedValue.DELIMITER_STR, -1);
+                String[] coordinator = splitValue(Gossiper.instance.getEndpointStateForEndpoint(endpoint).getApplicationState(ApplicationState.REMOVAL_COORDINATOR));
                 UUID hostId = UUID.fromString(coordinator[1]);
                 // grab any data we are now responsible for and notify responsible node
                 restoreReplicaCount(endpoint, tokenMetadata.getEndpointForHostId(hostId));
