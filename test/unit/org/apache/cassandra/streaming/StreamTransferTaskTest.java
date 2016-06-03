@@ -19,12 +19,16 @@ package org.apache.cassandra.streaming;
 
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.After;
 import org.junit.Test;
 
 import junit.framework.Assert;
@@ -34,27 +38,36 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.streaming.messages.OutgoingFileMessage;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.concurrent.Ref;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 public class StreamTransferTaskTest extends SchemaLoader
 {
+    String KS = "Keyspace1";
+    String CF = "Standard1";
+
+    @After
+    public void tearDown()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KS).getColumnFamilyStore(CF);
+        cfs.clearUnsafe();
+    }
+
     @Test
     public void testScheduleTimeout() throws Exception
     {
-        String ks = "Keyspace1";
-        String cf = "Standard1";
-
         InetAddress peer = FBUtilities.getBroadcastAddress();
         StreamSession session = new StreamSession(peer, peer, null, 0);
-        ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore(cf);
+        ColumnFamilyStore cfs = Keyspace.open(KS).getColumnFamilyStore(CF);
 
         // create two sstables
         for (int i = 0; i < 2; i++)
         {
-            insertData(ks, cf, i, 1);
+            insertData(KS, CF, i, 1);
             cfs.forceBlockingFlush();
         }
 
@@ -87,5 +100,69 @@ public class StreamTransferTaskTest extends SchemaLoader
 
         // when all streaming are done, time out task should not be scheduled.
         assertNull(task.scheduleTimeout(1, 1, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testFailSessionDuringTransferShouldNotReleaseReferences() throws Exception
+    {
+        InetAddress peer = FBUtilities.getBroadcastAddress();
+        StreamCoordinator streamCoordinator = new StreamCoordinator(1, null);
+        StreamResultFuture future = StreamResultFuture.init(UUID.randomUUID(), "", Collections.<StreamEventHandler>emptyList(), streamCoordinator);
+        StreamSession session = new StreamSession(peer, peer, null, 0);
+        session.init(future);
+        ColumnFamilyStore cfs = Keyspace.open(KS).getColumnFamilyStore(CF);
+
+        // create two sstables
+        for (int i = 0; i < 2; i++)
+        {
+            insertData(KS, CF, i, 1);
+            cfs.forceBlockingFlush();
+        }
+
+        // create streaming task that streams those two sstables
+        StreamTransferTask task = new StreamTransferTask(session, cfs.metadata.cfId);
+        List<Ref<SSTableReader>> refs = new ArrayList<>(cfs.getSSTables().size());
+        for (SSTableReader sstable : cfs.getSSTables())
+        {
+            List<Range<Token>> ranges = new ArrayList<>();
+            ranges.add(new Range<>(sstable.first.getToken(), sstable.last.getToken()));
+            Ref<SSTableReader> ref = sstable.selfRef();
+            refs.add(ref);
+            task.addTransferFile(ref, 1, sstable.getPositionsForRanges(ranges), 0);
+        }
+        assertEquals(2, task.getTotalNumberOfFiles());
+
+        //add task to stream session, so it is aborted when stream session fails
+        session.transfers.put(UUID.randomUUID(), task);
+
+        //make a copy of outgoing file messages, since task is cleared when it's aborted
+        Collection<OutgoingFileMessage> files = new LinkedList<>(task.files.values());
+
+        //simulate start transfer
+        for (OutgoingFileMessage file : files)
+        {
+            file.startTransfer();
+        }
+
+        //fail stream session mid-transfer
+        session.onError(new Exception("Fake exception"));
+
+        //make sure reference was not released
+        for (Ref<SSTableReader> ref : refs)
+        {
+            assertEquals(1, ref.globalCount());
+        }
+
+        //simulate finish transfer
+        for (OutgoingFileMessage file : files)
+        {
+            file.finishTransfer();
+        }
+
+        //now reference should be released
+        for (Ref<SSTableReader> ref : refs)
+        {
+            assertEquals(0, ref.globalCount());
+        }
     }
 }
