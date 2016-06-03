@@ -49,6 +49,7 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
+import static org.apache.cassandra.Util.populateHosts;
 import static org.junit.Assert.assertEquals;
 
 public class CleanupTest
@@ -131,6 +132,7 @@ public class CleanupTest
         // we don't allow cleanup when the local host has no range to avoid wipping up all data when a node has not join the ring.
         // So to make sure cleanup erase everything here, we give the localhost the tiniest possible range.
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
+        populateHosts(tmd, 2);
         byte[] tk1 = new byte[1], tk2 = new byte[1];
         tk1[0] = 2;
         tk2[0] = 1;
@@ -162,6 +164,7 @@ public class CleanupTest
 
         assertEquals(LOOPS, Util.getAll(Util.cmd(cfs).build()).size());
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
+        populateHosts(tmd, 2);
 
         byte[] tk1 = new byte[1], tk2 = new byte[1];
         tk1[0] = 2;
@@ -186,6 +189,7 @@ public class CleanupTest
 
         assertEquals(LOOPS, Util.getAll(Util.cmd(cfs).build()).size());
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
+        populateHosts(tmd, 2);
 
         byte[] tk1 = new byte[1], tk2 = new byte[1];
         tk1[0] = 2;

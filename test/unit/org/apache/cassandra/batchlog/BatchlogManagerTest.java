@@ -95,8 +95,8 @@ public class BatchlogManagerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         InetAddress localhost = InetAddress.getByName("127.0.0.1");
-        metadata.updateNormalToken(Util.token("A"), localhost);
         metadata.updateHostId(UUIDGen.getTimeUUID(), localhost);
+        metadata.updateNormalToken(Util.token("A"), localhost);
         Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.BATCHES).truncateBlocking();
         Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.LEGACY_BATCHLOG).truncateBlocking();
     }

@@ -27,6 +27,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -42,6 +43,7 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.Refs;
 
+import static org.apache.cassandra.Util.populateHosts;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
@@ -82,6 +84,9 @@ public class ActiveRepairServiceTest
 
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
         tmd.clearUnsafe();
+        tmd.updateHostId(UUID.randomUUID(), LOCAL);
+        tmd.updateHostId(UUID.randomUUID(), REMOTE);
+
         StorageService.instance.setTokens(Collections.singleton(tmd.partitioner.getRandomToken()));
         tmd.updateNormalToken(tmd.partitioner.getMinimumToken(), REMOTE);
         assert tmd.isMember(REMOTE);
@@ -209,6 +214,7 @@ public class ActiveRepairServiceTest
     Set<InetAddress> addTokens(int max) throws Throwable
     {
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
+        populateHosts(tmd, max);
         Set<InetAddress> endpoints = new HashSet<>();
         for (int i = 1; i <= max; i++)
         {

@@ -56,6 +56,7 @@ import org.apache.cassandra.utils.FBUtilities;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
+import static org.apache.cassandra.Util.populateHosts;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class StorageServiceServerTest
@@ -188,6 +189,7 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 5);
 
         // DC1
         metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
@@ -233,6 +235,8 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 6);
+
         // DC1
         metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
         metadata.updateNormalToken(new StringToken("C"), InetAddress.getByName("127.0.0.2"));
@@ -271,6 +275,8 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 5);
+
         // DC1
         metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
         metadata.updateNormalToken(new StringToken("C"), InetAddress.getByName("127.0.0.2"));
@@ -310,6 +316,8 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 5);
+
         // DC1
         metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
         metadata.updateNormalToken(new StringToken("C"), InetAddress.getByName("127.0.0.2"));
@@ -350,6 +358,8 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 5);
+
         // DC1
         Multimap<InetAddress, Token> dc1 = HashMultimap.create();
         dc1.put(InetAddress.getByName("127.0.0.1"), new StringToken("A"));
@@ -414,6 +424,7 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 5);
 
         // DC1
         Multimap<InetAddress, Token> dc1 = HashMultimap.create();
@@ -494,6 +505,7 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 5);
 
         metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
         metadata.updateNormalToken(new StringToken("B"), InetAddress.getByName("127.0.0.2"));
@@ -522,6 +534,7 @@ public class StorageServiceServerTest
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 3);
 
         metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
         metadata.updateNormalToken(new StringToken("B"), InetAddress.getByName("127.0.0.2"));
@@ -554,6 +567,7 @@ public class StorageServiceServerTest
 
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
+        populateHosts(metadata, 5);
 
         metadata.updateNormalToken(new LongToken(1000L), InetAddress.getByName("127.0.0.1"));
         metadata.updateNormalToken(new LongToken(2000L), InetAddress.getByName("127.0.0.2"));

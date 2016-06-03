@@ -288,6 +288,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (logger.isDebugEnabled())
             logger.debug("Setting tokens to {}", tokens);
         SystemKeyspace.updateTokens(tokens);
+        tokenMetadata.updateHostId(SystemKeyspace.getLocalHostId(), FBUtilities.getBroadcastAddress());
         tokenMetadata.updateNormalTokens(tokens, FBUtilities.getBroadcastAddress());
         Collection<Token> localTokens = getLocalTokens();
         setGossipTokens(localTokens);

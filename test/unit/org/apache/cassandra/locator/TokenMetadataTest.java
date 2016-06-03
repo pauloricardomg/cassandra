@@ -30,6 +30,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import static junit.framework.Assert.assertNotNull;
+import static org.apache.cassandra.Util.populateHosts;
 import static org.junit.Assert.assertEquals;
 
 import static org.apache.cassandra.Util.token;
@@ -54,6 +55,7 @@ public class TokenMetadataTest
     public static void beforeClass() throws Throwable
     {
         tmd = StorageService.instance.getTokenMetadata();
+        populateHosts(tmd, 6);
         tmd.updateNormalToken(token(ONE), InetAddress.getByName("127.0.0.1"));
         tmd.updateNormalToken(token(SIX), InetAddress.getByName("127.0.0.6"));
     }

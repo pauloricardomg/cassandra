@@ -53,6 +53,7 @@ import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
@@ -601,6 +602,14 @@ public class Util
                                                                  ReadExecutionController controller)
         {
             return queryStorage(cfs, controller);
+        }
+    }
+
+    public static void populateHosts(TokenMetadata metadata, int hosts) throws UnknownHostException
+    {
+        for (int i = 1; i <= hosts; i++)
+        {
+            metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName(String.format("127.0.0.%d", i)));
         }
     }
 }
