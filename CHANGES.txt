@@ -7,6 +7,7 @@ Merged from 3.0:
  * NullPointerExpception when reading/compacting table (CASSANDRA-11988)
  * Fix problem with undeleteable rows on upgrade to new sstable format (CASSANDRA-12144)
 Merged from 2.2:
+ * Release sstables of failed stream sessions only when outgoing transfers are finished (CASSANDRA-11345)
  * Fixed cqlshlib.test.remove_test_db (CASSANDRA-12214)
 
 
