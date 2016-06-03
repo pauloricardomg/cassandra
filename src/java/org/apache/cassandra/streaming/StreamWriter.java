@@ -34,7 +34,6 @@ import org.apache.cassandra.io.util.DataIntegrityMetadata.ChecksumValidator;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;
-import org.apache.cassandra.streaming.StreamManager.StreamRateLimiter;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
@@ -62,7 +61,7 @@ public class StreamWriter
         this.session = session;
         this.sstable = sstable;
         this.sections = sections;
-        this.limiter =  StreamManager.getRateLimiter(session.peer);
+        this.limiter =  StreamRateLimiter.getOutboundRateLimiter(session.peer);
     }
 
     /**

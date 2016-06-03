@@ -49,7 +49,6 @@ import org.apache.cassandra.io.util.TrackedInputStream;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
-
 /**
  * StreamReader reads from stream and writes to SSTable.
  */
@@ -66,10 +65,12 @@ public class StreamReader
     protected final int sstableLevel;
     protected final SerializationHeader.Component header;
     protected final int fileSeqNum;
+    protected final StreamRateLimiter limiter;
 
     public StreamReader(FileMessageHeader header, StreamSession session)
     {
         this.session = session;
+        this.limiter =  StreamRateLimiter.getInboundRateLimiter(session.peer);
         this.cfId = header.cfId;
         this.estimatedKeys = header.estimatedKeys;
         this.sections = header.sections;
@@ -99,7 +100,7 @@ public class StreamReader
         if (kscf == null || cfs == null)
         {
             // schema was dropped during streaming
-            throw new IOException("CF " + cfId + " was dropped during streaming");
+            throw new IOException("CF   "    + cfId + " was dropped during streaming");
         }
 
         logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}, ks = '{}', table = '{}'.",
@@ -113,14 +114,20 @@ public class StreamReader
         try
         {
             writer = createWriter(cfs, totalSize, repairedAt, format);
+            double rateLimitedTime = 0.0;
+            long lastBytesRead = 0;
             while (in.getBytesRead() < totalSize)
             {
                 writePartition(deserializer, writer);
+
                 // TODO move this to BytesReadTracker
                 session.progress(writer.getFilename(), ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
+
+                rateLimitedTime += limiter.acquire(in.getBytesRead() - lastBytesRead);
+                lastBytesRead = in.getBytesRead();
             }
-            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}",
-                         session.planId(), fileSeqNum, session.peer, FBUtilities.prettyPrintMemory(in.getBytesRead()), FBUtilities.prettyPrintMemory(totalSize));
+            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}, rateLimitedTime = {}",
+                         session.planId(), fileSeqNum, session.peer, FBUtilities.prettyPrintMemory(in.getBytesRead()), FBUtilities.prettyPrintMemory(totalSize), rateLimitedTime);
             return writer;
         }
         catch (Throwable e)
@@ -196,12 +203,12 @@ public class StreamReader
 
     public static class StreamDeserializer extends UnmodifiableIterator<Unfiltered> implements UnfilteredRowIterator
     {
-        public static final int INITIAL_MEM_BUFFER_SIZE = Integer.getInteger("cassandra.streamdes.initial_mem_buffer_size", 32768);
-        public static final int MAX_MEM_BUFFER_SIZE = Integer.getInteger("cassandra.streamdes.max_mem_buffer_size", 1048576);
-        public static final int MAX_SPILL_FILE_SIZE = Integer.getInteger("cassandra.streamdes.max_spill_file_size", Integer.MAX_VALUE);
+        public final int INITIAL_MEM_BUFFER_SIZE = Integer.getInteger("cassandra.streamdes.initial_mem_buffer_size", 32768);
+        public final int MAX_MEM_BUFFER_SIZE = Integer.getInteger("cassandra.streamdes.max_mem_buffer_size", 1048576);
+        public final int MAX_SPILL_FILE_SIZE = Integer.getInteger("cassandra.streamdes.max_spill_file_size", Integer.MAX_VALUE);
 
-        public static final String BUFFER_FILE_PREFIX = "buf";
-        public static final String BUFFER_FILE_SUFFIX = "dat";
+        public final String BUFFER_FILE_PREFIX = "buf";
+        public final String BUFFER_FILE_SUFFIX = "dat";
 
         private final CFMetaData metadata;
         private final DataInputPlus in;
@@ -339,7 +346,7 @@ public class StreamReader
             }
         }
 
-        private static File getTempBufferFile(CFMetaData metadata, long totalSize, UUID sessionId) throws IOException
+        private File getTempBufferFile(CFMetaData metadata, long totalSize, UUID sessionId) throws IOException
         {
             ColumnFamilyStore cfs = Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName);
             if (cfs == null)

@@ -90,6 +90,7 @@ public class CompressedStreamReader extends StreamReader
             writer = createWriter(cfs, totalSize, repairedAt, format);
             String filename = writer.getFilename();
             int sectionIdx = 0;
+            double rateLimitedTime = 0.0;
             for (Pair<Long, Long> section : sections)
             {
                 assert cis.getTotalCompressedBytesRead() <= totalSize;
@@ -100,15 +101,21 @@ public class CompressedStreamReader extends StreamReader
                 cis.position(section.left);
                 in.reset(0);
 
+                long lastCompressedBytesRead = cis.getTotalCompressedBytesRead();
                 while (in.getBytesRead() < sectionLength)
                 {
                     writePartition(deserializer, writer);
+
                     // when compressed, report total bytes of compressed chunks read since remoteFile.size is the sum of chunks transferred
-                    session.progress(filename, ProgressInfo.Direction.IN, cis.getTotalCompressedBytesRead(), totalSize);
+                    long currCompressedBytesRead = cis.getTotalCompressedBytesRead();
+                    session.progress(filename, ProgressInfo.Direction.IN, currCompressedBytesRead, totalSize);
+
+                    rateLimitedTime += limiter.acquire(currCompressedBytesRead - lastCompressedBytesRead);
+                    lastCompressedBytesRead = currCompressedBytesRead;
                 }
             }
-            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}", session.planId(), fileSeqNum,
-                         session.peer, FBUtilities.prettyPrintMemory(cis.getTotalCompressedBytesRead()), FBUtilities.prettyPrintMemory(totalSize));
+            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}, rateLimitedTime = {}", session.planId(), fileSeqNum,
+                         session.peer, FBUtilities.prettyPrintMemory(cis.getTotalCompressedBytesRead()), FBUtilities.prettyPrintMemory(totalSize), rateLimitedTime);
             return writer;
         }
         catch (Throwable e)

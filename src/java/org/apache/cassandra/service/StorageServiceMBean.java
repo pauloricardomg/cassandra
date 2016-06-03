@@ -522,11 +522,27 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void setStreamingSocketTimeout(int value);
     public int getStreamingSocketTimeout();
 
+    @Deprecated
     public void setStreamThroughputMbPerSec(int value);
+    @Deprecated
     public int getStreamThroughputMbPerSec();
 
+    @Deprecated
     public void setInterDCStreamThroughputMbPerSec(int value);
+    @Deprecated
     public int getInterDCStreamThroughputMbPerSec();
+
+    public void setInboundStreamThroughputMbPerSec(int value);
+    public int getInboundStreamThroughputMbPerSec();
+
+    public void setInboundInterDCStreamThroughputMbPerSec(int value);
+    public int getInboundInterDCStreamThroughputMbPerSec();
+
+    public void setOutboundStreamThroughputMbPerSec(int value);
+    public int getOutboundStreamThroughputMbPerSec();
+
+    public void setOutboundInterDCStreamThroughputMbPerSec(int value);
+    public int getOutboundInterDCStreamThroughputMbPerSec();
 
     public int getCompactionThroughputMbPerSec();
     public void setCompactionThroughputMbPerSec(int value);

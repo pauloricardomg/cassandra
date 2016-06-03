@@ -1339,6 +1339,26 @@ public class DatabaseDescriptor
         conf.inter_dc_stream_throughput_outbound_megabits_per_sec = value;
     }
 
+    public static int getStreamThroughputInboundMegabitsPerSec()
+    {
+        return conf.stream_throughput_inbound_megabits_per_sec;
+    }
+
+    public static void setStreamThroughputInboundMegabitsPerSec(int value)
+    {
+        conf.stream_throughput_inbound_megabits_per_sec = value;
+    }
+
+    public static int getInterDCStreamThroughputInboundMegabitsPerSec()
+    {
+        return conf.inter_dc_stream_throughput_inbound_megabits_per_sec;
+    }
+
+    public static void setInterDCStreamThroughputInboundMegabitsPerSec(int value)
+    {
+        conf.inter_dc_stream_throughput_inbound_megabits_per_sec = value;
+    }
+
     public static String[] getAllDataFileLocations()
     {
         return conf.data_file_directories;

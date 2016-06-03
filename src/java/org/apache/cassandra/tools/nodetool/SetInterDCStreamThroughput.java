@@ -20,6 +20,7 @@ package org.apache.cassandra.tools.nodetool;
 import io.airlift.command.Arguments;
 import io.airlift.command.Command;
 
+import io.airlift.command.Option;
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
 
@@ -29,9 +30,20 @@ public class SetInterDCStreamThroughput extends NodeToolCmd
     @Arguments(title = "inter_dc_stream_throughput", usage = "<value_in_mb>", description = "Value in Mb, 0 to disable throttling", required = true)
     private Integer interDCStreamThroughput = null;
 
+    @Option(title = "outbound", name = { "--outbound" }, description = "Use --outbound to set outbound inter-datacenter stream throughput")
+    private boolean outbound = false;
+
+    @Option(title = "inbound", name = { "--inbound" }, description = "Use --inbound to set inbound inter-datacenter stream throughput")
+    private boolean inbound = false;
+
     @Override
     public void execute(NodeProbe probe)
     {
-        probe.setInterDCStreamThroughput(interDCStreamThroughput);
+        if (inbound) {
+            probe.setInboundInterDCStreamThroughput(interDCStreamThroughput);
+            return;
+        }
+
+        probe.setOutboundInterDCStreamThroughput(interDCStreamThroughput);
     }
 }

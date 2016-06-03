@@ -1354,28 +1354,73 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.getStreamingSocketTimeout();
     }
 
+    @Deprecated
     public void setStreamThroughputMbPerSec(int value)
     {
-        DatabaseDescriptor.setStreamThroughputOutboundMegabitsPerSec(value);
-        logger.info("setstreamthroughput: throttle set to {}", value);
+        setOutboundStreamThroughputMbPerSec(value);
     }
 
+    @Deprecated
     public int getStreamThroughputMbPerSec()
+    {
+        return getOutboundStreamThroughputMbPerSec();
+    }
+
+    @Deprecated
+    public void setInterDCStreamThroughputMbPerSec(int value)
+    {
+        setOutboundInterDCStreamThroughputMbPerSec(value);
+    }
+
+    @Deprecated
+    public int getInterDCStreamThroughputMbPerSec()
+    {
+        return getOutboundInterDCStreamThroughputMbPerSec();
+    }
+
+    public void setInboundStreamThroughputMbPerSec(int value)
+    {
+        DatabaseDescriptor.setStreamThroughputInboundMegabitsPerSec(value);
+        logger.info("setinboundstreamthroughput: throttle set to {}", value);
+    }
+
+    public int getInboundStreamThroughputMbPerSec()
+    {
+        return DatabaseDescriptor.getStreamThroughputInboundMegabitsPerSec();
+    }
+
+    public void setInboundInterDCStreamThroughputMbPerSec(int value)
+    {
+        DatabaseDescriptor.setInterDCStreamThroughputInboundMegabitsPerSec(value);
+        logger.info("setinboundinterdcstreamthroughput: throttle set to {}", value);
+    }
+
+    public int getInboundInterDCStreamThroughputMbPerSec()
+    {
+        return DatabaseDescriptor.getInterDCStreamThroughputInboundMegabitsPerSec();
+    }
+
+    public void setOutboundStreamThroughputMbPerSec(int value)
+    {
+        DatabaseDescriptor.setStreamThroughputOutboundMegabitsPerSec(value);
+        logger.info("setoutboundstreamthroughput: throttle set to {}", value);
+    }
+
+    public int getOutboundStreamThroughputMbPerSec()
     {
         return DatabaseDescriptor.getStreamThroughputOutboundMegabitsPerSec();
     }
 
-    public void setInterDCStreamThroughputMbPerSec(int value)
+    public void setOutboundInterDCStreamThroughputMbPerSec(int value)
     {
         DatabaseDescriptor.setInterDCStreamThroughputOutboundMegabitsPerSec(value);
-        logger.info("setinterdcstreamthroughput: throttle set to {}", value);
+        logger.info("setoutboundinterdcstreamthroughput: throttle set to {}", value);
     }
 
-    public int getInterDCStreamThroughputMbPerSec()
+    public int getOutboundInterDCStreamThroughputMbPerSec()
     {
         return DatabaseDescriptor.getInterDCStreamThroughputOutboundMegabitsPerSec();
     }
-
 
     public int getCompactionThroughputMbPerSec()
     {

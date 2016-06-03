@@ -19,15 +19,27 @@ package org.apache.cassandra.tools.nodetool;
 
 import io.airlift.command.Command;
 
+import io.airlift.command.Option;
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
 
 @Command(name = "getinterdcstreamthroughput", description = "Print the Mb/s throughput cap for inter-datacenter streaming in the system")
 public class GetInterDCStreamThroughput extends NodeToolCmd
 {
+    @Option(title = "outbound", name = { "--outbound" }, description = "Use --outbound to get outbound inter-datacenter stream throughput")
+    private boolean outbound = false;
+
+    @Option(title = "inbound", name = { "--inbound" }, description = "Use --inbound to get inbound inter-datacenter stream throughput")
+    private boolean inbound = false;
+
     @Override
     public void execute(NodeProbe probe)
     {
-        System.out.println("Current inter-datacenter stream throughput: " + probe.getInterDCStreamThroughput() + " Mb/s");
+        if (inbound) {
+            System.out.println("Current inbound inter-datacenter stream throughput: " + probe.getInboundInterDCStreamThroughput() + " Mb/s");
+            return;
+        }
+
+        System.out.println("Current outbound inter-datacenter stream throughput: " + probe.getOutboundInterDCStreamThroughput() + " Mb/s");
     }
 }

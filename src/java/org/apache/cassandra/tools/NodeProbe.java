@@ -1011,14 +1011,24 @@ public class NodeProbe implements AutoCloseable
         }
     }
 
-    public int getStreamThroughput()
+    public int getOutboundStreamThroughput()
     {
-        return ssProxy.getStreamThroughputMbPerSec();
+        return ssProxy.getOutboundStreamThroughputMbPerSec();
     }
 
-    public int getInterDCStreamThroughput()
+    public int getOutboundInterDCStreamThroughput()
     {
-        return ssProxy.getInterDCStreamThroughputMbPerSec();
+        return ssProxy.getOutboundInterDCStreamThroughputMbPerSec();
+    }
+
+    public int getInboundStreamThroughput()
+    {
+        return ssProxy.getInboundStreamThroughputMbPerSec();
+    }
+
+    public int getInboundInterDCStreamThroughput()
+    {
+        return ssProxy.getInboundInterDCStreamThroughputMbPerSec();
     }
 
     public double getTraceProbability()
@@ -1099,14 +1109,24 @@ public class NodeProbe implements AutoCloseable
         compactionProxy.stopCompactionById(compactionId);
     }
 
-    public void setStreamThroughput(int value)
+    public void setOutboundStreamThroughput(int value)
     {
-        ssProxy.setStreamThroughputMbPerSec(value);
+        ssProxy.setOutboundStreamThroughputMbPerSec(value);
     }
 
-    public void setInterDCStreamThroughput(int value)
+    public void setOutboundInterDCStreamThroughput(int value)
     {
-        ssProxy.setInterDCStreamThroughputMbPerSec(value);
+        ssProxy.setOutboundInterDCStreamThroughputMbPerSec(value);
+    }
+
+    public void setInboundStreamThroughput(int value)
+    {
+        ssProxy.setInboundStreamThroughputMbPerSec(value);
+    }
+
+    public void setInboundInterDCStreamThroughput(int value)
+    {
+        ssProxy.setInboundInterDCStreamThroughputMbPerSec(value);
     }
 
     public void setTraceProbability(double value)
