@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.net.Socket;
 import java.util.Set;
 
+import com.google.common.util.concurrent.MoreExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,13 +74,13 @@ public class IncomingStreamingConnection extends Thread implements Closeable
             // The receiving side distinguish two connections by looking at StreamInitMessage#isForOutgoing.
             // Note: we cannot use the same socket for incoming and outgoing streams because we want to
             // parallelize said streams and the socket is blocking, so we might deadlock.
-            StreamResultFuture.initReceivingSide(init.sessionIndex, init.planId, init.description, init.from, socket, init.isForOutgoing, version, init.keepSSTableLevel, init.isIncremental);
+            StreamResultFuture future = StreamResultFuture.initReceivingSide(init.sessionIndex, init.planId, init.description, init.from, socket, init.isForOutgoing, version, init.keepSSTableLevel, init.isIncremental);
+            future.addListener(() -> group.remove(this), MoreExecutors.directExecutor());
         }
         catch (IOException e)
         {
             logger.error(String.format("IOException while reading from socket from %s, closing: %s",
                                        socket.getRemoteSocketAddress(), e));
-            logger.trace(String.format("IOException while reading from socket from %s, closing", socket.getRemoteSocketAddress()), e);
             close();
         }
     }
