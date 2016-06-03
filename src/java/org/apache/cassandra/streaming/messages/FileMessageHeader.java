@@ -63,6 +63,9 @@ public class FileMessageHeader
     public final int sstableLevel;
     public final SerializationHeader.Component header;
 
+    /* cached size value */
+    private transient long size = -1;
+
     public FileMessageHeader(UUID cfId,
                              int sequenceNumber,
                              Version version,
@@ -121,7 +124,12 @@ public class FileMessageHeader
      */
     public long size()
     {
-        long size = 0;
+        if (size != -1)
+        {
+            return size;
+        }
+
+        size = 0;
         if (compressionInfo != null)
         {
             // calculate total length of transferring chunks
