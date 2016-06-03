@@ -54,6 +54,9 @@ public class FileMessageHeader
     private final CompressionMetadata compressionMetadata;
     public final long repairedAt;
 
+    /* cached size value */
+    private transient final long size;
+
     public FileMessageHeader(UUID cfId,
                              int sequenceNumber,
                              String version,
@@ -70,6 +73,7 @@ public class FileMessageHeader
         this.compressionInfo = compressionInfo;
         this.compressionMetadata = null;
         this.repairedAt = repairedAt;
+        this.size = calculateSize();
     }
 
     public FileMessageHeader(UUID cfId,
@@ -88,6 +92,7 @@ public class FileMessageHeader
         this.compressionInfo = null;
         this.compressionMetadata = compressionMetadata;
         this.repairedAt = repairedAt;
+        this.size = calculateSize();
     }
 
     public boolean isCompressed()
@@ -100,23 +105,28 @@ public class FileMessageHeader
      */
     public long size()
     {
-        long size = 0;
+        return size;
+    }
+
+    private long calculateSize()
+    {
+        long transferSize = 0;
         if (compressionInfo != null)
         {
             // calculate total length of transferring chunks
             for (CompressionMetadata.Chunk chunk : compressionInfo.chunks)
-                size += chunk.length + 4; // 4 bytes for CRC
+                transferSize += chunk.length + 4; // 4 bytes for CRC
         }
         else if (compressionMetadata != null)
         {
-            size = compressionMetadata.getTotalSizeForSections(sections);
+            transferSize = compressionMetadata.getTotalSizeForSections(sections);
         }
         else
         {
             for (Pair<Long, Long> section : sections)
-                size += section.right - section.left;
+                transferSize += section.right - section.left;
         }
-        return size;
+        return transferSize;
     }
 
     @Override
