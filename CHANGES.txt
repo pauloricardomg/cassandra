@@ -8,7 +8,8 @@
  * Faster streaming (CASSANDRA-9766)
  * Add prepared query parameter to trace for "Execute CQL3 prepared query" session (CASSANDRA-11425)
  * Add repaired percentage metric (CASSANDRA-11503)
-
+Merged from 2.1:
+ * Cache local ranges when calculating repair neighbors (CASSANDRA-11934)
 
 3.7
 Merged from 3.0:
