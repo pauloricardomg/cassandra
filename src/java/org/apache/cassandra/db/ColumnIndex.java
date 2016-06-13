@@ -31,6 +31,7 @@ import org.apache.cassandra.io.sstable.IndexInfo;
 import org.apache.cassandra.io.sstable.format.SSTableFlushObserver;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -100,7 +101,12 @@ public class ColumnIndex
 
     public void buildRowIndex(UnfilteredRowIterator iterator) throws IOException
     {
-        writePartitionHeader(iterator);
+        writePartitionHeader(iterator, writer, header, version);
+        if (header.hasStatic())
+        {
+            if (!observers.isEmpty())
+                observers.forEach((o) -> o.nextUnfilteredCluster(iterator.staticRow()));
+        }
         this.headerLength = writer.position() - initialPosition;
 
         while (iterator.hasNext())
@@ -109,17 +115,15 @@ public class ColumnIndex
         finish();
     }
 
-    private void writePartitionHeader(UnfilteredRowIterator iterator) throws IOException
+    public static void writePartitionHeader(UnfilteredRowIterator iterator, DataOutputStreamPlus writer,
+                                             SerializationHeader header, int messagingVersion) throws IOException
     {
         ByteBufferUtil.writeWithShortLength(iterator.partitionKey().getKey(), writer);
         DeletionTime.serializer.serialize(iterator.partitionLevelDeletion(), writer);
         if (header.hasStatic())
         {
             Row staticRow = iterator.staticRow();
-
-            UnfilteredSerializer.serializer.serializeStaticRow(staticRow, header, writer, version);
-            if (!observers.isEmpty())
-                observers.forEach((o) -> o.nextUnfilteredCluster(staticRow));
+            UnfilteredSerializer.serializer.serializeStaticRow(staticRow, header, writer, messagingVersion);
         }
     }
 
