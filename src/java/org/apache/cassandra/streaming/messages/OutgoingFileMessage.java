@@ -19,11 +19,16 @@ package org.apache.cassandra.streaming.messages;
 
 import java.io.IOException;
 import java.nio.channels.ReadableByteChannel;
+import java.util.Collection;
 import java.util.List;
 
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.compress.CompressionMetadata;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
+import org.apache.cassandra.streaming.PartitionStreamWriter;
 import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.streaming.StreamWriter;
 import org.apache.cassandra.streaming.compress.CompressedStreamWriter;
@@ -55,7 +60,8 @@ public class OutgoingFileMessage extends StreamMessage
     private final String filename;
     private boolean completed = false;
 
-    public OutgoingFileMessage(Ref<SSTableReader> ref, int sequenceNumber, long estimatedKeys, List<Pair<Long, Long>> sections, long repairedAt, boolean keepSSTableLevel)
+    public OutgoingFileMessage(Ref<SSTableReader> ref, int sequenceNumber, long estimatedKeys, List<Pair<Long, Long>> sections,
+                               long repairedAt, boolean keepSSTableLevel, Collection<Range<Token>> ranges)
     {
         super(Type.FILE);
         this.ref = ref;
@@ -71,7 +77,8 @@ public class OutgoingFileMessage extends StreamMessage
                                             sstable.compression ? sstable.getCompressionMetadata() : null,
                                             repairedAt,
                                             keepSSTableLevel ? sstable.getSSTableLevel() : 0,
-                                            sstable.header == null ? null : sstable.header.toComponent());
+                                            sstable.header == null ? null : sstable.header.toComponent(),
+                                            ranges);
     }
 
     public synchronized void serialize(DataOutputStreamPlus out, int version, StreamSession session) throws IOException
@@ -85,7 +92,8 @@ public class OutgoingFileMessage extends StreamMessage
 
         final SSTableReader reader = ref.get();
         StreamWriter writer = compressionInfo == null ?
-                                      new StreamWriter(reader, header.sections, session) :
+                                      // new StreamWriter(reader, header.sections, session) :
+                                      new PartitionStreamWriter(reader, header.sections, session, header.ranges, BigFormat.latestVersion) :
                                       new CompressedStreamWriter(reader, header.sections,
                                                                  compressionInfo, session);
         writer.write(out);

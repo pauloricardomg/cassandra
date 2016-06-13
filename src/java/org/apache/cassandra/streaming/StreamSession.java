@@ -355,7 +355,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 sections.add(new SSTableStreamingSections(refs.get(sstable),
                                                           sstable.getPositionsForRanges(ranges),
                                                           sstable.estimatedKeysForRanges(ranges),
-                                                          repairedAt));
+                                                          repairedAt,
+                                                          ranges));
             }
             return sections;
         }
@@ -390,7 +391,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 if (task == null)
                     task = newTask;
             }
-            task.addTransferFile(details.ref, details.estimatedKeys, details.sections, details.repairedAt);
+            task.addTransferFile(details.ref, details.estimatedKeys, details.sections, details.repairedAt, details.ranges);
             iter.remove();
         }
     }
@@ -401,13 +402,19 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         public final List<Pair<Long, Long>> sections;
         public final long estimatedKeys;
         public final long repairedAt;
+        public final Collection<Range<Token>> ranges;
 
-        public SSTableStreamingSections(Ref<SSTableReader> ref, List<Pair<Long, Long>> sections, long estimatedKeys, long repairedAt)
+        public SSTableStreamingSections(Ref<SSTableReader> ref,
+                                        List<Pair<Long, Long>> sections,
+                                        long estimatedKeys,
+                                        long repairedAt,
+                                        Collection<Range<Token>> ranges)
         {
             this.ref = ref;
             this.sections = sections;
             this.estimatedKeys = estimatedKeys;
             this.repairedAt = repairedAt;
+            this.ranges = ranges;
         }
     }
 

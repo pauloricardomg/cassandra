@@ -19,12 +19,15 @@ package org.apache.cassandra.streaming.messages;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.compress.CompressionMetadata;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
@@ -52,6 +55,8 @@ public class FileMessageHeader
     public final SSTableFormat.Type format;
     public final long estimatedKeys;
     public final List<Pair<Long, Long>> sections;
+    public final Collection<Range<Token>> ranges;
+
     /**
      * Compression info for SSTable to send. Can be null if SSTable is not compressed.
      * On sender, this field is always null to avoid holding large number of Chunks.
@@ -85,6 +90,7 @@ public class FileMessageHeader
         this.repairedAt = repairedAt;
         this.sstableLevel = sstableLevel;
         this.header = header;
+        this.ranges = null;
     }
 
     public FileMessageHeader(UUID cfId,
@@ -96,7 +102,8 @@ public class FileMessageHeader
                              CompressionMetadata compressionMetadata,
                              long repairedAt,
                              int sstableLevel,
-                             SerializationHeader.Component header)
+                             SerializationHeader.Component header,
+                             Collection<Range<Token>> ranges)
     {
         this.cfId = cfId;
         this.sequenceNumber = sequenceNumber;
@@ -109,6 +116,7 @@ public class FileMessageHeader
         this.repairedAt = repairedAt;
         this.sstableLevel = sstableLevel;
         this.header = header;
+        this.ranges = ranges;
     }
 
     public boolean isCompressed()
@@ -179,7 +187,7 @@ public class FileMessageHeader
         public CompressionInfo serialize(FileMessageHeader header, DataOutputPlus out, int version) throws IOException
         {
             UUIDSerializer.serializer.serialize(header.cfId, out, version);
-            out.writeInt(header.sequenceNumber);
+            out.writeInt(header.sequenceNumber);;
             out.writeUTF(header.version.toString());
 
             //We can't stream to a node that doesn't understand a new sstable format
@@ -199,7 +207,8 @@ public class FileMessageHeader
             // construct CompressionInfo here to avoid holding large number of Chunks on heap.
             CompressionInfo compressionInfo = null;
             if (header.compressionMetadata != null)
-                compressionInfo = new CompressionInfo(header.compressionMetadata.getChunksForSections(header.sections), header.compressionMetadata.parameters);
+                compressionInfo = new CompressionInfo(header.compressionMetadata.getChunksForSections(header.sections),
+                                                      header.compressionMetadata.parameters);
             CompressionInfo.serializer.serialize(compressionInfo, out, version);
             out.writeLong(header.repairedAt);
             out.writeInt(header.sstableLevel);

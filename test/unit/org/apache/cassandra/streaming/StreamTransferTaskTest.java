@@ -78,7 +78,7 @@ public class StreamTransferTaskTest
         {
             List<Range<Token>> ranges = new ArrayList<>();
             ranges.add(new Range<>(sstable.first.getToken(), sstable.last.getToken()));
-            task.addTransferFile(sstable.selfRef(), 1, sstable.getPositionsForRanges(ranges), 0);
+            task.addTransferFile(sstable.selfRef(), 1, sstable.getPositionsForRanges(ranges), 0, ranges);
         }
         assertEquals(2, task.getTotalNumberOfFiles());
 

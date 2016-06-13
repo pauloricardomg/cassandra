@@ -188,7 +188,9 @@ public class LegacySSTableTest
         ArrayList<StreamSession.SSTableStreamingSections> details = new ArrayList<>();
         details.add(new StreamSession.SSTableStreamingSections(sstable.ref(),
                                                                sstable.getPositionsForRanges(ranges),
-                                                               sstable.estimatedKeysForRanges(ranges), sstable.getSSTableMetadata().repairedAt));
+                                                               sstable.estimatedKeysForRanges(ranges),
+                                                               sstable.getSSTableMetadata().repairedAt,
+                                                               ranges));
         new StreamPlan("LegacyStreamingTest").transferFiles(FBUtilities.getBroadcastAddress(), details)
                                              .execute().get();
     }

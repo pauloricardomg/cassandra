@@ -82,7 +82,7 @@ public class StreamWriter
         try(RandomAccessReader file = sstable.openDataReader();
             ChecksumValidator validator = new File(sstable.descriptor.filenameFor(Component.CRC)).exists()
                                           ? DataIntegrityMetadata.checksumValidator(sstable.descriptor)
-                                          : null;)
+                                          : null)
         {
             transferBuffer = validator == null ? new byte[DEFAULT_CHUNK_SIZE] : new byte[validator.chunkSize];
 

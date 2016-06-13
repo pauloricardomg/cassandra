@@ -243,7 +243,9 @@ public class StreamingTransferTest
         {
             details.add(new StreamSession.SSTableStreamingSections(sstables.get(sstable),
                                                                    sstable.getPositionsForRanges(ranges),
-                                                                   sstable.estimatedKeysForRanges(ranges), sstable.getSSTableMetadata().repairedAt));
+                                                                   sstable.estimatedKeysForRanges(ranges),
+                                                                   sstable.getSSTableMetadata().repairedAt,
+                                                                   ranges));
         }
         return details;
     }
