@@ -65,11 +65,13 @@ public class VersionedValue implements Comparable<VersionedValue>
 
     // values for ApplicationState.STATUS
     public final static String STATUS_BOOTSTRAPPING = "BOOT";
+    public final static String STATUS_BOOTSTRAPPING_REPLACE = "BOOT_REPLACE";
     public final static String STATUS_NORMAL = "NORMAL";
     public final static String STATUS_LEAVING = "LEAVING";
     public final static String STATUS_LEFT = "LEFT";
     public final static String STATUS_MOVING = "MOVING";
 
+    public static final String REPLACING_NODE = "replacing";
     public final static String REMOVING_TOKEN = "removing";
     public final static String REMOVED_TOKEN = "removed";
 
@@ -131,6 +133,11 @@ public class VersionedValue implements Comparable<VersionedValue>
         public VersionedValue cloneWithHigherVersion(VersionedValue value)
         {
             return new VersionedValue(value.value);
+        }
+
+        public VersionedValue bootReplacing(InetAddress oldNode)
+        {
+            return new VersionedValue(versionString(VersionedValue.STATUS_BOOTSTRAPPING_REPLACE, oldNode.getHostAddress()));
         }
 
         public VersionedValue bootstrapping(Collection<Token> tokens)
@@ -206,6 +213,11 @@ public class VersionedValue implements Comparable<VersionedValue>
         public VersionedValue removedNonlocal(UUID hostId, long expireTime)
         {
             return new VersionedValue(versionString(VersionedValue.REMOVED_TOKEN, hostId.toString(), Long.toString(expireTime)));
+        }
+
+        public VersionedValue replacingNonLocal(UUID hostId, long expireTime)
+        {
+            return new VersionedValue(versionString(VersionedValue.REPLACING_NODE, hostId.toString(), Long.toString(expireTime)));
         }
 
         public VersionedValue removalCoordinator(UUID hostId)

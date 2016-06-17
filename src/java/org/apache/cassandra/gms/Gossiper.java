@@ -71,11 +71,13 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     static final ApplicationState[] STATES = ApplicationState.values();
     static final List<String> DEAD_STATES = Arrays.asList(VersionedValue.REMOVING_TOKEN, VersionedValue.REMOVED_TOKEN,
-                                                          VersionedValue.STATUS_LEFT, VersionedValue.HIBERNATE);
+                                                          VersionedValue.STATUS_LEFT, VersionedValue.HIBERNATE,
+                                                          VersionedValue.REPLACING_NODE);
     static ArrayList<String> SILENT_SHUTDOWN_STATES = new ArrayList<>();
     static {
         SILENT_SHUTDOWN_STATES.addAll(DEAD_STATES);
         SILENT_SHUTDOWN_STATES.add(VersionedValue.STATUS_BOOTSTRAPPING);
+        SILENT_SHUTDOWN_STATES.add(VersionedValue.STATUS_BOOTSTRAPPING_REPLACE);
     }
 
     private volatile ScheduledFuture<?> scheduledGossipTask;
@@ -548,6 +550,18 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         logger.info("Completing removal of {}", endpoint);
         addExpireTimeForEndpoint(endpoint, expireTime);
         endpointStateMap.put(endpoint, epState);
+        // ensure at least one gossip round occurs before returning
+        Uninterruptibles.sleepUninterruptibly(intervalInMillis * 2, TimeUnit.MILLISECONDS);
+    }
+
+    public void advertiseReplacing(InetAddress endpoint, UUID hostId)
+    {
+        logger.info("Advertising replacement of {}", endpoint);
+        EndpointState epState = endpointStateMap.get(endpoint);
+        epState.updateTimestamp(); // make sure we don't evict it too soon
+        epState.getHeartBeatState().forceNewerGenerationUnsafe();
+        long expireTime = computeExpireTime();
+        epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.replacingNonLocal(hostId, expireTime));
         // ensure at least one gossip round occurs before returning
         Uninterruptibles.sleepUninterruptibly(intervalInMillis * 2, TimeUnit.MILLISECONDS);
     }
