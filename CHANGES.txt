@@ -1,4 +1,5 @@
 2.2.8
+ * Forward writes to replacement node when replace_address != broadcast_address (CASSANDRA-8523)
  * cqlsh copy: fix missing counter values (CASSANDRA-12476)
  * Move migration tasks to non-periodic queue, assure flush executor shutdown after non-periodic executor (CASSANDRA-12251)
  * cqlsh copy: fixed possible race in initializing feeding thread (CASSANDRA-11701)
