@@ -1,4 +1,5 @@
 3.0.9
+ * Forward writes to replacement node when replace_address != broadcast_address (CASSANDRA-8523)
  * Fix file handle leaks due to simultaneous compaction/repair and
    listing snapshots, calculating snapshot sizes, or making schema
    changes (CASSANDRA-11594)
