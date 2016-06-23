@@ -38,6 +38,8 @@ import org.apache.cassandra.streaming.messages.FileMessageHeader;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
+import static org.apache.cassandra.utils.Throwables.extractIOExceptionCause;
+
 /**
  * StreamReader that reads from streamed compressed SSTable
  */
@@ -120,11 +122,11 @@ public class CompressedStreamReader extends StreamReader
             {
                 writer.abort(e);
             }
-            drain(in, in.getBytesRead());
-            if (e instanceof IOException)
-                throw (IOException) e;
-            else
-                throw Throwables.propagate(e);
+            if (extractIOExceptionCause(e).isPresent())
+                throw e;
+            //only drain if it's going to retry
+            drain(cis, in.getBytesRead());
+            throw Throwables.propagate(e);
         }
         finally
         {

@@ -49,6 +49,7 @@ import org.apache.cassandra.io.util.TrackedInputStream;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
+import static org.apache.cassandra.utils.Throwables.extractIOExceptionCause;
 
 /**
  * StreamReader reads from stream and writes to SSTable.
@@ -132,11 +133,11 @@ public class StreamReader
             {
                 writer.abort(e);
             }
+            if (extractIOExceptionCause(e).isPresent())
+                throw e;
+            //only drain if it's going to retry
             drain(in, in.getBytesRead());
-            if (e instanceof IOException)
-                throw (IOException) e;
-            else
-                throw Throwables.propagate(e);
+            throw Throwables.propagate(e);
         }
         finally
         {
