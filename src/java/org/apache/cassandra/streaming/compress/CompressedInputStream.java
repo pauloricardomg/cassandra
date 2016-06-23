@@ -65,7 +65,16 @@ public class CompressedInputStream extends InputStream
     // raw checksum bytes
     private final byte[] checksumBytes = new byte[4];
 
+    /**
+     * Indicates there was a problem when reading from source stream.
+     * When this is added to the <code>dataBuffer</code> by the stream Reader,
+     * it is expected that the <code>readException</code> variable is populated
+     * with the cause of the error when reading from source stream, so it is
+     * thrown to the consumer on subsequent read operation.
+     */
     private static final byte[] POISON_PILL = new byte[0];
+
+    protected volatile IOException readException = null;
 
     private long totalCompressedBytesRead;
     private final boolean hasPostCompressionAdlerChecksums;
@@ -88,13 +97,19 @@ public class CompressedInputStream extends InputStream
 
     public int read() throws IOException
     {
+        if (readException != null)
+            throw readException;
+
         if (current >= bufferOffset + buffer.length || validBufferBytes == -1)
         {
             try
             {
                 byte[] compressedWithCRC = dataBuffer.take();
                 if (compressedWithCRC == POISON_PILL)
-                    throw new EOFException("No chunk available");
+                {
+                    assert readException != null;
+                    throw readException;
+                }
                 decompress(compressedWithCRC);
             }
             catch (InterruptedException e)
@@ -149,7 +164,7 @@ public class CompressedInputStream extends InputStream
         return totalCompressedBytesRead;
     }
 
-    static class Reader extends WrappedRunnable
+    class Reader extends WrappedRunnable
     {
         private final InputStream source;
         private final Iterator<CompressionMetadata.Chunk> chunks;
@@ -180,6 +195,7 @@ public class CompressedInputStream extends InputStream
                         int r = source.read(compressedWithCRC, bufferRead, readLength - bufferRead);
                         if (r < 0)
                         {
+                            readException = new EOFException("No chunk available");
                             dataBuffer.put(POISON_PILL);
                             return; // throw exception where we consume dataBuffer
                         }
@@ -188,6 +204,7 @@ public class CompressedInputStream extends InputStream
                     catch (IOException e)
                     {
                         logger.warn("Error while reading compressed input stream.", e);
+                        readException = e;
                         dataBuffer.put(POISON_PILL);
                         return; // throw exception where we consume dataBuffer
                     }

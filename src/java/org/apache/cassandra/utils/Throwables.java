@@ -18,6 +18,10 @@
 */
 package org.apache.cassandra.utils;
 
+import java.io.IOException;
+
+import com.google.common.base.Optional;
+
 public class Throwables
 {
 
@@ -33,5 +37,18 @@ public class Throwables
     {
         if (fail != null)
             com.google.common.base.Throwables.propagate(fail);
+    }
+
+    public static Optional<IOException> extractIOExceptionCause(Throwable t)
+    {
+        if (t instanceof IOException)
+            return Optional.of((IOException) t);
+        Throwable cause = t;
+        while ((cause = cause.getCause()) != null)
+        {
+            if (cause instanceof IOException)
+                return Optional.of((IOException) cause);
+        }
+        return Optional.absent();
     }
 }
