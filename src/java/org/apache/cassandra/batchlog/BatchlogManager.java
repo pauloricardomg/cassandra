@@ -181,32 +181,34 @@ public class BatchlogManager implements BatchlogManagerMBean
 
     private void replayFailedBatches()
     {
-        logger.trace("Started replayFailedBatches");
+        return;
 
-        // rate limit is in bytes per second. Uses Double.MAX_VALUE if disabled (set to 0 in cassandra.yaml).
-        // max rate is scaled by the number of nodes in the cluster (same as for HHOM - see CASSANDRA-5272).
-        int endpointsCount = StorageService.instance.getTokenMetadata().getAllEndpoints().size();
-        if (endpointsCount <= 0)
-        {
-            logger.trace("Replay cancelled as there are no peers in the ring.");
-            return;
-        }
-        int throttleInKB = DatabaseDescriptor.getBatchlogReplayThrottleInKB() / endpointsCount;
-        RateLimiter rateLimiter = RateLimiter.create(throttleInKB == 0 ? Double.MAX_VALUE : throttleInKB * 1024);
-
-        UUID limitUuid = UUIDGen.maxTimeUUID(System.currentTimeMillis() - getBatchlogTimeout());
-        ColumnFamilyStore store = Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.BATCHES);
-        int pageSize = calculatePageSize(store);
-        // There cannot be any live content where token(id) <= token(lastReplayedUuid) as every processed batch is
-        // deleted, but the tombstoned content may still be present in the tables. To avoid walking over it we specify
-        // token(id) > token(lastReplayedUuid) as part of the query.
-        String query = String.format("SELECT id, mutations, version FROM %s.%s WHERE token(id) > token(?) AND token(id) <= token(?)",
-                                     SystemKeyspace.NAME,
-                                     SystemKeyspace.BATCHES);
-        UntypedResultSet batches = executeInternalWithPaging(query, pageSize, lastReplayedUuid, limitUuid);
-        processBatchlogEntries(batches, pageSize, rateLimiter);
-        lastReplayedUuid = limitUuid;
-        logger.trace("Finished replayFailedBatches");
+//        logger.trace("Started replayFailedBatches");
+//
+//        // rate limit is in bytes per second. Uses Double.MAX_VALUE if disabled (set to 0 in cassandra.yaml).
+//        // max rate is scaled by the number of nodes in the cluster (same as for HHOM - see CASSANDRA-5272).
+//        int endpointsCount = StorageService.instance.getTokenMetadata().getAllEndpoints().size();
+//        if (endpointsCount <= 0)
+//        {
+//            logger.trace("Replay cancelled as there are no peers in the ring.");
+//            return;
+//        }
+//        int throttleInKB = DatabaseDescriptor.getBatchlogReplayThrottleInKB() / endpointsCount;
+//        RateLimiter rateLimiter = RateLimiter.create(throttleInKB == 0 ? Double.MAX_VALUE : throttleInKB * 1024);
+//
+//        UUID limitUuid = UUIDGen.maxTimeUUID(System.currentTimeMillis() - getBatchlogTimeout());
+//        ColumnFamilyStore store = Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.BATCHES);
+//        int pageSize = calculatePageSize(store);
+//        // There cannot be any live content where token(id) <= token(lastReplayedUuid) as every processed batch is
+//        // deleted, but the tombstoned content may still be present in the tables. To avoid walking over it we specify
+//        // token(id) > token(lastReplayedUuid) as part of the query.
+//        String query = String.format("SELECT id, mutations, version FROM %s.%s WHERE token(id) > token(?) AND token(id) <= token(?)",
+//                                     SystemKeyspace.NAME,
+//                                     SystemKeyspace.BATCHES);
+//        UntypedResultSet batches = executeInternalWithPaging(query, pageSize, lastReplayedUuid, limitUuid);
+//        processBatchlogEntries(batches, pageSize, rateLimiter);
+//        lastReplayedUuid = limitUuid;
+//        logger.trace("Finished replayFailedBatches");
     }
 
     // read less rows (batches) per page if they are very large
