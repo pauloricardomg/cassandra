@@ -113,9 +113,11 @@ public final class SystemKeyspace
                 "batches awaiting replay",
                 "CREATE TABLE %s ("
                 + "id timeuuid,"
-                + "mutations list<blob>,"
-                + "version int,"
-                + "PRIMARY KEY ((id)))")
+                + "idx bigint,"
+                + "mutation blob,"
+                + "version int static,"
+                + "active boolean static,"
+                + "PRIMARY KEY ((id), idx))")
                 .copy(new LocalPartitioner(TimeUUIDType.instance))
                 .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
                 .gcGraceSeconds(0);

@@ -121,20 +121,50 @@ public class BatchlogManager implements BatchlogManagerMBean
 
     public static void store(Batch batch, boolean durableWrites)
     {
-        RowUpdateBuilder builder =
-            new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
-                .clustering()
-                .add("version", MessagingService.current_version);
+//        RowUpdateBuilder builder =
+//            new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
+//                .clustering()
+//                .add("version", MessagingService.current_version);
+//
+//        for (ByteBuffer mutation : batch.encodedMutations)
+//            builder.addListEntry("mutations", mutation);
+//
+//        for (Mutation mutation : batch.decodedMutations)
+//        {
+//            try (DataOutputBuffer buffer = new DataOutputBuffer())
+//            {
+//                Mutation.serializer.serialize(mutation, buffer, MessagingService.current_version);
+//                builder.addListEntry("mutations", buffer.buffer());
+//            }
+//            catch (IOException e)
+//            {
+//                // shouldn't happen
+//                throw new AssertionError(e);
+//            }
+//        }
+//
+//        builder.build().apply(durableWrites);
 
+        long index = 0;
         for (ByteBuffer mutation : batch.encodedMutations)
-            builder.addListEntry("mutations", mutation);
+        {
+            new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
+                        .clustering(index++)
+                        .add("mutation", mutation)
+                        .build()
+                        .apply(durableWrites);
+        }
 
         for (Mutation mutation : batch.decodedMutations)
         {
             try (DataOutputBuffer buffer = new DataOutputBuffer())
             {
                 Mutation.serializer.serialize(mutation, buffer, MessagingService.current_version);
-                builder.addListEntry("mutations", buffer.buffer());
+                new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
+                .clustering(index++)
+                .add("mutation", buffer.buffer())
+                .build()
+                .apply(durableWrites);
             }
             catch (IOException e)
             {
@@ -143,7 +173,11 @@ public class BatchlogManager implements BatchlogManagerMBean
             }
         }
 
-        builder.build().apply(durableWrites);
+        new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
+                .add("version", MessagingService.current_version)
+                .add("active", true)
+                .build()
+                .apply(true);
     }
 
     @VisibleForTesting
