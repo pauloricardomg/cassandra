@@ -123,8 +123,7 @@ public class BatchlogManager implements BatchlogManagerMBean
     {
         RowUpdateBuilder builder =
             new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
-                .clustering()
-                .add("version", MessagingService.current_version);
+                .clustering(0L);
 
         for (ByteBuffer mutation : batch.encodedMutations)
             builder.addListEntry("mutations", mutation);
@@ -144,6 +143,11 @@ public class BatchlogManager implements BatchlogManagerMBean
         }
 
         builder.build().apply(durableWrites);
+
+        new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
+        .add("version", MessagingService.current_version)
+        .add("active", true)
+        .build().apply(durableWrites);
     }
 
     @VisibleForTesting
