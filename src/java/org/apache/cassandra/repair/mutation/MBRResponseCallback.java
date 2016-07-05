@@ -47,6 +47,7 @@ import org.apache.cassandra.db.Columns;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.PartitionColumns;
@@ -66,10 +67,16 @@ import org.apache.cassandra.db.rows.RowDiffListener;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
+import org.apache.cassandra.net.AsyncOneResponse;
 import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.MessageIn;
+import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.ClientState;
+import org.apache.cassandra.service.DataResolver;
+import org.apache.cassandra.service.RepairMergeListener;
 import org.apache.cassandra.service.pager.QueryPager;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -95,9 +102,8 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
     private final ColumnFamilyStore cfs;
     private final int nowInSeconds;
     private final CountDownLatch cdl;
-    private final int expectedResponses;
     private final Set<MessageIn<MBRResponse>> responses = new CopyOnWriteArraySet<>();
-    private final AtomicInteger responseCount = new AtomicInteger();
+    private final AtomicInteger requiredResponses;
     private final MBRMetricHolder metrics;
 
     public MBRResponseCallback(ColumnFamilyStore cfs, MBRRepairPage rp, int nowInSeconds, CountDownLatch cdl, int expectedResponses, MBRMetricHolder metrics)
@@ -106,20 +112,18 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
         this.cfs = cfs;
         this.nowInSeconds = nowInSeconds;
         this.cdl = cdl;
-        this.expectedResponses = expectedResponses;
         this.metrics = metrics;
+        this.requiredResponses = new AtomicInteger(expectedResponses);
     }
 
     public void response(MessageIn<MBRResponse> msg)
     {
-        responseCount.incrementAndGet();
-        if (msg.payload.type != MBRResponse.Type.MATCH)
-            responses.add(msg);
-        if (responseCount.get() == expectedResponses && !responses.isEmpty())
+        responses.add(msg);
+        if (requiredResponses.decrementAndGet() == 0)
         {
             executor.submit(() ->
                             {
-                                resolveDiff(repairPage, responses);
+                                resolveDiff(repairPage, responses.stream().filter(m -> m.payload.type != MBRResponse.Type.MATCH).collect(Collectors.toSet()));
                                 cdl.countDown();
                             });
         }
@@ -168,7 +172,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                 metrics.hugePage();
                 handleHugeResponses(rc); // we also need to read the data from the diffing nodes
             }
-            else
+            else if (!remoteIterators.isEmpty())
             {
                 metrics.mismatchedPage();
                 try (ReadExecutionController rec = rc.executionController();
@@ -179,8 +183,10 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                     if (existingData.hasNext())
                     {
                         allIterators.add(0, existingData);
-
-                        try (UnfilteredPartitionIterator it = UnfilteredPartitionIterators.merge(allIterators, nowInSeconds, new PartitionMergeListener(cfs, metrics)))
+                        List<InetAddress> sources = new ArrayList<>();
+                        sources.add(FBUtilities.getBroadcastAddress());
+                        sources.addAll(responses.stream().map(r -> r.from).collect(Collectors.toList()));
+                        try (UnfilteredPartitionIterator it = UnfilteredPartitionIterators.merge(allIterators, nowInSeconds, new MBRMergeListener(cfs.keyspace, sources.toArray(new InetAddress[sources.size()]), rc, ConsistencyLevel.ALL)))
                         {
                             while (it.hasNext())
                                 try (UnfilteredRowIterator ri = it.next())
@@ -266,171 +272,48 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
         }
     }
 
-    // TODO: very similar to DataResolver.RepairMergeListener - refactor
-    private static class PartitionMergeListener implements UnfilteredPartitionIterators.MergeListener
-    {
-        private final ColumnFamilyStore cfs;
-        private final MBRMetricHolder metrics;
-
-        public PartitionMergeListener(ColumnFamilyStore cfs, MBRMetricHolder metrics)
-        {
-            this.cfs = cfs;
-            this.metrics = metrics;
-        }
-
-        public UnfilteredRowIterators.MergeListener getRowMergeListener(DecoratedKey partitionKey, List<UnfilteredRowIterator> versions)
-        {
-            return new RowMerger(cfs, partitionKey, columns(versions), isReversed(versions), metrics);
-        }
-
-        private boolean isReversed(List<UnfilteredRowIterator> versions)
-        {
-            for (UnfilteredRowIterator iter : versions)
-            {
-                if (iter == null)
-                    continue;
-
-                // Everything will be in the same order
-                return iter.isReverseOrder();
-            }
-
-            assert false : "Expected at least one iterator";
-            return false;
-        }
-
-        private PartitionColumns columns(List<UnfilteredRowIterator> versions)
-        {
-            Columns statics = Columns.NONE;
-            Columns regulars = Columns.NONE;
-            for (UnfilteredRowIterator iter : versions)
-            {
-                if (iter == null)
-                    continue;
-
-                PartitionColumns cols = iter.columns();
-                statics = statics.mergeTo(cols.statics);
-                regulars = regulars.mergeTo(cols.regulars);
-            }
-            return new PartitionColumns(statics, regulars);
-        }
-
-        public void close()
-        {
-        }
-    }
-
     public Set<InetAddress> replies()
     {
         return responses.stream().map(response -> response.from).collect(Collectors.toSet());
     }
 
-    private static class RowMerger implements UnfilteredRowIterators.MergeListener
+    private static class MBRMergeListener extends RepairMergeListener
     {
-        private final PartitionUpdate updater;
-        private final boolean isReversed;
-        private final ColumnFamilyStore cfs;
-        private final DecoratedKey partitionKey;
-        private final MBRMetricHolder metrics;
-        private ClusteringBound markerOpen;
-        private DeletionTime markerTime;
-        private Row.Builder currentRow = null;
-
-        private final RowDiffListener diffListener = new RowDiffListener()
+        public MBRMergeListener(Keyspace keyspace, InetAddress[] sources, ReadCommand command, ConsistencyLevel consistency)
         {
-            public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
-            {
-                if (merged != null && !merged.equals(original))
-                    currentRow(clustering).addPrimaryKeyLivenessInfo(merged);
-            }
-
-            public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)
-            {
-                if (merged != null && !merged.equals(original))
-                    currentRow(clustering).addRowDeletion(merged);
-            }
-
-            public void onComplexDeletion(int i, Clustering clustering, ColumnDefinition column, DeletionTime merged, DeletionTime original)
-            {
-                if (merged != null && !merged.equals(original))
-                    currentRow(clustering).addComplexDeletion(column, merged);
-            }
-
-            public void onCell(int i, Clustering clustering, Cell merged, Cell original)
-            {
-                if (merged != null && !merged.equals(original))
-                    currentRow(clustering).addCell(merged);
-            }
-
-            public Row.Builder currentRow(Clustering clustering)
-            {
-                if (currentRow == null)
-                {
-                    currentRow = BTreeRow.sortedBuilder();
-                    currentRow.newRow(clustering);
-                }
-                return currentRow;
-            }
-        };
-
-        public RowMerger(ColumnFamilyStore cfs, DecoratedKey key, PartitionColumns columns, boolean isReversed, MBRMetricHolder metrics)
-        {
-            updater = new PartitionUpdate(cfs.metadata, key, columns, 1);
-            this.isReversed = isReversed;
-            this.cfs = cfs;
-            this.partitionKey = key;
-            this.metrics = metrics;
+            super(keyspace, sources, command, consistency);
         }
 
-        public void onMergedPartitionLevelDeletion(DeletionTime mergedDeletion, DeletionTime[] versions)
+        public UnfilteredRowIterators.MergeListener getRowMergeListener(DecoratedKey partitionKey, List<UnfilteredRowIterator> versions)
         {
-            if (mergedDeletion.supersedes(versions[0]))
-            {
-                updater.addPartitionDeletion(mergedDeletion);
-            }
+            return new MBRDiffListener(partitionKey, columns(versions), isReversed(versions), sources, command, repairResults);
         }
+    }
 
-        public void onMergedRows(Row merged, Row[] versions)
+    private static class MBRDiffListener extends RepairMergeListener.MergeListener
+    {
+
+        public MBRDiffListener(DecoratedKey partitionKey, PartitionColumns columns, boolean isReversed, InetAddress[] sources, ReadCommand command, List<AsyncOneResponse> repairResults)
         {
-            if (merged.isEmpty())
-                 return;
-
-            Rows.diff(diffListener, merged, versions[0]);
-            if (currentRow != null)
-                 updater.add(currentRow.build());
-            currentRow = null;
-        }
-
-        public void onMergedRangeTombstoneMarkers(RangeTombstoneMarker merged, RangeTombstoneMarker[] versions)
-        {
-            RangeTombstoneMarker localMarker = versions[0];
-            // Note that boundaries are both close and open, so it's not one or the other
-            if (merged.isClose(isReversed) && markerOpen != null)
-            {
-                ClusteringBound open = markerOpen;
-                ClusteringBound close = merged.closeBound(isReversed);
-                updater.add(new RangeTombstone(Slice.make(isReversed ? close : open, isReversed ? open : close), markerTime));
-            }
-            if (merged.isOpen(isReversed) && (localMarker == null || merged.openDeletionTime(isReversed).supersedes(localMarker.openDeletionTime(isReversed))))
-            {
-                markerOpen = merged.openBound(isReversed);
-                markerTime = merged.openDeletionTime(isReversed);
-            }
+            super(partitionKey, columns, isReversed, sources, command, repairResults);
         }
 
         public void close()
         {
-            // todo: create and apply a full page mutation at once?
-            // todo: separate memtable for this?
-            // todo:    - allow incremental repairs (flush to repaired sstable)
-            // todo:    - be able to run this with DTCS (or make flushing align with dtcs windows)
-
-            if (!updater.isEmpty())
+            for (int i = 0; i < repairs.length; i++)
             {
-                metrics.appliedMutation();
-                new Mutation(cfs.keyspace.getName(), partitionKey).add(updater).apply();
+                if (repairs[i] == null)
+                    continue;
+
+                // use a separate verb here because we don't want these to be get the white glove hint-
+                // on-timeout behavior that a "real" mutation gets
+                Tracing.trace("Sending repair-mutation to {}", sources[i]);
+                MessageOut<Mutation> msg = new Mutation(repairs[i]).createMessage(MessagingService.Verb.READ_REPAIR);
+                repairResults.add(MessagingService.instance().sendRR(msg, sources[i]));
             }
         }
     }
+
 
     private static class EmptyMergeListener implements UnfilteredPartitionIterators.MergeListener
     {
