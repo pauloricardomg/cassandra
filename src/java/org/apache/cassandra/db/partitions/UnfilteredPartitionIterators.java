@@ -22,6 +22,9 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -238,17 +241,38 @@ public abstract class UnfilteredPartitionIterators
      * @param digest the {@code MessageDigest} to use for the digest.
      * @param version the messaging protocol to use when producing the digest.
      */
-    public static void digest(ReadCommand command, UnfilteredPartitionIterator iterator, MessageDigest digest, int version)
+    private static final Logger logger = LoggerFactory.getLogger(UnfilteredPartitionIterators.class);
+    public static DigestInfo digest(ReadCommand command, UnfilteredPartitionIterator iterator, MessageDigest digest, int version)
     {
+        DecoratedKey first = null;
+        DecoratedKey last = null;
         try (UnfilteredPartitionIterator iter = iterator)
         {
+
             while (iter.hasNext())
             {
+
                 try (UnfilteredRowIterator partition = iter.next())
                 {
+                    if (first == null)
+                        first = partition.partitionKey();
+                    last = partition.partitionKey();
                     UnfilteredRowIterators.digest(command, partition, digest, version);
                 }
             }
+        }
+        return new DigestInfo(first, last);
+    }
+
+    public static class DigestInfo
+    {
+        public final DecoratedKey first;
+        public final DecoratedKey last;
+
+        public DigestInfo(DecoratedKey first, DecoratedKey last)
+        {
+            this.first = first;
+            this.last = last;
         }
     }
 

@@ -308,6 +308,7 @@ public class MBRResponseCallback implements IAsyncCallback<MBRResponse>
                 // use a separate verb here because we don't want these to be get the white glove hint-
                 // on-timeout behavior that a "real" mutation gets
                 Tracing.trace("Sending repair-mutation to {}", sources[i]);
+                logger.info("sending {} mutations to {}", repairs[i].operationCount(), sources[i]);
                 MessageOut<Mutation> msg = new Mutation(repairs[i]).createMessage(MessagingService.Verb.READ_REPAIR);
                 repairResults.add(MessagingService.instance().sendRR(msg, sources[i]));
             }

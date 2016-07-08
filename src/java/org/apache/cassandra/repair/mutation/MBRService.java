@@ -27,8 +27,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -62,7 +60,6 @@ import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
-import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.dht.AbstractBounds;
@@ -75,6 +72,7 @@ import org.apache.cassandra.service.pager.QueryPager;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * 1. Read up a page of our local data, figure out where the returned page starts and ends
@@ -136,6 +134,7 @@ public class MBRService
                 logger.debug("repairing range {}, windowSize={}, rowsPerSecond={}", r, windowSize, rowsPerSecondToRepair);
                 DataRange dr = new DataRange(Range.makeRowRange(r), new ClusteringIndexSliceFilter(Slices.ALL, false));
                 int nowInSeconds = FBUtilities.nowInSeconds();
+                DecoratedKey lastInPage = null;
                 PartitionRangeReadCommand rc = new PartitionRangeReadCommand(cfs.metadata,
                                                                              nowInSeconds,
                                                                              ColumnFilter.all(cfs.metadata),
@@ -153,12 +152,15 @@ public class MBRService
                         return;
                     byte[] hash;
                     int count;
+                    UnfilteredPartitionIterators.DigestInfo newDigest = null;
                     try (ReadExecutionController executionController = rc.executionController();
                          UnfilteredPartitionIterator pi = pager.fetchUnfilteredPageInternal(windowSize, cfs.metadata, executionController))
                     {
                         DataLimits.Counter c = rc.limits().newCounter(nowInSeconds, true).onlyCount();
-                        hash = digest(rc, c.applyTo(pi));
+                        Pair<UnfilteredPartitionIterators.DigestInfo, byte[]> digestInfo = digest(rc, c.applyTo(pi));
                         count = c.counted();
+                        hash = digestInfo.right;
+                        newDigest = digestInfo.left;
                     }
 
                     metrics.increaseRowsHashed(count);
@@ -170,7 +172,8 @@ public class MBRService
                     // same idea as for tokens above - if pager is exhausted (or the pager didn't return any rows at all)
                     // we need to read all the (remaining) data on the remote node
                     ByteBuffer pageClusteringEnd = (pager.isExhausted() || ps == null || ps.rowMark == null) ? ByteBufferUtil.EMPTY_BYTE_BUFFER : ps.rowMark.mark;
-                    boolean isStartKeyInclusive = ps == null || ps.remainingInPartition > 0;
+                    boolean isStartKeyInclusive = (lastInPage == null || lastInPage.equals(newDigest.first));
+                    lastInPage = newDigest.last;
                     MBRRepairPage rp = new MBRRepairPage(start, pageEnd, clusteringFrom, pageClusteringEnd, hash, count, windowSize, isStartKeyInclusive);
                     if (logger.isTraceEnabled())
                         logger.trace("Repairing page = {}", rp.toString(cfs.metadata));
@@ -250,11 +253,11 @@ public class MBRService
         return res;
     }
 
-    public static byte[] digest(ReadCommand rc, UnfilteredPartitionIterator pi)
+    public static Pair<UnfilteredPartitionIterators.DigestInfo, byte[]> digest(ReadCommand rc, UnfilteredPartitionIterator pi)
     {
         MessageDigest digest = FBUtilities.threadLocalMD5Digest();
-        UnfilteredPartitionIterators.digest(rc, pi, digest, rc.digestVersion());
-        return digest.digest();
+        UnfilteredPartitionIterators.DigestInfo di = UnfilteredPartitionIterators.digest(rc, pi, digest, rc.digestVersion());
+        return Pair.create(di, digest.digest());
     }
 
     public static class MBRDataRange extends DataRange

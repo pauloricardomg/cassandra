@@ -30,6 +30,8 @@ import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
+import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
@@ -59,7 +61,7 @@ public class MBRVerbHandler implements IVerbHandler<MBRCommand>
              UnfilteredPartitionIterator pi = rc.executeLocally(rce))
         {
             DataLimits.Counter c = rc.limits().newCounter(mbrc.nowInSeconds, true);
-            byte[] hash = MBRService.digest(rc, c.applyTo(pi));
+            byte[] hash = MBRService.digest(rc, c.applyTo(pi)).right;
             rowCount = c.counted();
             if (!Arrays.equals(hash, mbrc.repairPage.hash))
                 match = false;
