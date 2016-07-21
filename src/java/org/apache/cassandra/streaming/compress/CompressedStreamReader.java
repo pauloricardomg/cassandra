@@ -124,8 +124,6 @@ public class CompressedStreamReader extends StreamReader
             }
             if (extractIOExceptionCause(e).isPresent())
                 throw e;
-            //only drain if it's going to retry
-            drain(cis, in.getBytesRead());
             throw Throwables.propagate(e);
         }
         finally

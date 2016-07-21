@@ -135,10 +135,6 @@ public class StreamReader
             {
                 writer.abort(e);
             }
-            if (extractIOExceptionCause(e).isPresent())
-                throw e;
-            //only drain if it's going to retry
-            drain(in, in.getBytesRead());
             throw Throwables.propagate(e);
         }
         finally
@@ -161,25 +157,6 @@ public class StreamReader
         desc = Descriptor.fromFilename(cfs.getSSTablePath(cfs.getDirectories().getLocationForDisk(localDir), format));
 
         return cfs.createSSTableMultiWriter(desc, estimatedKeys, repairedAt, sstableLevel, getHeader(cfs.metadata), session.getTransaction(cfId));
-    }
-
-    protected void drain(InputStream dis, long bytesRead) throws IOException
-    {
-        long toSkip = totalSize() - bytesRead;
-
-        // InputStream.skip can return -1 if dis is inaccessible.
-        long skipped = dis.skip(toSkip);
-        if (skipped == -1)
-            return;
-
-        toSkip = toSkip - skipped;
-        while (toSkip > 0)
-        {
-            skipped = dis.skip(toSkip);
-            if (skipped == -1)
-                break;
-            toSkip = toSkip - skipped;
-        }
     }
 
     protected long totalSize()

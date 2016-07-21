@@ -53,23 +53,10 @@ public class IncomingFileMessage extends StreamMessage
             {
                 return new IncomingFileMessage(reader.read(in), header);
             }
-            catch (IOException eof)
-            {
-                // Reading from remote failed(i.e. reached EOF before reading expected length of data).
-                // This can be caused by network/node failure thus we are not retrying
-                throw eof;
-            }
             catch (Throwable t)
             {
-                // Throwable can be Runtime error containing IOException.
-                // In that case we don't want to retry.
-                Optional<IOException> cause = extractIOExceptionCause(t);
-                if (cause.isPresent())
-                    throw cause.get();
                 JVMStabilityInspector.inspectThrowable(t);
-                // Otherwise, we can retry
-                session.doRetry(header, t);
-                return null;
+                throw t;
             }
         }
 
