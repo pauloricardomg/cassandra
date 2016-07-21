@@ -138,10 +138,6 @@ public class StreamReader
                     e.addSuppressed(e2);
                 }
             }
-            if (extractIOExceptionCause(e).isPresent())
-                throw e;
-            //only drain if it's going to retry
-            drain(dis, in.getBytesRead());
             throw Throwables.propagate(e);
         }
     }
@@ -154,25 +150,6 @@ public class StreamReader
         desc = Descriptor.fromFilename(cfs.getTempSSTablePath(cfs.directories.getLocationForDisk(localDir), format));
 
         return SSTableWriter.create(desc, estimatedKeys, repairedAt, sstableLevel);
-    }
-
-    protected void drain(InputStream dis, long bytesRead) throws IOException
-    {
-        long toSkip = totalSize() - bytesRead;
-
-        // InputStream.skip can return -1 if dis is inaccessible.
-        long skipped = dis.skip(toSkip);
-        if (skipped == -1)
-            return;
-
-        toSkip = toSkip - skipped;
-        while (toSkip > 0)
-        {
-            skipped = dis.skip(toSkip);
-            if (skipped == -1)
-                break;
-            toSkip = toSkip - skipped;
-        }
     }
 
     protected long totalSize()
