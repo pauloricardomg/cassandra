@@ -472,8 +472,8 @@ public class Keyspace
                 ColumnFamilyStore cfs = columnFamilyStores.get(upd.metadata().cfId);
                 if (cfs == null)
                 {
-                    logger.error("Attempting to mutate non-existant table {} ({}.{})", upd.metadata().cfId, upd.metadata().ksName, upd.metadata().cfName);
-                    continue;
+                    throw new RuntimeException(String.format("Attempting to mutate non-existant table %s (%s.%s)",
+                                               upd.metadata().cfId, upd.metadata().ksName, upd.metadata().cfName));
                 }
                 AtomicLong baseComplete = new AtomicLong(Long.MAX_VALUE);
 
