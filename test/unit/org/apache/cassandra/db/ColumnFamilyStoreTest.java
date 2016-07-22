@@ -51,6 +51,8 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
 import static junit.framework.Assert.assertNotNull;
+import static org.junit.Assert.fail;
+
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class ColumnFamilyStoreTest
 {
@@ -113,6 +115,25 @@ public class ColumnFamilyStoreTest
         ((ClearableHistogram)cfs.metric.sstablesPerReadHistogram.cf).clear(); // resets counts
         Util.getAll(Util.cmd(cfs, "key1").includeRow("c1").build());
         assertEquals(1, cfs.metric.sstablesPerReadHistogram.cf.getCount());
+    }
+
+    @Test
+    public void testApplyMutationFromUnknownTableShouldThrowException()
+    {
+        CFMetaData fakeCFM = SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1);
+
+        try
+        {
+            new RowUpdateBuilder(fakeCFM, 0, "key1")
+            .clustering("Column1")
+            .add("val", "asdf")
+            .build()
+            .applyUnsafe();
+            fail("Should have thrown exception");
+        } catch (RuntimeException e)
+        {
+            assertTrue(e.getMessage().startsWith("Attempting to mutate non-existant table"));
+        }
     }
 
     @Test
