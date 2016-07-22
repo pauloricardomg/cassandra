@@ -106,6 +106,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class ColumnFamilyStoreTest
@@ -192,6 +193,29 @@ public class ColumnFamilyStoreTest
         ((ClearableHistogram)cfs.metric.sstablesPerReadHistogram.cf).clear(); // resets counts
         cfs.getColumnFamily(Util.namesQueryFilter(cfs, Util.dk("key1"), "Column1"));
         assertEquals(1, cfs.metric.sstablesPerReadHistogram.cf.getCount());
+    }
+
+    @Test
+    public void testApplyMutationFromUnknownTableShouldThrowException()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.truncateBlocking();
+
+        CFMetaData fakeCFM = SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1);
+        ColumnFamily cf = new ArrayBackedSortedColumns(fakeCFM, false);
+        cf.addColumn(cellname("Column1"), ByteBufferUtil.bytes("asdf"), 0);
+        Mutation rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes("key1"));
+        rm.add(cf);
+
+        try
+        {
+            rm.applyUnsafe();
+            fail("Should have thrown exception");
+        } catch (RuntimeException e)
+        {
+            assertTrue(e.getMessage().startsWith("Attempting to mutate non-existant table"));
+        }
     }
 
     @Test

@@ -395,8 +395,7 @@ public class Keyspace
                 ColumnFamilyStore cfs = columnFamilyStores.get(cf.id());
                 if (cfs == null)
                 {
-                    logger.error("Attempting to mutate non-existant table {}", cf.id());
-                    continue;
+                    throw new RuntimeException(String.format("Attempting to mutate non-existant table %s.", cf.id()));
                 }
 
                 Tracing.trace("Adding to {} memtable", cf.metadata().cfName);
