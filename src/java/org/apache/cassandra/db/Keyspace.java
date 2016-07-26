@@ -429,6 +429,10 @@ public class Keyspace
         if (TEST_FAIL_WRITES && metadata.name.equals(TEST_FAIL_WRITES_KS))
             throw new RuntimeException("Testing write failures");
 
+        for (UUID cfId : mutation.getColumnFamilyIds())
+            if (columnFamilyStores.get(cfId) == null)
+                throw new RuntimeException(String.format("Attempting to mutate non-existant table %s.", cfId));
+
         Lock[] locks = null;
         boolean requiresViewUpdate = updateIndexes && viewManager.updatesAffectView(Collections.singleton(mutation), false);
         final CompletableFuture<?> mark = future == null ? new CompletableFuture<>() : future;
