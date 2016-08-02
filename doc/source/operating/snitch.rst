@@ -72,6 +72,11 @@ Ec2MultiRegionSnitch
     public IP as well). You will need to open the ``storage_port`` or ``ssl_storage_port`` on the public IP firewall
     (For intra-Region traffic, Cassandra will switch to the private IP after establishing a connection).
 
+.. Note:: By default, Ec2MultiRegionSnitch advertises the public instance IP as ``rpc_address``, allowing cross-DC coordinator
+   discovery by token-aware clients but this may incur additional charges on EC2 for public IP access within the local DC if a
+   token-aware client is used. In order to override this behavior and restrict token-aware clients to the local DC, set 
+   ``broadcast_rpc_address`` to the instance's private IP.
+
 RackInferringSnitch
     Proximity is determined by rack and data center, which are assumed to correspond to the 3rd and 2nd octet of each
     node's IP address, respectively.  Unless this happens to match your deployment conventions, this is best used as an
