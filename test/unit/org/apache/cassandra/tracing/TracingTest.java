@@ -162,9 +162,6 @@ public final class TracingTest
                     traces.add(string);
                 }
 
-                protected void waitForPendingEvents()
-                {
-                }
             };
         }
 
