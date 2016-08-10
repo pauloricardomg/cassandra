@@ -282,6 +282,11 @@ public abstract class UntypedResultSet implements Iterable<UntypedResultSet.Row>
             return ShortType.instance.compose(data.get(column));
         }
 
+        public Integer getInteger(String column)
+        {
+            return Int32Type.instance.compose(data.get(column));
+        }
+
         public int getInt(String column)
         {
             return Int32Type.instance.compose(data.get(column));

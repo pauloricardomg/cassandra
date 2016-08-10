@@ -53,7 +53,7 @@ public final class LegacyBatchlogMigrator
     @SuppressWarnings("deprecation")
     public static void migrate()
     {
-        ColumnFamilyStore store = Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.LEGACY_BATCHLOG);
+        ColumnFamilyStore store = Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.LEGACY_BATCHLOG_V1);
 
         // nothing to migrate
         if (store.isEmpty())
@@ -64,7 +64,7 @@ public final class LegacyBatchlogMigrator
         int convertedBatches = 0;
         String query = String.format("SELECT id, data, written_at, version FROM %s.%s",
                                      SystemKeyspace.NAME,
-                                     SystemKeyspace.LEGACY_BATCHLOG);
+                                     SystemKeyspace.LEGACY_BATCHLOG_V1);
 
         int pageSize = BatchlogManager.calculatePageSize(store);
 
@@ -76,20 +76,20 @@ public final class LegacyBatchlogMigrator
         }
 
         if (convertedBatches > 0)
-            Keyspace.openAndGetStore(SystemKeyspace.LegacyBatchlog).truncateBlocking();
+            Keyspace.openAndGetStore(SystemKeyspace.LegacyBatchlogV1).truncateBlocking();
     }
 
     @SuppressWarnings("deprecation")
     public static boolean isLegacyBatchlogMutation(Mutation mutation)
     {
         return mutation.getKeyspaceName().equals(SystemKeyspace.NAME)
-            && mutation.getPartitionUpdate(SystemKeyspace.LegacyBatchlog.cfId) != null;
+            && mutation.getPartitionUpdate(SystemKeyspace.LegacyBatchlogV1.cfId) != null;
     }
 
     @SuppressWarnings("deprecation")
     public static void handleLegacyMutation(Mutation mutation)
     {
-        PartitionUpdate update = mutation.getPartitionUpdate(SystemKeyspace.LegacyBatchlog.cfId);
+        PartitionUpdate update = mutation.getPartitionUpdate(SystemKeyspace.LegacyBatchlogV1.cfId);
         logger.trace("Applying legacy batchlog mutation {}", update);
         update.forEach(row -> apply(UntypedResultSet.Row.fromInternalRow(update.metadata(), update.partitionKey(), row), -1));
     }
@@ -162,7 +162,7 @@ public final class LegacyBatchlogMigrator
     @SuppressWarnings("deprecation")
     static Mutation getStoreMutation(Batch batch, int version)
     {
-        return new RowUpdateBuilder(SystemKeyspace.LegacyBatchlog, batch.creationTime, batch.id)
+        return new RowUpdateBuilder(SystemKeyspace.LegacyBatchlogV1, batch.creationTime, batch.id)
                .clustering()
                .add("written_at", new Date(batch.creationTime / 1000))
                .add("data", getSerializedMutations(version, batch.decodedMutations))
@@ -173,7 +173,7 @@ public final class LegacyBatchlogMigrator
     @SuppressWarnings("deprecation")
     private static Mutation getRemoveMutation(UUID uuid)
     {
-        return new Mutation(PartitionUpdate.fullPartitionDelete(SystemKeyspace.LegacyBatchlog,
+        return new Mutation(PartitionUpdate.fullPartitionDelete(SystemKeyspace.LegacyBatchlogV1,
                                                                 UUIDType.instance.decompose(uuid),
                                                                 FBUtilities.timestampMicros(),
                                                                 FBUtilities.nowInSeconds()));
