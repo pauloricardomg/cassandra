@@ -217,6 +217,10 @@ public class RepairOption
         {
             throw new IllegalArgumentException("Too many job threads. Max is " + MAX_JOB_THREADS);
         }
+        if (!dataCenters.isEmpty() && !hosts.isEmpty())
+        {
+            throw new IllegalArgumentException("Cannot combine -dc and -hosts options.");
+        }
         if (primaryRange && (!dataCenters.isEmpty() || !hosts.isEmpty()))
         {
             throw new IllegalArgumentException("You need to run primary range repair on all nodes in the cluster.");
