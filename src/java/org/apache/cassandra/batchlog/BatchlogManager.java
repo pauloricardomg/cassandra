@@ -230,7 +230,7 @@ public class BatchlogManager implements BatchlogManagerMBean
         return (int) Math.max(1, Math.min(DEFAULT_PAGE_SIZE, 4 * 1024 * 1024 / averageRowSize));
     }
 
-    private UUID processBatchlogEntries(UntypedResultSet batches, int pageSize, RateLimiter rateLimiter, UUID queryTimeUUID)
+    private void processBatchlogEntries(UntypedResultSet batches, int pageSize, RateLimiter rateLimiter, UUID queryTimeUUID)
     {
         int positionInPage = 0;
         ArrayList<ReplayingBatch> unfinishedBatches = new ArrayList<>(pageSize);
@@ -238,46 +238,23 @@ public class BatchlogManager implements BatchlogManagerMBean
         Set<InetAddress> hintedNodes = new HashSet<>();
         Set<UUID> replayedBatches = new HashSet<>();
 
-        UUID expiredBatchId = UUIDGen.maxTimeUUID(System.currentTimeMillis() - MAX_BATCH_AGE);
-        UUID minIncompleteBatchId = queryTimeUUID;
-
         Iterator<UntypedResultSet.Row> iterator = batches.iterator();
 
         while (iterator.hasNext())
         {
+            maybeSkipIncompleteBatches(iterator);
+
             UntypedResultSet.Row row = iterator.next(); positionInPage++;
-            UUID id = row.getUUID("id");
+            UUID currentId = row.getUUID("id");
             int version = row.getInt("version");
             Integer mutationCount = row.getInteger("total_mutations");
 
-            //First, skip incomplete batches
-            while (iterator.hasNext() && mutationCount == null)
-            {
-                UUID incompleteBatchId = id;
-                while (iterator.hasNext() && id.equals(incompleteBatchId))
-                {
-                    row = iterator.next(); positionInPage++;
-                    id = row.getUUID("id");
-                    version = row.getInt("version");
-                    mutationCount = row.getInteger("total_mutations");
-                }
-                //clear expired incomplete batches
-                if (incompleteBatchId.compareTo(expiredBatchId) < 0)
-                {
-                    logger.warn("Removing expired incomplete batch {}.", id);
-                    remove(id);
-                }
-                //update minIncompleteBatchId
-                else if (incompleteBatchId.compareTo(minIncompleteBatchId) < 0)
-                {
-                    minIncompleteBatchId = id;
-                }
-            }
+
 
             //Now, replay complete batches
             if (mutationCount != null)
             {
-                ReplayingBatch batch = new ReplayingBatch(id, version, mutationCount);
+                ReplayingBatch batch = new ReplayingBatch(currentId, version, mutationCount);
 
                 int retrievedMutations = 0;
                 try
@@ -285,7 +262,7 @@ public class BatchlogManager implements BatchlogManagerMBean
                     while (iterator.hasNext() && retrievedMutations++ < mutationCount)
                     {
                         row = iterator.next(); positionInPage++;
-                        assert id.equals(row.getUUID("id"));
+                        assert currentId.equals(row.getUUID("id"));
                         batch.addMutation(version, row.getBlob("mutation"));
                     }
                     if (batch.replay(rateLimiter, hintedNodes) > 0)
@@ -294,19 +271,19 @@ public class BatchlogManager implements BatchlogManagerMBean
                     }
                     else
                     {
-                        remove(id); // no write mutations were sent (either expired or all CFs involved truncated).
+                        remove(currentId); // no write mutations were sent (either expired or all CFs involved truncated).
                         ++totalBatchesReplayed;
                     }
                 }
                 catch (IOException e)
                 {
-                    logger.warn("Skipped batch replay of {} due to {}", id, e);
+                    logger.warn("Skipped batch replay of {} due to {}", currentId, e);
                     //skip remaining mutations and remove batch
                     while (iterator.hasNext() && retrievedMutations++ < mutationCount)
                     {
                         iterator.next();
                     }
-                    remove(id);
+                    remove(currentId);
                 }
             }
 
@@ -326,8 +303,70 @@ public class BatchlogManager implements BatchlogManagerMBean
 
         // once all generated hints are fsynced, actually delete the batches
         replayedBatches.forEach(BatchlogManager::remove);
+    }
 
-        return minIncompleteBatchId;
+    private void maybeSkipIncompleteBatches(Iterator<UntypedResultSet.Row> iterator)
+    {
+        UUID EXPIRED_BATCH_ID = UUIDGen.maxTimeUUID(System.currentTimeMillis() - MAX_BATCH_AGE);
+
+        int skipped = 0;
+        UntypedResultSet.Row row = iterator.next();
+        UUID currentId = row.getUUID("id");
+        UUID incompleteBatchId = row.getInteger("total_mutations") == null? currentId : null;
+
+        while (incompleteBatchId != null)
+        {
+            skipped++;
+            // since we don't know how many rows to skip, we skip until finding a new batch id
+            // or exhausting the iterator
+            while (iterator.hasNext() && currentId.equals(incompleteBatchId))
+            {
+                skipped++;
+                row = iterator.next();
+                currentId = row.getUUID("id");
+            }
+
+            // if incomplete batch is too old, it means it was not completed, so we remove it
+            if (incompleteBatchId.compareTo(EXPIRED_BATCH_ID) < 0)
+            {
+                logger.warn("Removing expired incomplete batch {}.", currentId);
+                remove(currentId);
+            }
+            else if (incompleteBatchId.compareTo(firstInactiveBatch) < 0)
+            {
+                firstInactiveBatch = currentId;
+            }
+
+            incompleteBatchId = currentId.equals(incompleteBatchId) ? null : row.getInteger("total_mutations") == null? currentId : null;
+        }
+    }
+
+    private void skipIncompleteBatches(UntypedResultSet.Row row, Iterator<UntypedResultSet.Row> iterator)
+    {
+        UUID currentBatchId = row.getUUID("id");
+        Integer mutationCount = row.getInteger("total_mutations");
+        while (iterator.hasNext() && mutationCount == null)
+        {
+            UUID incompleteBatchId = currentId;
+            while (iterator.hasNext() && currentId.equals(incompleteBatchId))
+            {
+                row = iterator.next();
+                currentId = row.getUUID("id");
+                version = row.getInt("version");
+                mutationCount = row.getInteger("total_mutations");
+            }
+            //clear expired incomplete batches
+            if (incompleteBatchId.compareTo(expiredBatchId) < 0)
+            {
+                logger.warn("Removing expired incomplete batch {}.", currentId);
+                remove(currentId);
+            }
+            //update firstInactiveBatch
+            else if (incompleteBatchId.compareTo(firstInactiveBatch) < 0)
+            {
+                firstInactiveBatch = currentId;
+            }
+        }
     }
 
     private void finishAndClearBatches(ArrayList<ReplayingBatch> batches, Set<InetAddress> hintedNodes, Set<UUID> replayedBatches)
