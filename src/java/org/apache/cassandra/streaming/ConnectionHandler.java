@@ -69,8 +69,7 @@ public class ConnectionHandler
     ConnectionHandler(StreamSession session, int incomingSocketTimeout)
     {
         this.session = session;
-        this.incomingSocketTimeout = incomingSocketTimeout;
-        this.incoming = new IncomingMessageHandler(session);
+        this.incoming = new IncomingMessageHandler(session, incomingSocketTimeout);
         this.outgoing = new OutgoingMessageHandler(session);
     }
 
@@ -86,14 +85,12 @@ public class ConnectionHandler
     {
         logger.debug("[Stream #{}] Sending stream init for incoming stream", session.planId());
         Socket incomingSocket = session.createConnection();
-        incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION, incomingSocketTimeout);
-        incoming.sendInitMessage(incomingSocket, true);
+        incoming.start(incomingSocket, StreamMessage.CURRENT_VERSION, true);
         incomingSocket.shutdownOutput();
 
         logger.debug("[Stream #{}] Sending stream init for outgoing stream", session.planId());
         Socket outgoingSocket = session.createConnection();
-        outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION);
-        outgoing.sendInitMessage(outgoingSocket, false);
+        outgoing.start(outgoingSocket, StreamMessage.CURRENT_VERSION, true);
         outgoingSocket.shutdownInput();
     }
 
@@ -170,14 +167,16 @@ public class ConnectionHandler
         protected final StreamSession session;
 
         protected int protocolVersion;
+        private final boolean isOutgoingHandler;
         protected Socket socket;
 
         private final AtomicReference<SettableFuture<?>> closeFuture = new AtomicReference<>();
         private IncomingStreamingConnection incomingConnection;
 
-        protected MessageHandler(StreamSession session)
+        protected MessageHandler(StreamSession session, boolean isOutgoingHandler)
         {
             this.session = session;
+            this.isOutgoingHandler = isOutgoingHandler;
         }
 
         protected abstract String name();
@@ -199,14 +198,14 @@ public class ConnectionHandler
         }
 
         @SuppressWarnings("resource")
-        public void sendInitMessage(Socket socket, boolean isForOutgoing) throws IOException
+        private void sendInitMessage() throws IOException
         {
             StreamInitMessage message = new StreamInitMessage(
                     FBUtilities.getBroadcastAddress(),
                     session.sessionIndex(),
                     session.planId(),
                     session.description(),
-                    isForOutgoing,
+                    !isOutgoingHandler,
                     session.keepSSTableLevel(),
                     session.isIncremental());
             ByteBuffer messageBuf = message.createMessage(false, protocolVersion);
@@ -215,16 +214,18 @@ public class ConnectionHandler
             out.flush();
         }
 
-        public void start(IncomingStreamingConnection connection, int protocolVersion)
+        public void start(IncomingStreamingConnection connection, int protocolVersion) throws IOException
         {
             this.incomingConnection = connection;
-            start(connection.socket, protocolVersion);
+            start(connection.socket, protocolVersion, false);
         }
 
-        public void start(Socket socket, int protocolVersion)
+        public void start(Socket socket, int protocolVersion, boolean initiator) throws IOException
         {
             this.socket = socket;
             this.protocolVersion = protocolVersion;
+            if (initiator)
+                sendInitMessage();
 
             new FastThreadLocalThread(this, name() + "-" + socket.getRemoteSocketAddress()).start();
         }
@@ -280,22 +281,26 @@ public class ConnectionHandler
      */
     static class IncomingMessageHandler extends MessageHandler
     {
-        IncomingMessageHandler(StreamSession session)
+        private final int socketTimeout;
+
+        IncomingMessageHandler(StreamSession session, int socketTimeout)
         {
-            super(session);
+            super(session, false);
+            this.socketTimeout = socketTimeout;
         }
 
-        public void start(Socket socket, int protocolVersion, int timeout)
+        @Override
+        public void start(Socket socket, int version, boolean initiator) throws IOException
         {
             try
             {
-                socket.setSoTimeout(timeout);
+                socket.setSoTimeout(socketTimeout);
             }
             catch (SocketException e)
             {
-                logger.warn("Could not set incoming socket timeout to {}", timeout, e);
+                logger.warn("Could not set incoming socket timeout to {}", socketTimeout, e);
             }
-            super.start(socket, protocolVersion);
+            super.start(socket, version, initiator);
         }
 
         protected String name()
@@ -355,7 +360,7 @@ public class ConnectionHandler
 
         OutgoingMessageHandler(StreamSession session)
         {
-            super(session);
+            super(session, true);
         }
 
         protected String name()
