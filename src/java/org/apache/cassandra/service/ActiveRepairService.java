@@ -407,41 +407,42 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     @SuppressWarnings("resource")
     public ListenableFuture<List<Object>> doAntiCompaction(final UUID parentRepairSession, Collection<Range<Token>> successfulRanges)
     {
-        assert parentRepairSession != null;
-        ParentRepairSession prs = getParentRepairSession(parentRepairSession);
-        //A repair will be marked as not global if it is a subrange repair to avoid many small anti-compactions
-        //in addition to other scenarios such as repairs not involving all DCs or hosts
-        if (!prs.isGlobal)
-        {
-            logger.info("Not a global repair, will not do anticompaction");
-            removeParentRepairSession(parentRepairSession);
-            return Futures.immediateFuture(Collections.emptyList());
-        }
-        assert prs.ranges.containsAll(successfulRanges) : "Trying to perform anticompaction on unknown ranges";
-
-        List<ListenableFuture<?>> futures = new ArrayList<>();
-        // if we don't have successful repair ranges, then just skip anticompaction
-        if (!successfulRanges.isEmpty())
-        {
-            for (Map.Entry<UUID, ColumnFamilyStore> columnFamilyStoreEntry : prs.columnFamilyStores.entrySet())
-            {
-                Refs<SSTableReader> sstables = prs.getActiveRepairedSSTableRefsForAntiCompaction(columnFamilyStoreEntry.getKey(), parentRepairSession);
-                ColumnFamilyStore cfs = columnFamilyStoreEntry.getValue();
-                futures.add(CompactionManager.instance.submitAntiCompaction(cfs, successfulRanges, sstables, prs.repairedAt));
-            }
-        }
-
-        ListenableFuture<List<Object>> allAntiCompactionResults = Futures.successfulAsList(futures);
-        allAntiCompactionResults.addListener(new Runnable()
-        {
-            @Override
-            public void run()
-            {
-                removeParentRepairSession(parentRepairSession);
-            }
-        }, MoreExecutors.directExecutor());
-
-        return allAntiCompactionResults;
+        return Futures.immediateFuture(Collections.emptyList());
+//        assert parentRepairSession != null;
+//        ParentRepairSession prs = getParentRepairSession(parentRepairSession);
+//        //A repair will be marked as not global if it is a subrange repair to avoid many small anti-compactions
+//        //in addition to other scenarios such as repairs not involving all DCs or hosts
+//        if (!prs.isGlobal)
+//        {
+//            logger.info("Not a global repair, will not do anticompaction");
+//            removeParentRepairSession(parentRepairSession);
+//            return Futures.immediateFuture(Collections.emptyList());
+//        }
+//        assert prs.ranges.containsAll(successfulRanges) : "Trying to perform anticompaction on unknown ranges";
+//
+//        List<ListenableFuture<?>> futures = new ArrayList<>();
+//        // if we don't have successful repair ranges, then just skip anticompaction
+//        if (!successfulRanges.isEmpty())
+//        {
+//            for (Map.Entry<UUID, ColumnFamilyStore> columnFamilyStoreEntry : prs.columnFamilyStores.entrySet())
+//            {
+//                Refs<SSTableReader> sstables = prs.getActiveRepairedSSTableRefsForAntiCompaction(columnFamilyStoreEntry.getKey(), parentRepairSession);
+//                ColumnFamilyStore cfs = columnFamilyStoreEntry.getValue();
+//                futures.add(CompactionManager.instance.submitAntiCompaction(cfs, successfulRanges, sstables, prs.repairedAt));
+//            }
+//        }
+//
+//        ListenableFuture<List<Object>> allAntiCompactionResults = Futures.successfulAsList(futures);
+//        allAntiCompactionResults.addListener(new Runnable()
+//        {
+//            @Override
+//            public void run()
+//            {
+//                removeParentRepairSession(parentRepairSession);
+//            }
+//        }, MoreExecutors.directExecutor());
+//
+//        return allAntiCompactionResults;
     }
 
     public void handleMessage(InetAddress endpoint, RepairMessage message)
