@@ -52,7 +52,6 @@ import org.apache.cassandra.db.monitoring.ConstructionTime;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.BaseRowIterator;
 import org.apache.cassandra.db.rows.RowIterator;
-import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.view.ViewUtils;
 import org.apache.cassandra.dht.*;
@@ -75,9 +74,6 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.AbstractIterator;
-
-import static com.google.common.collect.Iterables.contains;
-import static org.apache.hadoop.mapred.NotificationTestCase.NotificationServlet.counter;
 
 public class StorageProxy implements StorageProxyMBean
 {
@@ -106,6 +102,8 @@ public class StorageProxy implements StorageProxyMBean
     private static final CASClientRequestMetrics casWriteMetrics = new CASClientRequestMetrics("CASWrite");
     private static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     private static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
+    private static final double fakeReplicationErrorPercent;
+    private static final Random random = new Random();
 
     private static final double CONCURRENT_SUBREQUESTS_MARGIN = 0.10;
 
@@ -172,6 +170,23 @@ public class StorageProxy implements StorageProxyMBean
                             .execute(counterWriteTask(mutation, targets, responseHandler, localDataCenter));
             }
         };
+
+        double value = 0.0;
+        String property = System.getProperty("cassandra.test.fake_replication_error_percent");
+        if (property != null)
+        {
+            try
+            {
+                value = Double.parseDouble(property);
+                logger.warn("Enabling fake replication error of {}% of mutations.", value * 100);
+            } catch (NumberFormatException e)
+            {
+                logger.warn("Unable to parse {} for cassandra.test.fake_replication_error_percent property.",
+                            property, e);
+            }
+
+        }
+        fakeReplicationErrorPercent = value;
     }
 
     /**
@@ -1200,6 +1215,17 @@ public class StorageProxy implements StorageProxyMBean
         boolean insertLocal = false;
         ArrayList<InetAddress> endpointsToHint = null;
 
+        boolean shouldFailReplication = fakeReplicationErrorPercent != 0.0 && random.nextDouble() <= fakeReplicationErrorPercent;
+        if (shouldFailReplication)
+        {
+            for (UUID columnFamilyId : mutation.getColumnFamilyIds())
+            {
+                ColumnFamilyStore cfs = Keyspace.open(mutation.getKeyspaceName()).getColumnFamilyStore(columnFamilyId);
+                if (cfs != null)
+                    cfs.metric.failedReplicationCount.inc();
+            }
+        }
+
         for (InetAddress destination : targets)
         {
             checkHintOverload(destination);
@@ -1212,6 +1238,8 @@ public class StorageProxy implements StorageProxyMBean
                 }
                 else
                 {
+                    if (shouldFailReplication)
+                        continue;
                     // belongs on a different server
                     if (message == null)
                         message = mutation.createMessage();
