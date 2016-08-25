@@ -222,6 +222,7 @@ public class TableStats extends NodeToolCmd
                 statsTable.averageTombstonesPerSliceLastFiveMinutes = histogram.getMean();
                 statsTable.maximumTombstonesPerSliceLastFiveMinutes = histogram.getMax();
                 statsTable.droppedMutations = format((Long) probe.getColumnFamilyMetric(keyspaceName, tableName, "DroppedMutations"), humanReadable);
+                statsTable.failedReplicationCount = format((Long) probe.getColumnFamilyMetric(keyspaceName, tableName, "FailedReplicationCount"), humanReadable);
                 statsKeyspace.tables.add(statsTable);
             }
             holder.keyspaces.add(statsKeyspace);
