@@ -21,7 +21,10 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.security.MessageDigest;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import org.junit.After;
 import org.junit.Test;
 
@@ -32,10 +35,13 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.db.compaction.AbstractCompactedRow;
+import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.compaction.CompactionsTest;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.ColumnStats;
+import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
@@ -46,7 +52,10 @@ import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.ValidationComplete;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.EstimatedHistogram;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
+import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static org.junit.Assert.*;
@@ -188,5 +197,76 @@ public class ValidatorTest extends SchemaLoader
 
         if (!lock.isSignaled())
             lock.await();
+    }
+
+    @Test
+    public void simpleValidationTest128() throws Exception
+    {
+        simpleValidationTest(128);
+    }
+
+    @Test
+    public void simpleValidationTest1500() throws Exception
+    {
+        simpleValidationTest(1500);
+    }
+
+    /**
+     * Test for CASSANDRA-5263
+     * 1. Create N rows
+     * 2. Run validation compaction
+     * 3. Expect merkle tree with size 2^(log2(n))
+     */
+    public void simpleValidationTest(int n) throws Exception
+    {
+        Keyspace ks = Keyspace.open(keyspace);
+        ColumnFamilyStore cfs = ks.getColumnFamilyStore(columnFamily);
+        cfs.clearUnsafe();
+
+        // disable compaction while flushing
+        cfs.disableAutoCompaction();
+
+        CompactionsTest.populate(keyspace, columnFamily, 0, n, 0); //ttl=3s
+
+        cfs.forceBlockingFlush();
+        assertEquals(1, cfs.getSSTables().size());
+
+        // wait enough to force single compaction
+        TimeUnit.SECONDS.sleep(5);
+
+        SSTableReader sstable = cfs.getSSTables().iterator().next();
+        final RepairJobDesc desc = new RepairJobDesc(UUIDGen.getTimeUUID(), UUIDGen.getTimeUUID(), cfs.keyspace.getName(),
+                                               cfs.getColumnFamilyName(), new Range<Token>(sstable.first.getToken(),
+                                                                                             sstable.last.getToken()));
+
+        final SettableFuture<MessageOut> future = SettableFuture.create();
+        SinkManager.add(new IMessageSink()
+        {
+            @SuppressWarnings("unchecked")
+            public MessageOut handleMessage(MessageOut message, int id, InetAddress to)
+            {
+                future.set(message);
+                return null;
+            }
+
+            public MessageIn handleMessage(MessageIn message, int id, InetAddress to)
+            {
+                return null;
+            }
+        });
+
+        Validator validator = new Validator(desc, FBUtilities.getBroadcastAddress(), 0, true);
+        CompactionManager.instance.submitValidation(cfs, validator);
+
+        MessageOut message = future.get();
+        assertEquals(MessagingService.Verb.REPAIR_MESSAGE, message.verb);
+        RepairMessage m = (RepairMessage) message.payload;
+        assertEquals(RepairMessage.Type.VALIDATION_COMPLETE, m.messageType);
+        assertEquals(desc, m.desc);
+        assertTrue(((ValidationComplete) m).success);
+        MerkleTree tree = ((ValidationComplete) m).tree;
+
+        assertEquals(Math.pow(2, Math.ceil(Math.log(n) / Math.log(2))), tree.size(), 0.0);
+        assertEquals(tree.rowCount(), n);
     }
 }
