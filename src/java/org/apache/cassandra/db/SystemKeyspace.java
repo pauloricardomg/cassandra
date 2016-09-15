@@ -84,7 +84,7 @@ public final class SystemKeyspace
 
     public static final String NAME = "system";
 
-    public static final String BATCHES = "batches";
+    public static final String BATCHLOG = "multibatchlog";
     public static final String PAXOS = "paxos";
     public static final String BUILT_INDEXES = "IndexInfo";
     public static final String LOCAL = "local";
@@ -99,6 +99,7 @@ public final class SystemKeyspace
     public static final String BUILT_VIEWS = "built_views";
 
     @Deprecated public static final String LEGACY_HINTS = "hints";
+    @Deprecated public static final String LEGACY_BATCHES = "batches";
     @Deprecated public static final String LEGACY_BATCHLOG = "batchlog";
     @Deprecated public static final String LEGACY_KEYSPACES = "schema_keyspaces";
     @Deprecated public static final String LEGACY_COLUMNFAMILIES = "schema_columnfamilies";
@@ -108,17 +109,19 @@ public final class SystemKeyspace
     @Deprecated public static final String LEGACY_FUNCTIONS = "schema_functions";
     @Deprecated public static final String LEGACY_AGGREGATES = "schema_aggregates";
 
-    public static final CFMetaData Batches =
-        compile(BATCHES,
-                "batches awaiting replay",
-                "CREATE TABLE %s ("
-                + "id timeuuid,"
-                + "mutations list<blob>,"
-                + "version int,"
-                + "PRIMARY KEY ((id)))")
-                .copy(new LocalPartitioner(TimeUUIDType.instance))
-                .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
-                .gcGraceSeconds(0);
+    public static final CFMetaData Batchlog =
+    compile(BATCHLOG,
+            "batches awaiting replay",
+            "CREATE TABLE %s ("
+            + "batch_id timeuuid,"
+            + "mutation_id int,"
+            + "mutation blob,"
+            + "version int static,"
+            + "mutation_count int static,"
+            + "PRIMARY KEY ((batch_id), mutation_id))")
+    .copy(new LocalPartitioner(TimeUUIDType.instance))
+    .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
+    .gcGraceSeconds(0);
 
     private static final CFMetaData Paxos =
         compile(PAXOS,
@@ -279,6 +282,19 @@ public final class SystemKeyspace
                 .gcGraceSeconds(0);
 
     @Deprecated
+    public static final CFMetaData LegacyBatches =
+        compile(LEGACY_BATCHES,
+                "batches awaiting replay",
+                "CREATE TABLE %s ("
+                + "id timeuuid,"
+                + "mutations list<blob>,"
+                + "version int,"
+                + "PRIMARY KEY ((id)))")
+                .copy(new LocalPartitioner(TimeUUIDType.instance))
+                .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
+                .gcGraceSeconds(0);
+
+    @Deprecated
     public static final CFMetaData LegacyBatchlog =
         compile(LEGACY_BATCHLOG,
                 "*DEPRECATED* batchlog entries",
@@ -420,7 +436,7 @@ public final class SystemKeyspace
     private static Tables tables()
     {
         return Tables.of(BuiltIndexes,
-                         Batches,
+                         Batchlog,
                          Paxos,
                          Local,
                          Peers,
@@ -432,8 +448,9 @@ public final class SystemKeyspace
                          AvailableRanges,
                          ViewsBuildsInProgress,
                          BuiltViews,
-                         LegacyHints,
+                         LegacyBatches,
                          LegacyBatchlog,
+                         LegacyHints,
                          LegacyKeyspaces,
                          LegacyColumnfamilies,
                          LegacyColumns,

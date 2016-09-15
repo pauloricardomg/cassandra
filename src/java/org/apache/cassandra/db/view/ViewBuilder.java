@@ -18,8 +18,10 @@
 
 package org.apache.cassandra.db.view;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,12 +37,16 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.db.filter.ClusteringIndexFilter;
+import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
+import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.ReducingKeyIterator;
+import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageService;
@@ -136,6 +142,45 @@ public class ViewBuilder extends CompactionInfo.Holder
                 }
             };
             lastToken = buildStatus.right;
+        }
+
+        int nowInSec = FBUtilities.nowInSeconds();
+        ColumnFilter columnFilter = ColumnFilter.all(baseCfs.metadata);
+        try (Refs<SSTableReader> sstables = baseCfs.selectAndReference(function).refs)
+        {
+            List<UnfilteredPartitionIterator> iterators = new ArrayList<>(sstables.size());
+            for (Range<Token> range : ranges)
+            {
+                DataRange dataRange = DataRange.forTokenRange(range);
+                for (SSTableReader sstable : sstables)
+                {
+                    iterators.add(sstable.getScanner(columnFilter, dataRange, false));
+                }
+            }
+
+
+            prevToken = lastToken;
+            AtomicLong noBase = new AtomicLong(Long.MAX_VALUE);
+            try (UnfilteredPartitionIterator unfilteredPartitionIt = UnfilteredPartitionIterators.mergeLazily(iterators, nowInSec))
+            {
+                while (unfilteredPartitionIt.hasNext())
+                {
+                    UnfilteredRowIterator unfilteredRowIt = unfilteredPartitionIt.next();
+                    DecoratedKey key = unfilteredRowIt.partitionKey();
+                    // We're rebuilding everything from what's on disk, so we read everything, consider that as new updates
+                    // and pretend that there is nothing pre-existing.
+                    UnfilteredRowIterator empty = UnfilteredRowIterators.noRowsIterator(baseCfs.metadata, key, Rows.EMPTY_STATIC_ROW, DeletionTime.LIVE, false);
+                    Collection<Mutation> mutations = baseCfs.keyspace.viewManager.forTable(baseCfs.metadata).generateViewUpdates(Collections.singleton(view), unfilteredRowIt, empty, nowInSec);
+
+                    if (!mutations.isEmpty())
+                        StorageProxy.mutateMV(key.getKey(), mutations, true, noBase);
+
+                    if (prevToken == null || prevToken.compareTo(key.getToken()) != 0)
+                    {
+                        SystemKeyspace.updateViewBuildStatus(ksname, viewName, key.getToken());
+                        prevToken = key.getToken();
+                    }
+            }
         }
 
         prevToken = lastToken;

@@ -36,7 +36,6 @@ import org.apache.cassandra.concurrent.DebuggableScheduledThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.dht.Token;
@@ -53,6 +52,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.WriteResponseHandler;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 
 import static com.google.common.collect.Iterables.transform;
@@ -67,6 +67,7 @@ public class BatchlogManager implements BatchlogManagerMBean
 
     private static final Logger logger = LoggerFactory.getLogger(BatchlogManager.class);
     public static final BatchlogManager instance = new BatchlogManager();
+    public static final int MAX_CACHED_MUTATIONS_IN_BYTES = 4 * 1024 * 1024;
 
     private volatile long totalBatchesReplayed = 0; // no concurrency protection necessary as only written by replay thread.
     private volatile UUID lastReplayedUuid = UUIDGen.minTimeUUID(0);
@@ -107,7 +108,7 @@ public class BatchlogManager implements BatchlogManagerMBean
 
     public static void remove(UUID id)
     {
-        new Mutation(PartitionUpdate.fullPartitionDelete(SystemKeyspace.Batches,
+        new Mutation(PartitionUpdate.fullPartitionDelete(SystemKeyspace.Batchlog,
                                                          UUIDType.instance.decompose(id),
                                                          FBUtilities.timestampMicros(),
                                                          FBUtilities.nowInSeconds()))
@@ -121,20 +122,19 @@ public class BatchlogManager implements BatchlogManagerMBean
 
     public static void store(Batch batch, boolean durableWrites)
     {
-        RowUpdateBuilder builder =
-            new RowUpdateBuilder(SystemKeyspace.Batches, batch.creationTime, batch.id)
-                .clustering()
-                .add("version", MessagingService.current_version);
+        int mutationCount = 0;
 
         for (ByteBuffer mutation : batch.encodedMutations)
-            builder.addListEntry("mutations", mutation);
+        {
+            writeBatchlogMutation(batch.id, batch.creationTime, mutationCount++, mutation);
+        }
 
         for (Mutation mutation : batch.decodedMutations)
         {
             try (DataOutputBuffer buffer = new DataOutputBuffer())
             {
                 Mutation.serializer.serialize(mutation, buffer, MessagingService.current_version);
-                builder.addListEntry("mutations", buffer.buffer());
+                writeBatchlogMutation(batch.id, batch.creationTime, mutationCount++, buffer.buffer());
             }
             catch (IOException e)
             {
@@ -143,18 +143,30 @@ public class BatchlogManager implements BatchlogManagerMBean
             }
         }
 
-        builder.build().apply(durableWrites);
+        new RowUpdateBuilder(SystemKeyspace.Batchlog, batch.creationTime, batch.id)
+            .add("version", MessagingService.current_version)
+            .add("mutation_count", mutationCount)
+            .build()
+            .apply(durableWrites);
+    }
+
+    private static void writeBatchlogMutation(UUID batchId, long creationTime, int mutationId, ByteBuffer mutation)
+    {
+        new RowUpdateBuilder(SystemKeyspace.Batchlog, creationTime, batchId)
+            .clustering(mutationId)
+            .add("mutation", mutation)
+            .build().apply(true);
     }
 
     @VisibleForTesting
     public int countAllBatches()
     {
-        String query = String.format("SELECT count(*) FROM %s.%s", SystemKeyspace.NAME, SystemKeyspace.BATCHES);
+        String query = String.format("SELECT DISTINCT batch_id FROM %s.%s", SystemKeyspace.NAME, SystemKeyspace.BATCHLOG);
         UntypedResultSet results = executeInternal(query);
         if (results == null || results.isEmpty())
             return 0;
 
-        return (int) results.one().getLong("count");
+        return results.size();
     }
 
     public long getTotalBatchesReplayed()
@@ -195,17 +207,18 @@ public class BatchlogManager implements BatchlogManagerMBean
         RateLimiter rateLimiter = RateLimiter.create(throttleInKB == 0 ? Double.MAX_VALUE : throttleInKB * 1024);
 
         UUID limitUuid = UUIDGen.maxTimeUUID(System.currentTimeMillis() - getBatchlogTimeout());
-        ColumnFamilyStore store = Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.BATCHES);
+        ColumnFamilyStore store = Keyspace.open(SystemKeyspace.NAME).getColumnFamilyStore(SystemKeyspace.BATCHLOG);
         int pageSize = calculatePageSize(store);
         // There cannot be any live content where token(id) <= token(lastReplayedUuid) as every processed batch is
         // deleted, but the tombstoned content may still be present in the tables. To avoid walking over it we specify
         // token(id) > token(lastReplayedUuid) as part of the query.
-        String query = String.format("SELECT id, mutations, version FROM %s.%s WHERE token(id) > token(?) AND token(id) <= token(?)",
+        String query = String.format("SELECT batch_id, mutation_id, mutation, mutation_count, version FROM %s.%s " +
+                                     "WHERE token(batch_id) > token(?) AND token(batch_id) <= token(?)",
                                      SystemKeyspace.NAME,
-                                     SystemKeyspace.BATCHES);
+                                     SystemKeyspace.BATCHLOG);
         UntypedResultSet batches = executeInternalWithPaging(query, pageSize, lastReplayedUuid, limitUuid);
-        processBatchlogEntries(batches, pageSize, rateLimiter);
-        lastReplayedUuid = limitUuid;
+        Optional<UUID> firstIncompleteBatchId = processBatchlogEntries(batches, pageSize, rateLimiter);
+        lastReplayedUuid = firstIncompleteBatchId.orElse(limitUuid);
         logger.trace("Finished replayFailedBatches");
     }
 
@@ -216,47 +229,48 @@ public class BatchlogManager implements BatchlogManagerMBean
         if (averageRowSize <= 0)
             return DEFAULT_PAGE_SIZE;
 
-        return (int) Math.max(1, Math.min(DEFAULT_PAGE_SIZE, 4 * 1024 * 1024 / averageRowSize));
+        return (int) Math.max(1, Math.min(DEFAULT_PAGE_SIZE, MAX_CACHED_MUTATIONS_IN_BYTES / averageRowSize));
     }
 
-    private void processBatchlogEntries(UntypedResultSet batches, int pageSize, RateLimiter rateLimiter)
+    private Optional<UUID> processBatchlogEntries(UntypedResultSet batches, int pageSize, RateLimiter rateLimiter)
     {
-        int positionInPage = 0;
+        UUID firstIncompleteBatchId = null;
         ArrayList<ReplayingBatch> unfinishedBatches = new ArrayList<>(pageSize);
 
         Set<InetAddress> hintedNodes = new HashSet<>();
         Set<UUID> replayedBatches = new HashSet<>();
 
-        // Sending out batches for replay without waiting for them, so that one stuck batch doesn't affect others
-        for (UntypedResultSet.Row row : batches)
+        int mutationBytesInMemory = 0;
+        Iterator<UntypedResultSet.Row> batchesIt = batches.iterator();
+        while (batchesIt.hasNext())
         {
-            UUID id = row.getUUID("id");
-            int version = row.getInt("version");
-            try
+            Pair<UUID, ReplayingBatch> pair = getFirstIncompleteBatchIdAndNextCompleteBatch(batchesIt);
+            if (pair.left != null && firstIncompleteBatchId == null)
             {
-                ReplayingBatch batch = new ReplayingBatch(id, version, row.getList("mutations", BytesType.instance));
-                if (batch.replay(rateLimiter, hintedNodes) > 0)
+                firstIncompleteBatchId = pair.left;
+            }
+            ReplayingBatch nextBatch = pair.right;
+
+            if (nextBatch != null)
+            {
+                if (nextBatch.replay(rateLimiter, hintedNodes) > 0)
                 {
-                    unfinishedBatches.add(batch);
+                    unfinishedBatches.add(nextBatch);
+                    mutationBytesInMemory += nextBatch.getReplayedBytes();
                 }
                 else
                 {
-                    remove(id); // no write mutations were sent (either expired or all CFs involved truncated).
+                    remove(nextBatch.getId()); // no write mutations were sent (either expired or all CFs involved truncated).
                     ++totalBatchesReplayed;
                 }
-            }
-            catch (IOException e)
-            {
-                logger.warn("Skipped batch replay of {} due to {}", id, e);
-                remove(id);
-            }
 
-            if (++positionInPage == pageSize)
-            {
-                // We have reached the end of a batch. To avoid keeping more than a page of mutations in memory,
-                // finish processing the page before requesting the next row.
-                finishAndClearBatches(unfinishedBatches, hintedNodes, replayedBatches);
-                positionInPage = 0;
+                if (mutationBytesInMemory >= MAX_CACHED_MUTATIONS_IN_BYTES)
+                {
+                    // We have reached the end of a batch. To avoid keeping more than MAX_CACHED_MUTATIONS_IN_BYTES in memory,
+                    // finish processing the page before requesting the next row.
+                    finishAndClearBatches(unfinishedBatches, hintedNodes, replayedBatches);
+                    mutationBytesInMemory = 0;
+                }
             }
         }
 
@@ -267,7 +281,134 @@ public class BatchlogManager implements BatchlogManagerMBean
 
         // once all generated hints are fsynced, actually delete the batches
         replayedBatches.forEach(BatchlogManager::remove);
+        return Optional.ofNullable(firstIncompleteBatchId);
     }
+
+
+    /**
+     * @return Pair<UUID, ReplayingBatch> with the first incomplete batch id, if found, and the next complete batch
+     */
+    private Pair<UUID, ReplayingBatch> getFirstIncompleteBatchIdAndNextCompleteBatch(Iterator<UntypedResultSet.Row> batchesIt)
+    {
+        UntypedResultSet.Row currentRow = batchesIt.next();
+        UUID batchId = currentRow.getUUID("batch_id");
+        int version = currentRow.getInt("version");
+        Integer mutationCount = currentRow.getInteger("mutation_count");
+
+        UUID firstIncompleteBatchId = null;
+
+        if (mutationCount == null)
+        {
+            firstIncompleteBatchId = batchId;
+            UntypedResultSet.Row nextRow = skipIncompleteBatchAndFetchNextRow(batchesIt, batchId);
+
+            if (nextRow != null)
+            {
+                currentRow = nextRow;
+                batchId = nextRow.getUUID("batch_id");
+                version = nextRow.getInt("version");
+                mutationCount = nextRow.getInteger("mutation_count");
+            }
+        }
+
+        ReplayingBatch batch = null;
+
+        if (mutationCount != null)
+        {
+            assert mutationCount > 0;
+            batch = new ReplayingBatch(batchId, version, mutationCount);
+            try
+            {
+                batch.addMutation(currentRow.getBlob("mutation"));
+                int addedMutations = 1;
+                while (batchesIt.hasNext() && addedMutations < mutationCount)
+                {
+                    currentRow = batchesIt.next();
+                    batch.addMutation(currentRow.getBlob("mutation"));
+                    addedMutations++;
+                }
+            }
+            catch (IOException e)
+            {
+                logger.warn("Skipped batch replay of {} due to {}", batch.getId(), e);
+                remove(batch.getId());
+                batch = null;
+            }
+        }
+
+        return Pair.create(firstIncompleteBatchId, batch);
+    }
+
+    private static UntypedResultSet.Row skipIncompleteBatchAndFetchNextRow(Iterator<UntypedResultSet.Row> batchesIt, UUID batchToSkip)
+    {
+        UntypedResultSet.Row row = null;
+        UUID newBatchId = null;
+        if (batchesIt.hasNext())
+        {
+            row = batchesIt.next();
+            newBatchId = row.getUUID("batch_id");
+
+            while (newBatchId.equals(batchToSkip) && batchesIt.hasNext())
+            {
+                row = batchesIt.next();
+                newBatchId = row.getUUID("batch_id");
+            }
+        }
+
+        if (newBatchId != null && !newBatchId.equals(batchToSkip))
+            return row;
+        return null;
+    }
+
+//    private void processBatchlogEntriesOld(UntypedResultSet batches, int pageSize, RateLimiter rateLimiter)
+//    {
+//        int positionInPage = 0;
+//        ArrayList<ReplayingBatch> unfinishedBatches = new ArrayList<>(pageSize);
+//
+//        Set<InetAddress> hintedNodes = new HashSet<>();
+//        Set<UUID> replayedBatches = new HashSet<>();
+//
+//        // Sending out batches for replay without waiting for them, so that one stuck batch doesn't affect others
+//        for (UntypedResultSet.Row row : batches)
+//        {
+//            UUID id = row.getUUID("id");
+//            int version = row.getInt("version");
+//            try
+//            {
+//                ReplayingBatch batch = new ReplayingBatch(id, version, row.getList("mutations", BytesType.instance));
+//                if (batch.replay(rateLimiter, hintedNodes) > 0)
+//                {
+//                    unfinishedBatches.add(batch);
+//                }
+//                else
+//                {
+//                    remove(id); // no write mutations were sent (either expired or all CFs involved truncated).
+//                    ++totalBatchesReplayed;
+//                }
+//            }
+//            catch (IOException e)
+//            {
+//                logger.warn("Skipped batch replay of {} due to {}", id, e);
+//                remove(id);
+//            }
+//
+//            if (++positionInPage == pageSize)
+//            {
+//                // We have reached the end of a batch. To avoid keeping more than a page of mutations in memory,
+//                // finish processing the page before requesting the next row.
+//                finishAndClearBatches(unfinishedBatches, hintedNodes, replayedBatches);
+//                positionInPage = 0;
+//            }
+//        }
+//
+//        finishAndClearBatches(unfinishedBatches, hintedNodes, replayedBatches);
+//
+//        // to preserve batch guarantees, we must ensure that hints (if any) have made it to disk, before deleting the batches
+//        HintsService.instance.flushAndFsyncBlockingly(transform(hintedNodes, StorageService.instance::getHostIdForEndpoint));
+//
+//        // once all generated hints are fsynced, actually delete the batches
+//        replayedBatches.forEach(BatchlogManager::remove);
+//    }
 
     private void finishAndClearBatches(ArrayList<ReplayingBatch> batches, Set<InetAddress> hintedNodes, Set<UUID> replayedBatches)
     {
@@ -292,19 +433,27 @@ public class BatchlogManager implements BatchlogManagerMBean
         private final UUID id;
         private final long writtenAt;
         private final List<Mutation> mutations;
-        private final int replayedBytes;
+        private int replayedBytes = 0;
+        private final int version;
 
         private List<ReplayWriteResponseHandler<Mutation>> replayHandlers;
 
-        ReplayingBatch(UUID id, int version, List<ByteBuffer> serializedMutations) throws IOException
+        ReplayingBatch(UUID id, int version, int mutationCount)
         {
             this.id = id;
             this.writtenAt = UUIDGen.unixTimestamp(id);
-            this.mutations = new ArrayList<>(serializedMutations.size());
-            this.replayedBytes = addMutations(version, serializedMutations);
+            this.replayHandlers = new ArrayList<>(mutationCount);
+            this.mutations = new ArrayList<>(mutationCount);
+            this.replayedBytes = 0;
+            this.version = version;
         }
 
-        public int replay(RateLimiter rateLimiter, Set<InetAddress> hintedNodes) throws IOException
+        public int getReplayedBytes()
+        {
+            return this.replayedBytes;
+        }
+
+        public int replay(RateLimiter rateLimiter, Set<InetAddress> hintedNodes)
         {
             logger.trace("Replaying batch {}", id);
 
@@ -342,32 +491,23 @@ public class BatchlogManager implements BatchlogManagerMBean
             }
         }
 
-        private int addMutations(int version, List<ByteBuffer> serializedMutations) throws IOException
-        {
-            int ret = 0;
-            for (ByteBuffer serializedMutation : serializedMutations)
-            {
-                ret += serializedMutation.remaining();
-                try (DataInputBuffer in = new DataInputBuffer(serializedMutation, true))
-                {
-                    addMutation(Mutation.serializer.deserialize(in, version));
-                }
-            }
-
-            return ret;
-        }
-
         // Remove CFs that have been truncated since. writtenAt and SystemTable#getTruncatedAt() both return millis.
         // We don't abort the replay entirely b/c this can be considered a success (truncated is same as delivered then
         // truncated.
-        private void addMutation(Mutation mutation)
+        private void addMutation(ByteBuffer serializedMutation) throws IOException
         {
-            for (UUID cfId : mutation.getColumnFamilyIds())
-                if (writtenAt <= SystemKeyspace.getTruncatedAt(cfId))
-                    mutation = mutation.without(cfId);
+                replayedBytes += serializedMutation.remaining();
+                try (DataInputBuffer in = new DataInputBuffer(serializedMutation, true))
+                {
+                    Mutation mutation = Mutation.serializer.deserialize(in, version);
 
-            if (!mutation.isEmpty())
-                mutations.add(mutation);
+                    for (UUID cfId : mutation.getColumnFamilyIds())
+                        if (writtenAt <= SystemKeyspace.getTruncatedAt(cfId))
+                            mutation = mutation.without(cfId);
+
+                    if (!mutation.isEmpty())
+                        mutations.add(mutation);
+                }
         }
 
         private void writeHintsForUndeliveredEndpoints(int startFrom, Set<InetAddress> hintedNodes)
@@ -454,6 +594,11 @@ public class BatchlogManager implements BatchlogManagerMBean
             for (Mutation mutation : mutations)
                 gcgs = Math.min(gcgs, mutation.smallestGCGS());
             return gcgs;
+        }
+
+        public UUID getId()
+        {
+            return id;
         }
 
         /**
