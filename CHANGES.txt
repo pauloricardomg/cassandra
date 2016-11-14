@@ -5,6 +5,9 @@
  * Reject invalid replication settings when creating or altering a keyspace (CASSANDRA-12681)
  * Clean up the SSTableReader#getScanner API wrt removal of RateLimiter (CASSANDRA-12422)
 
+3.11
+Merged from 2.2:
+ * Fail repair if participant dies during sync or anticompaction (CASSANDRA-12901)
 
 3.10
  * Don't shut down socket input/output on StreamSession (CASSANDRA-12903)
