@@ -13,6 +13,7 @@ Merged from 3.0:
 
 
 3.10
+ * Avoid shutting down socket input/output on StreamSession (CASSANDRA-12903)
  * Fix CommitLogSegmentManagerTest (CASSANDRA-12283)
  * Fix cassandra-stress truncate option (CASSANDRA-12695)
  * Fix crossNode value when receiving messages (CASSANDRA-12791)
