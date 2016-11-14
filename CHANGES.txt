@@ -1,3 +1,7 @@
+3.11
+Merged from 2.2:
+ * Fail repair if participant dies during sync or anticompaction (CASSANDRA-12901)
+
 3.10
  * Don't shut down socket input/output on StreamSession (CASSANDRA-12903)
  * Fix Murmur3PartitionerTest (CASSANDRA-12858)
