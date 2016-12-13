@@ -420,15 +420,20 @@ public class Keyspace
         }
     }
 
-    public CompletableFuture<?> apply(Mutation mutation, boolean writeCommitLog, boolean updateIndexes)
+    public CompletableFuture<?> applyFuture(Mutation mutation, boolean writeCommitLog, boolean updateIndexes)
     {
         return apply(mutation, writeCommitLog, updateIndexes, true, true, null);
     }
 
-    public void applyBlocking(final Mutation mutation,
-                              final boolean writeCommitLog) throws ExecutionException
+    public void apply(Mutation mutation, boolean writeCommitLog, boolean updateIndexes)
     {
-        applyBlocking(mutation, writeCommitLog, true, true);
+        apply(mutation, writeCommitLog, updateIndexes, true);
+    }
+
+    public void apply(final Mutation mutation,
+                      final boolean writeCommitLog)
+    {
+        apply(mutation, writeCommitLog, true, true);
     }
 
     /**
@@ -443,10 +448,10 @@ public class Keyspace
      * @param isDroppable    true if this should throw WriteTimeoutException if it does not acquire lock within write_request_timeout_in_ms
      * @throws ExecutionException
      */
-    public void applyBlocking(final Mutation mutation,
-                                      final boolean writeCommitLog,
-                                      boolean updateIndexes,
-                                      boolean isDroppable) throws ExecutionException
+    public void apply(final Mutation mutation,
+                      final boolean writeCommitLog,
+                      boolean updateIndexes,
+                      boolean isDroppable)
     {
         apply(mutation, writeCommitLog, updateIndexes, isDroppable, false, null);
     }
@@ -461,7 +466,7 @@ public class Keyspace
      * @param isDroppable    true if this should throw WriteTimeoutException if it does not acquire lock within write_request_timeout_in_ms
      * @param isDeferrable   true if caller is not waiting for future to complete, so that future may be deferred
      */
-    public CompletableFuture<?> apply(final Mutation mutation,
+    private CompletableFuture<?> apply(final Mutation mutation,
                                       final boolean writeCommitLog,
                                       boolean updateIndexes,
                                       boolean isDroppable,

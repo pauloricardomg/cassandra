@@ -212,20 +212,12 @@ public class Mutation implements IMutation
     public CompletableFuture<?> applyFuture()
     {
         Keyspace ks = Keyspace.open(keyspaceName);
-        return ks.apply(this, Keyspace.open(keyspaceName).getMetadata().params.durableWrites, true);
+        return ks.applyFuture(this, Keyspace.open(keyspaceName).getMetadata().params.durableWrites, true);
     }
 
     public void apply(boolean durableWrites, boolean isDroppable)
     {
-        try
-        {
-            Keyspace ks = Keyspace.open(keyspaceName);
-            ks.applyBlocking(this, durableWrites, true, isDroppable);
-        }
-        catch (ExecutionException e)
-        {
-            throw Throwables.propagate(e.getCause());
-        }
+        Keyspace.open(keyspaceName).apply(this, durableWrites, true, isDroppable);
     }
 
     public void apply(boolean durableWrites)
