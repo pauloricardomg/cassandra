@@ -200,7 +200,7 @@ public class StreamReceiveTask extends StreamTask
                                         //
                                         // If the CFS has CDC, however, these updates need to be written to the CommitLog
                                         // so they get archived into the cdc_raw folder
-                                        ks.applyBlocking(m, false, true, true);
+                                        ks.applyBlocking(m, false, true, false);
                                     }
                                 }
                             }

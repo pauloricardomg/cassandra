@@ -422,13 +422,13 @@ public class Keyspace
 
     public CompletableFuture<?> apply(Mutation mutation, boolean writeCommitLog, boolean updateIndexes)
     {
-        return apply(mutation, writeCommitLog, updateIndexes, false, true, null);
+        return apply(mutation, writeCommitLog, updateIndexes, true, true, null);
     }
 
     public void applyBlocking(final Mutation mutation,
                               final boolean writeCommitLog) throws ExecutionException
     {
-        applyBlocking(mutation, writeCommitLog, true, false);
+        applyBlocking(mutation, writeCommitLog, true, true);
     }
 
     /**
@@ -440,15 +440,15 @@ public class Keyspace
      *                       may happen concurrently, depending on the CL Executor type.
      * @param writeCommitLog false to disable commitlog append entirely
      * @param updateIndexes  false to disable index updates (used by CollationController "defragmenting")
-     * @param dontTimeOut    true if view lock acquisition should never time out
+     * @param isDroppable    true if this should throw WriteTimeoutException if it does not acquire lock within write_request_timeout_in_ms
      * @throws ExecutionException
      */
     public void applyBlocking(final Mutation mutation,
                                       final boolean writeCommitLog,
                                       boolean updateIndexes,
-                                      boolean dontTimeOut) throws ExecutionException
+                                      boolean isDroppable) throws ExecutionException
     {
-        apply(mutation, writeCommitLog, updateIndexes, dontTimeOut, false, null);
+        apply(mutation, writeCommitLog, updateIndexes, isDroppable, false, null);
     }
 
     /**
@@ -458,13 +458,13 @@ public class Keyspace
      *                       may happen concurrently, depending on the CL Executor type.
      * @param writeCommitLog false to disable commitlog append entirely
      * @param updateIndexes  false to disable index updates (used by CollationController "defragmenting")
-     * @param dontTimeOut    true if view lock acquisition should never time out
+     * @param isDroppable    true if this should throw WriteTimeoutException if it does not acquire lock within write_request_timeout_in_ms
      * @param isDeferrable   true if caller is not waiting for future to complete, so that future may be deferred
      */
     public CompletableFuture<?> apply(final Mutation mutation,
                                       final boolean writeCommitLog,
                                       boolean updateIndexes,
-                                      boolean dontTimeOut,
+                                      boolean isDroppable,
                                       boolean isDeferrable,
                                       CompletableFuture<?> future)
     {
@@ -504,8 +504,8 @@ public class Keyspace
 
                     if (lock == null)
                     {
-                        // avoid throwing a WTE during commitlog replay
-                        if (!dontTimeOut && (System.currentTimeMillis() - mutation.createdAt) > DatabaseDescriptor.getWriteRpcTimeout())
+                        //throw WTE only if request is droppable
+                        if (isDroppable && (System.currentTimeMillis() - mutation.createdAt) > DatabaseDescriptor.getWriteRpcTimeout())
                         {
                             for (int j = 0; j < i; j++)
                                 locks[j].unlock();
@@ -529,7 +529,7 @@ public class Keyspace
                             // we will re-apply ourself to the queue and try again later
                             final CompletableFuture<?> mark = future;
                             StageManager.getStage(Stage.MUTATION).execute(() ->
-                                                                          apply(mutation, writeCommitLog, true, dontTimeOut, true, mark)
+                                                                          apply(mutation, writeCommitLog, true, isDroppable, true, mark)
                             );
                             return future;
                         }
@@ -560,9 +560,9 @@ public class Keyspace
             }
 
             long acquireTime = System.currentTimeMillis() - mutation.viewLockAcquireStart.get();
-            // Metrics are only collected for regular write operations that may time out
-            // Bulk operations, that may not timeout (e.g. commitlog replay, hint delivery) are not measured
-            if (!dontTimeOut)
+            // Metrics are only collected for droppable write operations
+            // Bulk non-droppable operations (e.g. commitlog replay, hint delivery) are not measured
+            if (isDroppable)
             {
                 for(UUID cfid : columnFamilyIds)
                     columnFamilyStores.get(cfid).metric.viewLockAcquireTime.update(acquireTime, TimeUnit.MILLISECONDS);

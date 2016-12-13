@@ -93,7 +93,7 @@ public final class Hint
                 filtered = filtered.without(id);
 
         if (!filtered.isEmpty())
-            filtered.applyDontTimeOut();
+            filtered.applyNonDroppable();
     }
 
     /**

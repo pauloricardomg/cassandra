@@ -226,7 +226,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
 
                         try
                         {
-                            Keyspace.open(newMutation.getKeyspaceName()).applyBlocking(newMutation, false, true, true);
+                            Keyspace.open(newMutation.getKeyspaceName()).applyBlocking(newMutation, false, true, false);
                         }
                         catch (ExecutionException e)
                         {
