@@ -19,7 +19,11 @@ package org.apache.cassandra.hints;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Throwables;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -81,19 +85,33 @@ public final class Hint
     /**
      * Applies the contained mutation unless it's expired, filtering out any updates for truncated tables
      */
+    CompletableFuture<?> applyFuture()
+    {
+        if (isLive())
+        {
+            // filter out partition update for table that have been truncated since hint's creation
+            Mutation filtered = mutation;
+            for (UUID id : mutation.getColumnFamilyIds())
+                if (creationTime <= SystemKeyspace.getTruncatedAt(id))
+                    filtered = filtered.without(id);
+
+            if (!filtered.isEmpty())
+                return filtered.applyFuture();
+        }
+
+        return CompletableFuture.completedFuture(null);
+    }
+
     void apply()
     {
-        if (!isLive())
-            return;
-
-        // filter out partition update for table that have been truncated since hint's creation
-        Mutation filtered = mutation;
-        for (UUID id : mutation.getColumnFamilyIds())
-            if (creationTime <= SystemKeyspace.getTruncatedAt(id))
-                filtered = filtered.without(id);
-
-        if (!filtered.isEmpty())
-            filtered.applyNonDroppable();
+        try
+        {
+            applyFuture().get();
+        }
+        catch (Exception e)
+        {
+            throw Throwables.propagate(e.getCause());
+        }
     }
 
     /**

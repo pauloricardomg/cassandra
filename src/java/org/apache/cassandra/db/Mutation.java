@@ -242,11 +242,6 @@ public class Mutation implements IMutation
         apply(Keyspace.open(keyspaceName).getMetadata().params.durableWrites);
     }
 
-    public void applyNonDroppable()
-    {
-        apply(Keyspace.open(keyspaceName).getMetadata().params.durableWrites, false);
-    }
-
     public void applyUnsafe()
     {
         apply(false);
