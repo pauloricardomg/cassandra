@@ -31,6 +31,7 @@ import sys
 import threading
 import time
 import traceback
+import yaml
 
 from bisect import bisect_right
 from calendar import timegm
@@ -1859,12 +1860,9 @@ class ImportConversion(object):
             Also note that it is possible that the subfield names in the csv are in the
             wrong order, so we must sort them according to ct.fieldnames, see CASSANDRA-12959.
             """
-            vals = [v for v in [split('{%s}' % vv, sep=':') for vv in split(val)]]
-            dict_vals = dict((unprotect(v[0]), v[1]) for v in vals)
-            sorted_converted_vals = [(n, convert(t, dict_vals[n]) if n in dict_vals else self.get_null_val())
-                                     for n, t in zip(ct.fieldnames, ct.subtypes)]
-            ret_type = namedtuple(ct.typename, [v[0] for v in sorted_converted_vals])
-            return ret_type(*tuple(v[1] for v in sorted_converted_vals))
+            udt_dict = yaml.load(val)
+            udt_dict = {k : udt_dict[k] if k in udt_dict else self.get_null_val() for k in ct.fieldnames}
+            return namedtuple(ct.typename, udt_dict.keys())(**udt_dict)
 
         def convert_single_subtype(val, ct=cql_type):
             return converters.get(ct.subtypes[0].typename, convert_unknown)(val, ct=ct.subtypes[0])
