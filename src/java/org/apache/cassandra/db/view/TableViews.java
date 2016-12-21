@@ -36,7 +36,6 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
-import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.btree.BTreeSet;
 
@@ -115,27 +114,22 @@ public class TableViews extends AbstractCollection<View>
     /**
      * Calculates and pushes updates to the views replicas. The replicas are determined by
      * {@link ViewUtils#getViewNaturalEndpoint(String, Token, Token)}.
-     *
-     * @param update an update on the base table represented by this object.
-     * @param writeCommitLog whether we should write the commit log for the view updates.
-     * @param baseComplete time from epoch in ms that the local base mutation was (or will be) completed
+     *  @param update an update on the base table represented by this object.
      */
-    public void pushViewReplicaUpdates(PartitionUpdate update, boolean writeCommitLog, AtomicLong baseComplete)
+    public Collection<Mutation> generateViewReplicaUpdates(PartitionUpdate update)
     {
         assert update.metadata().id.equals(baseTableMetadata.id);
 
         Collection<View> views = updatedViews(update);
         if (views.isEmpty())
-            return;
+            return Collections.emptyList();
 
         // Read modified rows
         int nowInSec = FBUtilities.nowInSeconds();
-        long queryStartNanoTime = System.nanoTime();
         SinglePartitionReadCommand command = readExistingRowsCommand(update, views, nowInSec);
         if (command == null)
-            return;
+            return Collections.emptyList();
 
-        ColumnFamilyStore cfs = Keyspace.openAndGetStore(update.metadata());
         long start = System.nanoTime();
         Collection<Mutation> mutations;
         try (ReadExecutionController orderGroup = command.executionController();
@@ -146,8 +140,7 @@ public class TableViews extends AbstractCollection<View>
         }
         Keyspace.openAndGetStore(update.metadata()).metric.viewReadTime.update(System.nanoTime() - start, TimeUnit.NANOSECONDS);
 
-        if (!mutations.isEmpty())
-            StorageProxy.mutateMV(update.partitionKey().getKey(), mutations, writeCommitLog, baseComplete, queryStartNanoTime);
+        return mutations;
     }
 
 

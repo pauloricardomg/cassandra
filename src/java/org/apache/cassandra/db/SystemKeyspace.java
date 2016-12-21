@@ -111,6 +111,7 @@ public final class SystemKeyspace
               + "id timeuuid,"
               + "mutations list<blob>,"
               + "version int,"
+              + "flags int,"
               + "PRIMARY KEY ((id)))")
               .partitioner(new LocalPartitioner(TimeUUIDType.instance))
               .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))

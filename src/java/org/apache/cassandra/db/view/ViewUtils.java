@@ -20,6 +20,7 @@ package org.apache.cassandra.db.view;
 
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -58,7 +59,7 @@ public final class ViewUtils
      *
      * @return Optional.empty() if this method is called using a base token which does not belong to this replica
      */
-    public static Optional<InetAddress> getViewNaturalEndpoint(String keyspaceName, Token baseToken, Token viewToken)
+    public static List<InetAddress> getViewNaturalEndpoint(String keyspaceName, Token baseToken, Token viewToken)
     {
         AbstractReplicationStrategy replicationStrategy = Keyspace.open(keyspaceName).getReplicationStrategy();
 
@@ -77,7 +78,7 @@ public final class ViewUtils
         {
             // If we are a base endpoint which is also a view replica, we use ourselves as our view replica
             if (viewEndpoint.equals(FBUtilities.getBroadcastAddress()))
-                return Optional.of(viewEndpoint);
+                return Collections.singletonList(viewEndpoint);
 
             // We have to remove any endpoint which is shared between the base and the view, as it will select itself
             // and throw off the counts otherwise.
@@ -95,9 +96,10 @@ public final class ViewUtils
         int baseIdx = baseEndpoints.indexOf(FBUtilities.getBroadcastAddress());
 
         if (baseIdx < 0)
-            //This node is not a base replica of this key, so we return empty
-            return Optional.empty();
+        {
+            throw new RuntimeException("Could not find paired endpoint for view replica.");
+        }
 
-        return Optional.of(viewEndpoints.get(baseIdx));
+        return Collections.singletonList(viewEndpoints.get(baseIdx));
     }
 }

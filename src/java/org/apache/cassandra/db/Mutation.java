@@ -223,7 +223,12 @@ public class Mutation implements IMutation
 
     public void apply(boolean durableWrites, boolean isDroppable)
     {
-        Keyspace.open(keyspaceName).apply(this, durableWrites, true, isDroppable);
+        apply(durableWrites, isDroppable, true);
+    }
+
+    public void apply(boolean durableWrites, boolean isDroppable, boolean updateViews)
+    {
+        Keyspace.open(keyspaceName).apply(this, durableWrites, true, isDroppable, updateViews);
     }
 
     public void apply(boolean durableWrites)
@@ -238,6 +243,11 @@ public class Mutation implements IMutation
     public void apply()
     {
         apply(Keyspace.open(keyspaceName).getMetadata().params.durableWrites);
+    }
+
+    public void applyBaseOrView()
+    {
+        apply(Keyspace.open(keyspaceName).getMetadata().params.durableWrites, true, false);
     }
 
     public void applyUnsafe()
@@ -311,6 +321,11 @@ public class Mutation implements IMutation
     public static SimpleBuilder simpleBuilder(String keyspaceName, DecoratedKey partitionKey)
     {
         return new SimpleBuilders.MutationBuilder(keyspaceName, partitionKey);
+    }
+
+    public boolean hasTimedOut()
+    {
+        return (System.currentTimeMillis() - createdAt) > DatabaseDescriptor.getWriteRpcTimeout();
     }
 
     /**

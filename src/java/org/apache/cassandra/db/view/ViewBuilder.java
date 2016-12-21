@@ -23,12 +23,9 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.annotation.Nullable;
 
 import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,8 +91,7 @@ public class ViewBuilder extends CompactionInfo.Holder
                                                       .forTable(baseCfs.metadata.id)
                                                       .generateViewUpdates(Collections.singleton(view), data, empty, nowInSec, true);
 
-            AtomicLong noBase = new AtomicLong(Long.MAX_VALUE);
-            mutations.forEachRemaining(m -> StorageProxy.mutateMV(key.getKey(), m, true, noBase, System.nanoTime()));
+            mutations.forEachRemaining(m -> StorageProxy.mutateViews(key.getKey(), m, System.nanoTime(), null).forEach(w -> w.get()));
         }
     }
 

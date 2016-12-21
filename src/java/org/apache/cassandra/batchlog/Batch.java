@@ -34,22 +34,31 @@ import static org.apache.cassandra.db.TypeSizes.sizeofUnsignedVInt;
 
 public final class Batch
 {
+    public enum Type
+    {
+        BATCHLOG,
+        VIEWLOG
+    }
+
     public static final Serializer serializer = new Serializer();
 
     public final UUID id;
     public final long creationTime; // time of batch creation (in microseconds)
+    private final Type type;
 
     // one of these will always be empty
     final Collection<Mutation> decodedMutations;
     final Collection<ByteBuffer> encodedMutations;
 
-    private Batch(UUID id, long creationTime, Collection<Mutation> decodedMutations, Collection<ByteBuffer> encodedMutations)
+    private Batch(UUID id, long creationTime, Collection<Mutation> decodedMutations, Collection<ByteBuffer> encodedMutations,
+                  Type type)
     {
         this.id = id;
         this.creationTime = creationTime;
 
         this.decodedMutations = decodedMutations;
         this.encodedMutations = encodedMutations;
+        this.type = type;
     }
 
     /**
@@ -57,7 +66,12 @@ public final class Batch
      */
     public static Batch createLocal(UUID id, long creationTime, Collection<Mutation> mutations)
     {
-        return new Batch(id, creationTime, mutations, Collections.emptyList());
+        return createLocal(id, creationTime, mutations, Type.BATCHLOG);
+    }
+
+    public static Batch createLocal(UUID id, long creationTime, Collection<Mutation> mutations, Type type)
+    {
+        return new Batch(id, creationTime, mutations, Collections.emptyList(), type);
     }
 
     /**
@@ -67,7 +81,7 @@ public final class Batch
      */
     public static Batch createRemote(UUID id, long creationTime, Collection<ByteBuffer> mutations)
     {
-        return new Batch(id, creationTime, Collections.<Mutation>emptyList(), mutations);
+        return new Batch(id, creationTime, Collections.<Mutation>emptyList(), mutations, Type.BATCHLOG);
     }
 
     /**
