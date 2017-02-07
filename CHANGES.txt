@@ -1,3 +1,6 @@
+2.2.10
+ * Fix failing COPY TO STDOUT (CASSANDRA-12497)
+
 2.2.9
  * Coalescing strategy sleeps too much and shouldn't be enabled by default (CASSANDRA-13090)
  * Fix negative mean latency metric (CASSANDRA-12876)
