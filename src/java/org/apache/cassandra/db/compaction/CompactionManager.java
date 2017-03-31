@@ -538,6 +538,18 @@ public class CompactionManager implements CompactionManagerMBean
 
                 boolean shouldAnticompact = false;
 
+                // Repairs can take place on both unrepaired (incremental + full) and repaired (full) data.
+                // Although anti-compaction could work on repaired sstables as well and would result in having more accurate
+                // repairedAt values for these, we still avoid anti-compacting already repaired sstables, as we currently don't
+                // make use of any actual repairedAt value and splitting up sstables just for that is not worth it at this point.
+                if (sstable.isRepaired())
+                {
+                    logger.info("SSTable {} already repaired at {}, not touching repairedAt.", sstable, sstable.getSSTableMetadata().repairedAt);
+                    nonAnticompacting.add(sstable);
+                    sstableIterator.remove();
+                    continue;
+                }
+
                 for (Range<Token> r : normalizedRanges)
                 {
                     if (r.contains(sstableRange))
@@ -1222,16 +1234,7 @@ public class CompactionManager implements CompactionManagerMBean
     {
         logger.info("Performing anticompaction on {} sstables", repaired.originals().size());
 
-        //Group SSTables
-        Set<SSTableReader> sstables = repaired.originals();
-
-        // Repairs can take place on both unrepaired (incremental + full) and repaired (full) data.
-        // Although anti-compaction could work on repaired sstables as well and would result in having more accurate
-        // repairedAt values for these, we still avoid anti-compacting already repaired sstables, as we currently don't
-        // make use of any actual repairedAt value and splitting up sstables just for that is not worth it at this point.
-        Set<SSTableReader> unrepairedSSTables = sstables.stream().filter((s) -> !s.isRepaired()).collect(Collectors.toSet());
-
-        Collection<Collection<SSTableReader>> groupedSSTables = cfs.getCompactionStrategyManager().groupSSTablesForAntiCompaction(unrepairedSSTables);
+        Collection<Collection<SSTableReader>> groupedSSTables = cfs.getCompactionStrategyManager().groupSSTablesForAntiCompaction(repaired.originals());
 
         // iterate over sstables to check if the repaired / unrepaired ranges intersect them.
         int antiCompactedSSTableCount = 0;
