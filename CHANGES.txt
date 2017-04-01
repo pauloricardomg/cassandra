@@ -1,5 +1,5 @@
 3.0.14
- * 
+ * Fail repair if insufficient responses received (CASSANDRA-13397)
 
 3.0.13
  * Make reading of range tombstones more reliable (CASSANDRA-12811)
