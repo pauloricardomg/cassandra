@@ -263,6 +263,24 @@ public class SecondaryIndexManager implements IndexRegistry
         toRebuild.forEach(indexer -> markIndexBuilt(indexer.getIndexMetadata().name));
     }
 
+    public void markAllIndexesForRebuilding()
+    {
+        indexes.entrySet()
+               .stream()
+               .filter(e -> e.getValue().shouldBuildBlocking())
+               .map(Map.Entry::getKey)
+               .forEach(name -> SystemKeyspace.markIndexForRebuilding(baseCfs.metadata.keyspace, name));
+    }
+
+    public void unmarkAllIndexesForRebuilding()
+    {
+        indexes.entrySet()
+               .stream()
+               .filter(e -> e.getValue().shouldBuildBlocking())
+               .map(Map.Entry::getKey)
+               .forEach(name -> SystemKeyspace.unmarkIndexforRebuilding(baseCfs.metadata.keyspace, name));
+    }
+
     public void buildAllIndexesBlocking(Collection<SSTableReader> sstables)
     {
         buildIndexesBlocking(sstables, indexes.values()
@@ -394,7 +412,10 @@ public class SecondaryIndexManager implements IndexRegistry
     {
         builtIndexes.add(indexName);
         if (DatabaseDescriptor.isDaemonInitialized())
+        {
             SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
+            SystemKeyspace.unmarkIndexforRebuilding(baseCfs.keyspace.getName(), indexName);
+        }
     }
 
     /**
@@ -405,6 +426,7 @@ public class SecondaryIndexManager implements IndexRegistry
     public void markIndexRemoved(String indexName)
     {
         SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
+        SystemKeyspace.unmarkIndexforRebuilding(baseCfs.keyspace.getName(), indexName);
     }
 
     public Index getIndexByName(String indexName)
