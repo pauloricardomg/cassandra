@@ -90,7 +90,6 @@ public final class SystemKeyspace
     public static final String BATCHES = "batches";
     public static final String PAXOS = "paxos";
     public static final String BUILT_INDEXES = "IndexInfo";
-    public static final String INDEXES_TO_REBUILD = "indexes_to_rebuild";
     public static final String LOCAL = "local";
     public static final String PEERS = "peers";
     public static final String PEER_EVENTS = "peer_events";
@@ -143,16 +142,6 @@ public final class SystemKeyspace
               + "PRIMARY KEY ((table_name), index_name)) "
               + "WITH COMPACT STORAGE")
               .build();
-
-    private static final TableMetadata IndexesToRebuild =
-        parse(INDEXES_TO_REBUILD,
-              "indexes marked for rebuilding",
-              "CREATE TABLE \"%s\" ("
-              + "keyspace_name text,"
-              + "index_name text,"
-              + "PRIMARY KEY ((keyspace_name), index_name)) "
-              + "WITH COMPACT STORAGE")
-        .build();
 
     private static final TableMetadata Local =
         parse(LOCAL,
@@ -337,7 +326,6 @@ public final class SystemKeyspace
     private static Tables tables()
     {
         return Tables.of(BuiltIndexes,
-                         IndexesToRebuild,
                          Batches,
                          Paxos,
                          Local,
@@ -965,27 +953,6 @@ public final class SystemKeyspace
         return StreamSupport.stream(results.spliterator(), false)
                             .map(r -> r.getString("index_name"))
                             .collect(Collectors.toList());
-    }
-
-    public static boolean isIndexMarkedForRebuilding(String keyspaceName, String indexName)
-    {
-        String req = "SELECT index_name FROM %s.\"%s\" WHERE keyspace_name=? AND index_name=?";
-        UntypedResultSet result = executeInternal(format(req, SchemaConstants.SYSTEM_KEYSPACE_NAME, INDEXES_TO_REBUILD), keyspaceName, indexName);
-        return !result.isEmpty();
-    }
-
-    public static void markIndexForRebuilding(String keyspaceName, String indexName)
-    {
-        String req = "INSERT INTO %s.\"%s\" (keyspace_name, index_name) VALUES (?, ?) IF NOT EXISTS;";
-        executeInternal(String.format(req, SchemaConstants.SYSTEM_KEYSPACE_NAME, INDEXES_TO_REBUILD), keyspaceName, indexName);
-        forceBlockingFlush(INDEXES_TO_REBUILD);
-    }
-
-    public static void unmarkIndexforRebuilding(String keyspaceName, String indexName)
-    {
-        String req = "DELETE FROM %s.\"%s\" WHERE keyspace_name = ? AND index_name = ? IF EXISTS;";
-        executeInternal(String.format(req, SchemaConstants.SYSTEM_KEYSPACE_NAME, INDEXES_TO_REBUILD), keyspaceName, indexName);
-        forceBlockingFlush(INDEXES_TO_REBUILD);
     }
 
     /**

@@ -118,7 +118,7 @@ public class CustomCassandraIndex implements Index
     {
         // if we're just linking in the index on an already-built index post-restart
         // or if the table is empty we've nothing to do. Otherwise, submit for building via SecondaryIndexBuilder
-        return isBuilt() && !isMarkedForRebuilding() || baseCfs.isEmpty() ? null : getBuildIndexTask();
+        return isBuilt() || baseCfs.isEmpty() ? null : getBuildIndexTask();
     }
 
     public IndexMetadata getIndexMetadata()
@@ -604,11 +604,6 @@ public class CustomCassandraIndex implements Index
     private boolean isBuilt()
     {
         return SystemKeyspace.isIndexBuilt(baseCfs.keyspace.getName(), metadata.name);
-    }
-
-    private boolean isMarkedForRebuilding()
-    {
-        return SystemKeyspace.isIndexMarkedForRebuilding(baseCfs.keyspace.getName(), metadata.name);
     }
 
     private boolean isPrimaryKeyIndex()
