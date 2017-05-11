@@ -402,9 +402,7 @@ public class SecondaryIndexManager implements IndexRegistry
     {
         builtIndexes.add(indexName);
         if (DatabaseDescriptor.isDaemonInitialized())
-        {
             SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
-        }
     }
 
     /**
