@@ -231,7 +231,7 @@ public class StreamReceiveTask extends StreamTask
                         task.finishTransaction();
 
                         // pessimistically mark secondary indexes as needed of future rebuilding
-                        cfs.indexManager.markAllIndexesRemoved();
+                        cfs.indexManager.markAllIndexesBuilding();
 
                         // add sstables and build secondary indexes
                         cfs.addSSTables(readers);

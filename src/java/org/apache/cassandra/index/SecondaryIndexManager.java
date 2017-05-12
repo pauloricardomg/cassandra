@@ -110,6 +110,9 @@ public class SecondaryIndexManager implements IndexRegistry
      */
     private Set<String> builtIndexes = Sets.newConcurrentHashSet();
 
+    /** The count of pending index builds for each index. */
+    private final Map<String, PendingIndexBuildsCounter> pendingBuilds = Maps.newConcurrentMap();
+
     // executes tasks returned by Indexer#addIndexColumn which may require index(es) to be (re)built
     private static final ExecutorService asyncExecutor =
         new JMXEnabledThreadPoolExecutor(1,
@@ -164,6 +167,9 @@ public class SecondaryIndexManager implements IndexRegistry
     {
         Index index = createInstance(indexDef);
         index.register(this);
+
+        // pessimistically mark the index as needed of future rebuilding
+        markIndexBuilding(indexDef.name);
 
         // if the index didn't register itself, we can probably assume that no initialization needs to happen
         final Callable<?> initialBuildTask = indexes.containsKey(indexDef.name)
@@ -227,16 +233,18 @@ public class SecondaryIndexManager implements IndexRegistry
     }
 
     /**
-     * Called when dropping a Table or when the indexes may need future rebuild
+     * Called when dropping a Table
      */
     public void markAllIndexesRemoved()
     {
        getBuiltIndexNames().forEach(this::markIndexRemoved);
     }
 
-    /**
-     * Marks all indexes as a built
-     */
+    public void markAllIndexesBuilding()
+    {
+        getBuiltIndexNames().forEach(this::markIndexBuilding);
+    }
+
     public void markAllIndexesBuilt()
     {
         getBuiltIndexNames().forEach(this::markIndexBuilt);
@@ -264,7 +272,7 @@ public class SecondaryIndexManager implements IndexRegistry
             return;
         }
 
-        toRebuild.forEach(indexer -> markIndexRemoved(indexer.getIndexMetadata().name));
+        toRebuild.forEach(indexer -> markIndexBuilding(indexer.getIndexMetadata().name));
 
         buildIndexesBlocking(sstables, toRebuild);
 
@@ -287,6 +295,7 @@ public class SecondaryIndexManager implements IndexRegistry
             try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
                  Refs<SSTableReader> sstables = viewFragment.refs)
             {
+                markIndexBuilding(index.getIndexMetadata().name);
                 buildIndexesBlocking(sstables, Collections.singleton(index));
                 markIndexBuilt(index.getIndexMetadata().name);
             }
@@ -394,15 +403,25 @@ public class SecondaryIndexManager implements IndexRegistry
     }
 
     /**
-     * Marks the specified index as build.
+     * Marks the specified index as (re)building. {@link #markIndexBuilt(String)} should be called after the
+     * (re)building has finished. If this is not done, the index (re)building will be retried during the next start.
+     * @param indexName the index name
+     */
+    public void markIndexBuilding(String indexName)
+    {
+        pendingBuilds.computeIfAbsent(indexName, i -> new PendingIndexBuildsCounter(baseCfs.keyspace.getName(), indexName)).increase();
+    }
+
+    /**
+     * Marks the specified index as built if there are no additional ongoing index (re)buildings.
+     * {@link #markIndexBuilding(String)} should always be invoked before this method.
      * <p>This method is public as it need to be accessible from the {@link Index} implementations</p>
      * @param indexName the index name
      */
     public void markIndexBuilt(String indexName)
     {
         builtIndexes.add(indexName);
-        if (DatabaseDescriptor.isDaemonInitialized())
-            SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
+        pendingBuilds.get(indexName).decrease();
     }
 
     /**
@@ -413,6 +432,7 @@ public class SecondaryIndexManager implements IndexRegistry
     public void markIndexRemoved(String indexName)
     {
         SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
+        pendingBuilds.remove(indexName);
     }
 
     public Index getIndexByName(String indexName)
@@ -817,6 +837,7 @@ public class SecondaryIndexManager implements IndexRegistry
     {
         Index removed = indexes.remove(name);
         builtIndexes.remove(name);
+        pendingBuilds.remove(name);
         logger.trace(removed == null ? "Index {} was not registered" : "Removed index {} from registry",
                      name);
         return removed;
@@ -1176,5 +1197,45 @@ public class SecondaryIndexManager implements IndexRegistry
                 waitFor.add(blockingExecutor.submit(task));
         });
         FBUtilities.waitOnFutures(waitFor);
+    }
+
+    /**
+     * A counter of pending index (re)builds.
+     *
+     * The {@link #increase()} method should be called before all index (re)building, the first invokation will remove
+     * the index from the persistent table of built indexes, at {@link SystemKeyspace}. The indexes that are not marked
+     * in this table will be rubuilt during the next node start, so it guarantees that an eventual failing index
+     * (re)building task will be retried on restart.
+     *
+     * Complementarily, {@link #decrease()} should be invoked when the (re)building ends. The invocation that sets the
+     * counter to zero will add the index to the aforementioned table, indicating that this index won't require
+     * rebuiling during the next node start.
+     *
+     * See CASSANDRA-10130 for further information.
+     */
+    private static final class PendingIndexBuildsCounter
+    {
+        private final String keyspace;
+        private final String index;
+        private int counter = 0;
+
+        PendingIndexBuildsCounter(String keyspace, String index)
+        {
+            this.keyspace = keyspace;
+            this.index = index;
+        }
+
+        synchronized void increase()
+        {
+            if (counter++ == 0 && DatabaseDescriptor.isDaemonInitialized())
+                SystemKeyspace.setIndexRemoved(keyspace, index);
+        }
+
+        synchronized void decrease()
+        {
+            assert counter > 0;
+            if (--counter == 0 && DatabaseDescriptor.isDaemonInitialized())
+                SystemKeyspace.setIndexBuilt(keyspace, index);
+        }
     }
 }
