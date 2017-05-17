@@ -799,8 +799,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         try (Refs<SSTableReader> refs = Refs.ref(newSSTables))
         {
-            data.addSSTables(newSSTables);
-            indexManager.buildAllIndexesBlocking(newSSTables);
+            indexManager.buildAllIndexesBlocking(newSSTables, () -> data.addSSTables(newSSTables));
         }
 
         logger.info("Done loading load new SSTables for {}/{}", keyspace.getName(), name);

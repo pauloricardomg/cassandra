@@ -111,7 +111,7 @@ public class CustomIndexTest extends CQLTester
         excluded.reset();
         assertTrue(excluded.rowsInserted.isEmpty());
 
-        indexManager.buildAllIndexesBlocking(getCurrentColumnFamilyStore().getLiveSSTables());
+        indexManager.buildAllIndexesBlocking(getCurrentColumnFamilyStore().getLiveSSTables(), null);
 
         assertEquals(3, included.rowsInserted.size());
         assertTrue(excluded.rowsInserted.isEmpty());

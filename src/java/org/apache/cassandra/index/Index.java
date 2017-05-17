@@ -143,7 +143,7 @@ public interface Index
 
     /**
      * Provider of {@code SecondaryIndexBuilder} instances. See {@code getBuildTaskSupport} and
-     * {@code SecondaryIndexManager.buildIndexesBlocking} for more detail.
+     * {@code SecondaryIndexManager.buildAllIndexesBlocking} for more detail.
      */
     interface IndexBuildingSupport
     {
@@ -174,7 +174,7 @@ public interface Index
 
     /**
      * Get an instance of a helper to provide tasks for building the index from a set of SSTable data.
-     * When processing a number of indexes to be rebuilt, {@code SecondaryIndexManager.buildIndexesBlocking} groups
+     * When processing a number of indexes to be rebuilt, {@code SecondaryIndexManager.buildAllIndexesBlocking} groups
      * those with the same {@code IndexBuildingSupport} instance, allowing multiple indexes to be built with a
      * single pass through the data. The singleton instance returned from the default method implementation builds
      * indexes using a {@code ReducingKeyIterator} to provide a collated view of the SSTable data.

@@ -230,15 +230,9 @@ public class StreamReceiveTask extends StreamTask
                     {
                         task.finishTransaction();
 
-                        // pessimistically mark secondary indexes as needed of future rebuilding
-                        cfs.indexManager.markAllIndexesBuilding();
-
                         // add sstables and build secondary indexes
-                        cfs.addSSTables(readers);
-                        cfs.indexManager.buildAllIndexesBlocking(readers);
-
-                        // secondary indexes doesn't need future rebuilding
-                        cfs.indexManager.markAllIndexesBuilt();
+                        ColumnFamilyStore cfsRef = cfs;
+                        cfs.indexManager.buildAllIndexesBlocking(readers, () -> cfsRef.addSSTables(readers));
 
                         //invalidate row and counter cache
                         if (cfs.isRowCacheEnabled() || cfs.metadata().isCounter())

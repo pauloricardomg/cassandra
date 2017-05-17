@@ -20,6 +20,7 @@ package org.apache.cassandra.index;
 import java.lang.reflect.Constructor;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -32,11 +33,14 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Longs;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.datastax.driver.core.utils.MoreFutures;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.StageManager;
@@ -111,16 +115,16 @@ public class SecondaryIndexManager implements IndexRegistry
     private Set<String> builtIndexes = Sets.newConcurrentHashSet();
 
     /** The count of pending index builds for each index. */
-    private final Map<String, PendingIndexBuildsCounter> pendingBuilds = Maps.newConcurrentMap();
+    private final Map<String, AtomicInteger> pendingBuilds = Maps.newConcurrentMap();
 
     // executes tasks returned by Indexer#addIndexColumn which may require index(es) to be (re)built
-    private static final ExecutorService asyncExecutor =
+    private static final ListeningExecutorService asyncExecutor = MoreExecutors.listeningDecorator(
         new JMXEnabledThreadPoolExecutor(1,
                                          StageManager.KEEPALIVE,
                                          TimeUnit.SECONDS,
                                          new LinkedBlockingQueue<>(),
                                          new NamedThreadFactory("SecondaryIndexManagement"),
-                                         "internal");
+                                         "internal"));
 
     // executes all blocking tasks produced by Indexers e.g. getFlushTask, getMetadataReloadTask etc
     private static final ExecutorService blockingExecutor = MoreExecutors.newDirectExecutorService();
@@ -182,7 +186,17 @@ public class SecondaryIndexManager implements IndexRegistry
             markIndexBuilt(indexDef.name);
             return Futures.immediateFuture(null);
         }
-        return asyncExecutor.submit(index.getInitializationTask());
+
+        // Run intialization task asynchnously with a callback to mark it as built
+        ListenableFuture<?> future = asyncExecutor.submit(index.getInitializationTask());
+        Futures.addCallback(future, new MoreFutures.SuccessCallback<Object>()
+        {
+            public void onSuccess(Object result)
+            {
+                markIndexBuilt(indexDef.name);
+            }
+        });
+        return future;
     }
 
     /**
@@ -240,16 +254,6 @@ public class SecondaryIndexManager implements IndexRegistry
        getBuiltIndexNames().forEach(this::markIndexRemoved);
     }
 
-    public void markAllIndexesBuilding()
-    {
-        getBuiltIndexNames().forEach(this::markIndexBuilding);
-    }
-
-    public void markAllIndexesBuilt()
-    {
-        getBuiltIndexNames().forEach(this::markIndexBuilt);
-    }
-
     /**
     * Does a full, blocking rebuild of the indexes specified by columns from the sstables.
     * Caller must acquire and release references to the sstables used here.
@@ -272,19 +276,25 @@ public class SecondaryIndexManager implements IndexRegistry
             return;
         }
 
-        toRebuild.forEach(indexer -> markIndexBuilding(indexer.getIndexMetadata().name));
-
-        buildIndexesBlocking(sstables, toRebuild);
-
-        toRebuild.forEach(indexer -> markIndexBuilt(indexer.getIndexMetadata().name));
+        buildIndexesBlocking(sstables, toRebuild, null);
     }
 
-    public void buildAllIndexesBlocking(Collection<SSTableReader> sstables)
+    /**
+     * (Re)indexes the specified sstables, running the specified task before the index building in such a way that,
+     * if the task fails, the sstables wouldn't be (re)indexed and, if the indexing fails, the task will be executed but
+     * the indexes will be marked as not built.
+     *
+     * @param sstables the SSTables to be (re)indexed
+     * @param preBuildTask a task to be executed before indexing the sstables
+     */
+    public void buildAllIndexesBlocking(Collection<SSTableReader> sstables, Runnable preBuildTask)
     {
-        buildIndexesBlocking(sstables, indexes.values()
-                                              .stream()
-                                              .filter(Index::shouldBuildBlocking)
-                                              .collect(Collectors.toSet()));
+        buildIndexesBlocking(sstables,
+                             indexes.values()
+                                    .stream()
+                                    .filter(Index::shouldBuildBlocking)
+                                    .collect(Collectors.toSet()),
+                             preBuildTask);
     }
 
     // For convenience, may be called directly from Index impls
@@ -295,9 +305,7 @@ public class SecondaryIndexManager implements IndexRegistry
             try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
                  Refs<SSTableReader> sstables = viewFragment.refs)
             {
-                markIndexBuilding(index.getIndexMetadata().name);
-                buildIndexesBlocking(sstables, Collections.singleton(index));
-                markIndexBuilt(index.getIndexMetadata().name);
+                buildIndexesBlocking(sstables, Collections.singleton(index), null);
             }
         }
     }
@@ -373,10 +381,19 @@ public class SecondaryIndexManager implements IndexRegistry
         return StringUtils.substringAfter(cfName, Directories.SECONDARY_INDEX_NAME_SEPARATOR);
     }
 
-    private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes)
+    private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes, Runnable preBuildTask)
     {
         if (indexes.isEmpty())
+        {
+            // the pre build task should be run even if there is nothing to be indexed
+            executeBlocking(preBuildTask);
             return;
+        }
+
+        // pessimistically mark secondary indexes as needed of future rebuilding
+        indexes.stream().map(i -> i.getIndexMetadata().name).forEach(this::markIndexBuilding);
+
+        executeBlocking(preBuildTask);
 
         logger.info("Submitting index build of {} for data in {}",
                     indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")),
@@ -398,6 +415,8 @@ public class SecondaryIndexManager implements IndexRegistry
         FBUtilities.waitOnFutures(futures);
 
         flushIndexesBlocking(indexes);
+        indexes.stream().map(i -> i.getIndexMetadata().name).forEach(this::markIndexBuilt);
+
         logger.info("Index build of {} complete",
                     indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")));
     }
@@ -405,31 +424,44 @@ public class SecondaryIndexManager implements IndexRegistry
     /**
      * Marks the specified index as (re)building. {@link #markIndexBuilt(String)} should be called after the
      * (re)building has finished. If this is not done, the index (re)building will be retried during the next start.
+     *
      * @param indexName the index name
      */
-    public void markIndexBuilding(String indexName)
+    private synchronized void markIndexBuilding(String indexName)
     {
-        pendingBuilds.computeIfAbsent(indexName, i -> new PendingIndexBuildsCounter(baseCfs.keyspace.getName(), indexName)).increase();
+        AtomicInteger counter = pendingBuilds.computeIfAbsent(indexName, i -> new AtomicInteger(0));
+        if (counter.getAndIncrement() == 0 && DatabaseDescriptor.isDaemonInitialized())
+            SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
     }
 
     /**
      * Marks the specified index as built if there are no additional ongoing index (re)buildings.
      * {@link #markIndexBuilding(String)} should always be invoked before this method.
-     * <p>This method is public as it need to be accessible from the {@link Index} implementations</p>
+     *
      * @param indexName the index name
      */
-    public void markIndexBuilt(String indexName)
+    private synchronized void markIndexBuilt(String indexName)
     {
         builtIndexes.add(indexName);
-        pendingBuilds.get(indexName).decrease();
+        AtomicInteger counter = pendingBuilds.get(indexName);
+        if (counter != null)
+        {
+            assert counter.get() > 0;
+            if (counter.decrementAndGet() == 0)
+            {
+                if (DatabaseDescriptor.isDaemonInitialized())
+                    SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
+                pendingBuilds.remove(indexName);
+            }
+        }
     }
 
     /**
      * Marks the specified index as removed.
-     * <p>This method is public as it need to be accessible from the {@link Index} implementations</p>
+     *
      * @param indexName the index name
      */
-    public void markIndexRemoved(String indexName)
+    private synchronized void markIndexRemoved(String indexName)
     {
         SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
         pendingBuilds.remove(indexName);
@@ -837,7 +869,6 @@ public class SecondaryIndexManager implements IndexRegistry
     {
         Index removed = indexes.remove(name);
         builtIndexes.remove(name);
-        pendingBuilds.remove(name);
         logger.trace(removed == null ? "Index {} was not registered" : "Removed index {} from registry",
                      name);
         return removed;
@@ -1182,6 +1213,12 @@ public class SecondaryIndexManager implements IndexRegistry
             FBUtilities.waitOnFuture(blockingExecutor.submit(task));
     }
 
+    private static void executeBlocking(Runnable task)
+    {
+        if (null != task)
+            FBUtilities.waitOnFuture(blockingExecutor.submit(task));
+    }
+
     private static void executeAllBlocking(Stream<Index> indexers, Function<Index, Callable<?>> function)
     {
         if (function == null)
@@ -1197,45 +1234,5 @@ public class SecondaryIndexManager implements IndexRegistry
                 waitFor.add(blockingExecutor.submit(task));
         });
         FBUtilities.waitOnFutures(waitFor);
-    }
-
-    /**
-     * A counter of pending index (re)builds.
-     *
-     * The {@link #increase()} method should be called before all index (re)building, the first invokation will remove
-     * the index from the persistent table of built indexes, at {@link SystemKeyspace}. The indexes that are not marked
-     * in this table will be rubuilt during the next node start, so it guarantees that an eventual failing index
-     * (re)building task will be retried on restart.
-     *
-     * Complementarily, {@link #decrease()} should be invoked when the (re)building ends. The invocation that sets the
-     * counter to zero will add the index to the aforementioned table, indicating that this index won't require
-     * rebuiling during the next node start.
-     *
-     * See CASSANDRA-10130 for further information.
-     */
-    private static final class PendingIndexBuildsCounter
-    {
-        private final String keyspace;
-        private final String index;
-        private int counter = 0;
-
-        PendingIndexBuildsCounter(String keyspace, String index)
-        {
-            this.keyspace = keyspace;
-            this.index = index;
-        }
-
-        synchronized void increase()
-        {
-            if (counter++ == 0 && DatabaseDescriptor.isDaemonInitialized())
-                SystemKeyspace.setIndexRemoved(keyspace, index);
-        }
-
-        synchronized void decrease()
-        {
-            assert counter > 0;
-            if (--counter == 0 && DatabaseDescriptor.isDaemonInitialized())
-                SystemKeyspace.setIndexBuilt(keyspace, index);
-        }
     }
 }
