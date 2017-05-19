@@ -386,14 +386,16 @@ public class SecondaryIndexManager implements IndexRegistry
         if (indexes.isEmpty())
         {
             // the pre build task should be run even if there is nothing to be indexed
-            executeBlocking(preBuildTask);
+            if (preBuildTask != null)
+                preBuildTask.run();
             return;
         }
 
-        // pessimistically mark secondary indexes as needed of future rebuilding
+        // pessimistically mark all secondary indexes as needed of future rebuilding
         indexes.stream().map(i -> i.getIndexMetadata().name).forEach(this::markIndexBuilding);
 
-        executeBlocking(preBuildTask);
+        if (preBuildTask != null)
+            preBuildTask.run();
 
         logger.info("Submitting index build of {} for data in {}",
                     indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")),
@@ -406,19 +408,28 @@ public class SecondaryIndexManager implements IndexRegistry
             stored.add(index);
         }
 
-        List<Future<?>> futures = byType.entrySet()
+        FBUtilities.waitOnFutures(byType.entrySet()
                                         .stream()
-                                        .map((e) -> e.getKey().getIndexBuildTask(baseCfs, e.getValue(), sstables))
-                                        .map(CompactionManager.instance::submitIndexBuild)
-                                        .collect(Collectors.toList());
-
-        FBUtilities.waitOnFutures(futures);
-
-        flushIndexesBlocking(indexes);
-        indexes.stream().map(i -> i.getIndexMetadata().name).forEach(this::markIndexBuilt);
-
-        logger.info("Index build of {} complete",
-                    indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")));
+                                        .map(e ->
+                                             {
+                                                 SecondaryIndexBuilder builder = e.getKey().getIndexBuildTask(baseCfs, e.getValue(), sstables);
+                                                 ListenableFuture<?> future = CompactionManager.instance.submitIndexBuild(builder);
+                                                 Futures.addCallback(future, new MoreFutures.SuccessCallback<Object>()
+                                                 {
+                                                     public void onSuccess(Object result)
+                                                     {
+                                                         Set<Index> indexes = e.getValue();
+                                                         flushIndexesBlocking(indexes);
+                                                         indexes.forEach(i -> markIndexBuilt(i.getIndexMetadata().name));
+                                                         logger.info("Index build of {} complete",
+                                                                     indexes.stream()
+                                                                            .map(i -> i.getIndexMetadata().name)
+                                                                            .collect(Collectors.joining(",")));
+                                                     }
+                                                 });
+                                                 return future;
+                                             })
+                                        .collect(Collectors.toList()));
     }
 
     /**
@@ -1208,12 +1219,6 @@ public class SecondaryIndexManager implements IndexRegistry
     }
 
     private static void executeBlocking(Callable<?> task)
-    {
-        if (null != task)
-            FBUtilities.waitOnFuture(blockingExecutor.submit(task));
-    }
-
-    private static void executeBlocking(Runnable task)
     {
         if (null != task)
             FBUtilities.waitOnFuture(blockingExecutor.submit(task));
