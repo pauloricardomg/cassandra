@@ -33,15 +33,18 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.concurrent.Refs;
 
 import static org.apache.cassandra.Util.throwAssert;
 import static org.junit.Assert.assertArrayEquals;
@@ -510,17 +513,48 @@ public class CassandraIndexTest extends CQLTester
         String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
         createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
         waitForIndex(KEYSPACE, tableName, indexName);
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        String builtIndexesQuery = String.format("SELECT * FROM %s.\"%s\"",
+                                                 SchemaConstants.SYSTEM_KEYSPACE_NAME,
+                                                 SystemKeyspace.BUILT_INDEXES);
+
         // check that there are no other rows in the built indexes table
-        assertRows(execute(String.format("SELECT * FROM %s.\"%s\"", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.BUILT_INDEXES)),
-                   row(KEYSPACE, indexName));
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
         // rebuild the index and verify the built status table
-        getCurrentColumnFamilyStore().rebuildSecondaryIndex(indexName);
+        cfs.rebuildSecondaryIndex(indexName);
         waitForIndex(KEYSPACE, tableName, indexName);
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
-        // check that there are no other rows in the built indexes table
-        assertRows(execute(String.format("SELECT * FROM %s.\"%s\"", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.BUILT_INDEXES)),
-                   row(KEYSPACE, indexName));
+        // drop the index and verify that it has been removed from the built indexes table
+        dropIndex("DROP INDEX %s." + indexName);
+        assertEmpty(execute(builtIndexesQuery));
+
+        // create the index again and verify that it's added to the built indexes table
+        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
+        waitForIndex(KEYSPACE, tableName, indexName);
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
+
+        // simulate a failing index rebuild and verify that the index isn't added to the built indexes table
+        try (Refs<SSTableReader> refs = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL)))
+        {
+            cfs.indexManager.buildAllIndexesBlocking(refs, () -> {throw new RuntimeException("mock");});
+        }
+        catch (RuntimeException e)
+        {
+            assertEquals("mock", e.getMessage());
+        }
+        assertEmpty(execute(builtIndexesQuery));
+
+        // after the failure further successful index rebuilds should let the index marked as not built
+        Refs<SSTableReader> refs = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL));
+        cfs.indexManager.buildAllIndexesBlocking(refs, null);
+        assertEmpty(execute(builtIndexesQuery));
+
+        // recreating the index should mark the index as built
+        dropIndex("DROP INDEX %s." + indexName);
+        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
     }
 
     // this is slightly annoying, but we cannot read rows from the methods in Util as
