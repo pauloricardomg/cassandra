@@ -192,11 +192,19 @@ public class Tracker
         // no notifications or backup necessary
     }
 
-    public void addSSTables(Iterable<SSTableReader> sstables)
+    /**
+     * Adds the specified SSTables.
+     *
+     * @param sstables the SSTables to be added
+     * @param areLoaded if the tables have been loaded from a external source, such as streaming or sstableoader
+     */
+    public void addSSTables(Iterable<SSTableReader> sstables, boolean areLoaded)
     {
+        if (areLoaded)
+            notifyLoaded(sstables);
         addInitialSSTables(sstables);
         maybeIncrementallyBackup(sstables);
-        notifyAdded(sstables);
+        notifyAdded(sstables, true);
     }
 
     /** (Re)initializes the tracker, purging all references. */
@@ -359,7 +367,7 @@ public class Tracker
         notifyDiscarded(memtable);
 
         // TODO: if we're invalidated, should we notifyadded AND removed, or just skip both?
-        fail = notifyAdded(sstables, fail);
+        fail = notifyAdded(sstables, false, fail);
 
         if (!isDummy() && !cfstore.isValid())
             dropSSTables();
@@ -417,9 +425,9 @@ public class Tracker
         return accumulate;
     }
 
-    Throwable notifyAdded(Iterable<SSTableReader> added, Throwable accumulate)
+    Throwable notifyLoaded(Iterable<SSTableReader> added, Throwable accumulate)
     {
-        INotification notification = new SSTableAddedNotification(added);
+        INotification notification = new SSTableLoadedNotification(added);
         for (INotificationConsumer subscriber : subscribers)
         {
             try
@@ -434,9 +442,31 @@ public class Tracker
         return accumulate;
     }
 
-    public void notifyAdded(Iterable<SSTableReader> added)
+    public void notifyLoaded(Iterable<SSTableReader> added)
     {
-        maybeFail(notifyAdded(added, null));
+        maybeFail(notifyLoaded(added, null));
+    }
+
+    Throwable notifyAdded(Iterable<SSTableReader> added, boolean areLoaded, Throwable accumulate)
+    {
+        INotification notification = new SSTableAddedNotification(added, areLoaded);
+        for (INotificationConsumer subscriber : subscribers)
+        {
+            try
+            {
+                subscriber.handleNotification(notification, this);
+            }
+            catch (Throwable t)
+            {
+                accumulate = merge(accumulate, t);
+            }
+        }
+        return accumulate;
+    }
+
+    public void notifyAdded(Iterable<SSTableReader> added, boolean requiresIndexing)
+    {
+        maybeFail(notifyAdded(added, requiresIndexing, null));
     }
 
     public void notifySSTableRepairedStatusChanged(Collection<SSTableReader> repairStatusesChanged)

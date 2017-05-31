@@ -19,16 +19,17 @@ package org.apache.cassandra.notifications;
 
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 
-public class SSTableAddedNotification implements INotification
+/**
+ * Notification sent when SSTables are loaded from a source external to the node, such as streaming or sstableoader.
+ * Note that this notification doesn't mean that the tables have been added to their {@link org.apache.cassandra.db.ColumnFamilyStore},
+ * for this we have {@link SSTableAddedNotification}.
+ */
+public class SSTableLoadedNotification implements INotification
 {
     public final Iterable<SSTableReader> added;
 
-    /** If the added SSTables have been loaded from a source external to the node, such as streaming or sstableoader */
-    public final boolean areLoaded;
-
-    public SSTableAddedNotification(Iterable<SSTableReader> added, boolean areLoaded)
+    public SSTableLoadedNotification(Iterable<SSTableReader> added)
     {
         this.added = added;
-        this.areLoaded = areLoaded;
     }
 }

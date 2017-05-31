@@ -144,7 +144,7 @@ public abstract class CompactionStress implements Runnable
             cfs.disableAutoCompaction();
 
             //Register with cfs
-            cfs.addSSTables(sstables);
+            cfs.addSSTables(sstables, false);
         }
 
         return cfs;

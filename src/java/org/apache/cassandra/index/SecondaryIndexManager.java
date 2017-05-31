@@ -29,6 +29,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Longs;
@@ -50,6 +51,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
+import org.apache.cassandra.db.lifecycle.Tracker;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
@@ -57,6 +59,10 @@ import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.index.transactions.*;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.notifications.INotification;
+import org.apache.cassandra.notifications.INotificationConsumer;
+import org.apache.cassandra.notifications.SSTableAddedNotification;
+import org.apache.cassandra.notifications.SSTableLoadedNotification;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.Indexes;
@@ -100,7 +106,7 @@ import org.apache.cassandra.utils.concurrent.Refs;
  * distributing requests to replicas, whereas a Searcher instance is needed when the ReadCommand is executed locally on
  * a target replica.
  */
-public class SecondaryIndexManager implements IndexRegistry
+public class SecondaryIndexManager implements IndexRegistry, INotificationConsumer
 {
     private static final Logger logger = LoggerFactory.getLogger(SecondaryIndexManager.class);
 
@@ -137,8 +143,8 @@ public class SecondaryIndexManager implements IndexRegistry
     public SecondaryIndexManager(ColumnFamilyStore baseCfs)
     {
         this.baseCfs = baseCfs;
+        baseCfs.getTracker().subscribe(this);
     }
-
 
     /**
      * Drops and adds new indexes associated with the underlying CF
@@ -173,7 +179,7 @@ public class SecondaryIndexManager implements IndexRegistry
         index.register(this);
 
         // pessimistically mark the index as needed of future rebuilding
-        markIndexBuilding(indexDef.name);
+        markIndexBuilding(index);
 
         // if the index didn't register itself, we can probably assume that no initialization needs to happen
         final Callable<?> initialBuildTask = indexes.containsKey(indexDef.name)
@@ -183,7 +189,7 @@ public class SecondaryIndexManager implements IndexRegistry
         {
             // We need to make sure that the index is marked as built in the case where the initialBuildTask
             // does not need to be run (if the index didn't register itself or if the base table was empty).
-            markIndexBuilt(indexDef.name);
+            markIndexBuilt(index);
             return Futures.immediateFuture(null);
         }
 
@@ -193,7 +199,7 @@ public class SecondaryIndexManager implements IndexRegistry
         {
             public void onSuccess(Object result)
             {
-                markIndexBuilt(indexDef.name);
+                markIndexBuilt(index);
             }
         });
         return future;
@@ -276,25 +282,16 @@ public class SecondaryIndexManager implements IndexRegistry
             return;
         }
 
-        buildIndexesBlocking(sstables, toRebuild, null);
+        toRebuild.forEach(this::markIndexBuilding);
+        buildIndexesBlocking(sstables, toRebuild);
     }
 
-    /**
-     * (Re)indexes the specified sstables, running the specified task before the index building in such a way that,
-     * if the task fails, the sstables wouldn't be (re)indexed and, if the indexing fails, the task will be executed but
-     * the indexes will be marked as not built.
-     *
-     * @param sstables the SSTables to be (re)indexed
-     * @param preBuildTask a task to be executed before indexing the sstables
-     */
-    public void buildAllIndexesBlocking(Collection<SSTableReader> sstables, Runnable preBuildTask)
+    private void buildAllIndexesBlocking(Collection<SSTableReader> sstables)
     {
-        buildIndexesBlocking(sstables,
-                             indexes.values()
-                                    .stream()
-                                    .filter(Index::shouldBuildBlocking)
-                                    .collect(Collectors.toSet()),
-                             preBuildTask);
+        buildIndexesBlocking(sstables, indexes.values()
+                                              .stream()
+                                              .filter(Index::shouldBuildBlocking)
+                                              .collect(Collectors.toSet()));
     }
 
     // For convenience, may be called directly from Index impls
@@ -305,7 +302,8 @@ public class SecondaryIndexManager implements IndexRegistry
             try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
                  Refs<SSTableReader> sstables = viewFragment.refs)
             {
-                buildIndexesBlocking(sstables, Collections.singleton(index), null);
+                markIndexBuilding(index);
+                buildIndexesBlocking(sstables, Collections.singleton(index));
             }
         }
     }
@@ -381,21 +379,10 @@ public class SecondaryIndexManager implements IndexRegistry
         return StringUtils.substringAfter(cfName, Directories.SECONDARY_INDEX_NAME_SEPARATOR);
     }
 
-    private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes, Runnable preBuildTask)
+    private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes)
     {
         if (indexes.isEmpty())
-        {
-            // the pre build task should be run even if there is nothing to be indexed
-            if (preBuildTask != null)
-                preBuildTask.run();
             return;
-        }
-
-        // pessimistically mark all secondary indexes as needed of future rebuilding
-        indexes.stream().map(i -> i.getIndexMetadata().name).forEach(this::markIndexBuilding);
-
-        if (preBuildTask != null)
-            preBuildTask.run();
 
         logger.info("Submitting index build of {} for data in {}",
                     indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")),
@@ -418,9 +405,11 @@ public class SecondaryIndexManager implements IndexRegistry
                 public void onSuccess(Object result)
                 {
                     flushIndexesBlocking(groupedIndexes);
-                    List<String> names = groupedIndexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.toList());
-                    names.forEach(SecondaryIndexManager.this::markIndexBuilt);
-                    logger.info("Index build of {} complete", StringUtils.join(names, ','));
+                    groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
+                    logger.info("Index build of {} complete",
+                                StringUtils.join(groupedIndexes.stream()
+                                                               .map(i -> i.getIndexMetadata().name)
+                                                               .collect(Collectors.toList()), ','));
                 }
             });
             futures.add(future);
@@ -429,13 +418,14 @@ public class SecondaryIndexManager implements IndexRegistry
     }
 
     /**
-     * Marks the specified index as (re)building. {@link #markIndexBuilt(String)} should be called after the
+     * Marks the specified index as (re)building. {@link #markIndexBuilt(Index)} should be called after the
      * (re)building has finished. If this is not done, the index (re)building will be retried during the next start.
      *
-     * @param indexName the index name
+     * @param index the index to be marked as building
      */
-    private synchronized void markIndexBuilding(String indexName)
+    private synchronized void markIndexBuilding(Index index)
     {
+        String indexName = index.getIndexMetadata().name;
         AtomicInteger counter = pendingBuilds.computeIfAbsent(indexName, i -> new AtomicInteger(0));
         if (counter.getAndIncrement() == 0 && DatabaseDescriptor.isDaemonInitialized())
             SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
@@ -443,12 +433,13 @@ public class SecondaryIndexManager implements IndexRegistry
 
     /**
      * Marks the specified index as built if there are no additional ongoing index (re)buildings.
-     * {@link #markIndexBuilding(String)} should always be invoked before this method.
+     * {@link #markIndexBuilding(Index)} should always be invoked before this method.
      *
-     * @param indexName the index name
+     * @param index the index to be marked as built
      */
-    private synchronized void markIndexBuilt(String indexName)
+    private synchronized void markIndexBuilt(Index index)
     {
+        String indexName = index.getIndexMetadata().name;
         builtIndexes.add(indexName);
         AtomicInteger counter = pendingBuilds.get(indexName);
         if (counter != null)
@@ -1235,5 +1226,22 @@ public class SecondaryIndexManager implements IndexRegistry
                 waitFor.add(blockingExecutor.submit(task));
         });
         FBUtilities.waitOnFutures(waitFor);
+    }
+
+    public void handleNotification(INotification notification, Object sender)
+    {
+        if (notification instanceof SSTableLoadedNotification)
+        {
+            indexes.values()
+                   .stream()
+                   .filter(Index::shouldBuildBlocking)
+                   .forEach(this::markIndexBuilding);
+        }
+        else if (notification instanceof SSTableAddedNotification)
+        {
+            SSTableAddedNotification notice = (SSTableAddedNotification) notification;
+            if (notice.areLoaded)
+                buildAllIndexesBlocking(Lists.newArrayList(notice.added));
+        }
     }
 }

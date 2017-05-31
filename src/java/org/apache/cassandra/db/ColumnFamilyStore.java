@@ -410,7 +410,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         minCompactionThreshold = new DefaultValue<>(metadata.get().params.compaction.minCompactionThreshold());
         maxCompactionThreshold = new DefaultValue<>(metadata.get().params.compaction.maxCompactionThreshold());
         crcCheckChance = new DefaultValue<>(metadata.get().params.crcCheckChance);
-        indexManager = new SecondaryIndexManager(this);
         viewManager = keyspace.viewManager.forTable(metadata.id);
         metric = new TableMetrics(this);
         fileIndexGenerator.set(generation);
@@ -455,6 +454,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
 
         // create the private ColumnFamilyStores for the secondary column indexes
+        indexManager = new SecondaryIndexManager(this);
         for (IndexMetadata info : metadata.get().indexes)
             indexManager.addIndex(info);
 
@@ -799,7 +799,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         try (Refs<SSTableReader> refs = Refs.ref(newSSTables))
         {
-            indexManager.buildAllIndexesBlocking(newSSTables, () -> data.addSSTables(newSSTables));
+            data.addSSTables(newSSTables, true);
         }
 
         logger.info("Done loading load new SSTables for {}/{}", keyspace.getName(), name);
@@ -1450,12 +1450,18 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public void addSSTable(SSTableReader sstable)
     {
         assert sstable.getColumnFamilyName().equals(name);
-        addSSTables(Arrays.asList(sstable));
+        addSSTables(Arrays.asList(sstable), false);
     }
 
-    public void addSSTables(Collection<SSTableReader> sstables)
+    /**
+     * Adds the specified SSTables.
+     *
+     * @param sstables the SSTables to be added
+     * @param areLoaded if the tables have been loaded from a external source, such as streaming or sstableoader
+     */
+    public void addSSTables(Collection<SSTableReader> sstables, boolean areLoaded)
     {
-        data.addSSTables(sstables);
+        data.addSSTables(sstables, areLoaded);
         CompactionManager.instance.submitBackground(this);
     }
 

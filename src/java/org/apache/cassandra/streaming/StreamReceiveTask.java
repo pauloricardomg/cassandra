@@ -230,9 +230,8 @@ public class StreamReceiveTask extends StreamTask
                     {
                         task.finishTransaction();
 
-                        // add sstables and build secondary indexes
-                        ColumnFamilyStore cfsRef = cfs;
-                        cfs.indexManager.buildAllIndexesBlocking(readers, () -> cfsRef.addSSTables(readers));
+                        // add sstables (this will build secondary indexes too, see CASSANDRA-10130)
+                        cfs.addSSTables(readers, true);
 
                         //invalidate row and counter cache
                         if (cfs.isRowCacheEnabled() || cfs.metadata().isCounter())

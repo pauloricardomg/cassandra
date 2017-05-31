@@ -116,7 +116,7 @@ public class LongCompactionsTest
             }
             Collection<SSTableReader> readers = SSTableUtils.prepare().write(rows);
             sstables.addAll(readers);
-            store.addSSTables(readers);
+            store.addSSTables(readers, false);
         }
 
         // give garbage collection a bit of time to catch up

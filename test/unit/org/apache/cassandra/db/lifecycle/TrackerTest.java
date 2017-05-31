@@ -172,7 +172,7 @@ public class TrackerTest
         List<SSTableReader> readers = ImmutableList.of(MockSchema.sstable(0, 17, cfs),
                                                        MockSchema.sstable(1, 121, cfs),
                                                        MockSchema.sstable(2, 9, cfs));
-        tracker.addSSTables(copyOf(readers));
+        tracker.addSSTables(copyOf(readers), false);
 
         Assert.assertEquals(3, tracker.view.get().sstables.size());
 
@@ -339,7 +339,7 @@ public class TrackerTest
         Tracker tracker = new Tracker(null, false);
         MockListener listener = new MockListener(false);
         tracker.subscribe(listener);
-        tracker.notifyAdded(singleton(r1));
+        tracker.notifyAdded(singleton(r1), false);
         Assert.assertEquals(singleton(r1), ((SSTableAddedNotification) listener.received.get(0)).added);
         listener.received.clear();
         tracker.notifyDeleting(r1);
@@ -360,8 +360,15 @@ public class TrackerTest
         MockListener failListener = new MockListener(true);
         tracker.subscribe(failListener);
         tracker.subscribe(listener);
-        Assert.assertNotNull(tracker.notifyAdded(singleton(r1), null));
+        Assert.assertNotNull(tracker.notifyLoaded(singleton(r1), null));
+        Assert.assertEquals(singleton(r1), ((SSTableLoadedNotification) listener.received.get(0)).added);
+        listener.received.clear();
+        tracker.unsubscribe(listener);
+        tracker.subscribe(failListener);
+        tracker.subscribe(listener);
+        Assert.assertNotNull(tracker.notifyAdded(singleton(r1), true, null));
         Assert.assertEquals(singleton(r1), ((SSTableAddedNotification) listener.received.get(0)).added);
+        Assert.assertTrue(((SSTableAddedNotification) listener.received.get(0)).areLoaded);
         listener.received.clear();
         Assert.assertNotNull(tracker.notifySSTablesChanged(singleton(r1), singleton(r2), OperationType.COMPACTION, null));
         Assert.assertEquals(singleton(r1), ((SSTableListChangedNotification) listener.received.get(0)).removed);
