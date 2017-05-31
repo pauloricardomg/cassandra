@@ -1240,7 +1240,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         else if (notification instanceof SSTableAddedNotification)
         {
             SSTableAddedNotification notice = (SSTableAddedNotification) notification;
-            if (notice.areLoaded)
+            if (!notice.memtable().isPresent())
                 buildAllIndexesBlocking(Lists.newArrayList(notice.added));
         }
     }

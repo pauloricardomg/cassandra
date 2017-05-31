@@ -17,18 +17,33 @@
  */
 package org.apache.cassandra.notifications;
 
+import java.util.Optional;
+
+import javax.annotation.Nullable;
+
+import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 
 public class SSTableAddedNotification implements INotification
 {
     public final Iterable<SSTableReader> added;
 
-    /** If the added SSTables have been loaded from a source external to the node, such as streaming or sstableoader */
-    public final boolean areLoaded;
+    private final @Nullable Memtable memtable;
 
-    public SSTableAddedNotification(Iterable<SSTableReader> added, boolean areLoaded)
+    public SSTableAddedNotification(Iterable<SSTableReader> added, @Nullable Memtable memtable)
     {
         this.added = added;
-        this.areLoaded = areLoaded;
+        this.memtable = memtable;
+    }
+
+    public SSTableAddedNotification(Iterable<SSTableReader> added)
+    {
+        this.added = added;
+        this.memtable = null;
+    }
+
+    public Optional<Memtable> memtable()
+    {
+        return Optional.ofNullable(memtable);
     }
 }

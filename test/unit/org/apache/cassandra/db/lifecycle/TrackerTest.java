@@ -172,7 +172,7 @@ public class TrackerTest
         List<SSTableReader> readers = ImmutableList.of(MockSchema.sstable(0, 17, cfs),
                                                        MockSchema.sstable(1, 121, cfs),
                                                        MockSchema.sstable(2, 9, cfs));
-        tracker.addSSTables(copyOf(readers), false);
+        tracker.addSSTables(copyOf(readers));
 
         Assert.assertEquals(3, tracker.view.get().sstables.size());
 
@@ -180,9 +180,10 @@ public class TrackerTest
             Assert.assertTrue(reader.isKeyCacheSetup());
 
         Assert.assertEquals(17 + 121 + 9, cfs.metric.liveDiskSpaceUsed.getCount());
-        Assert.assertEquals(1, listener.senders.size());
+        Assert.assertEquals(2, listener.senders.size());
         Assert.assertEquals(tracker, listener.senders.get(0));
-        Assert.assertTrue(listener.received.get(0) instanceof SSTableAddedNotification);
+        Assert.assertTrue(listener.received.get(0) instanceof SSTableLoadedNotification);
+        Assert.assertTrue(listener.received.get(1) instanceof SSTableAddedNotification);
         DatabaseDescriptor.setIncrementalBackupsEnabled(backups);
     }
 
@@ -339,7 +340,7 @@ public class TrackerTest
         Tracker tracker = new Tracker(null, false);
         MockListener listener = new MockListener(false);
         tracker.subscribe(listener);
-        tracker.notifyAdded(singleton(r1), false);
+        tracker.notifyAdded(singleton(r1));
         Assert.assertEquals(singleton(r1), ((SSTableAddedNotification) listener.received.get(0)).added);
         listener.received.clear();
         tracker.notifyDeleting(r1);
@@ -366,9 +367,9 @@ public class TrackerTest
         tracker.unsubscribe(listener);
         tracker.subscribe(failListener);
         tracker.subscribe(listener);
-        Assert.assertNotNull(tracker.notifyAdded(singleton(r1), true, null));
+        Assert.assertNotNull(tracker.notifyAdded(singleton(r1), null, null));
         Assert.assertEquals(singleton(r1), ((SSTableAddedNotification) listener.received.get(0)).added);
-        Assert.assertTrue(((SSTableAddedNotification) listener.received.get(0)).areLoaded);
+        Assert.assertFalse(((SSTableAddedNotification) listener.received.get(0)).memtable().isPresent());
         listener.received.clear();
         Assert.assertNotNull(tracker.notifySSTablesChanged(singleton(r1), singleton(r2), OperationType.COMPACTION, null));
         Assert.assertEquals(singleton(r1), ((SSTableListChangedNotification) listener.received.get(0)).removed);

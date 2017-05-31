@@ -799,7 +799,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         try (Refs<SSTableReader> refs = Refs.ref(newSSTables))
         {
-            data.addSSTables(newSSTables, true);
+            data.addSSTables(newSSTables);
         }
 
         logger.info("Done loading load new SSTables for {}/{}", keyspace.getName(), name);
@@ -1447,22 +1447,26 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      *
      * param @ filename - filename just flushed to disk
      */
-    public void addSSTable(SSTableReader sstable)
+    public void addSSTable(SSTableReader sstable, Memtable memtable)
     {
         assert sstable.getColumnFamilyName().equals(name);
-        addSSTables(Arrays.asList(sstable), false);
+        addSSTables(Arrays.asList(sstable), memtable);
     }
 
-    /**
-     * Adds the specified SSTables.
-     *
-     * @param sstables the SSTables to be added
-     * @param areLoaded if the tables have been loaded from a external source, such as streaming or sstableoader
-     */
-    public void addSSTables(Collection<SSTableReader> sstables, boolean areLoaded)
+    public void addSSTable(SSTableReader sstable)
     {
-        data.addSSTables(sstables, areLoaded);
+        addSSTable(sstable, null);
+    }
+
+    public void addSSTables(Collection<SSTableReader> sstables, Memtable memtable)
+    {
+        data.addSSTables(sstables, memtable);
         CompactionManager.instance.submitBackground(this);
+    }
+
+    public void addSSTables(Collection<SSTableReader> sstables)
+    {
+        addSSTables(sstables, null);
     }
 
     /**

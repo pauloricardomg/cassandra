@@ -34,6 +34,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.statements.CreateTableStatement;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Directories;
+import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
@@ -144,7 +145,7 @@ public abstract class CompactionStress implements Runnable
             cfs.disableAutoCompaction();
 
             //Register with cfs
-            cfs.addSSTables(sstables, false);
+            cfs.addSSTables(sstables, new Memtable(cfs.metadata()));
         }
 
         return cfs;

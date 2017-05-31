@@ -192,19 +192,18 @@ public class Tracker
         // no notifications or backup necessary
     }
 
-    /**
-     * Adds the specified SSTables.
-     *
-     * @param sstables the SSTables to be added
-     * @param areLoaded if the tables have been loaded from a external source, such as streaming or sstableoader
-     */
-    public void addSSTables(Iterable<SSTableReader> sstables, boolean areLoaded)
+    public void addSSTables(Iterable<SSTableReader> sstables, Memtable memtable)
     {
-        if (areLoaded)
+        if (memtable == null)
             notifyLoaded(sstables);
         addInitialSSTables(sstables);
         maybeIncrementallyBackup(sstables);
-        notifyAdded(sstables, true);
+        notifyAdded(sstables, memtable);
+    }
+
+    public void addSSTables(Iterable<SSTableReader> sstables)
+    {
+        addSSTables(sstables, null);
     }
 
     /** (Re)initializes the tracker, purging all references. */
@@ -367,7 +366,7 @@ public class Tracker
         notifyDiscarded(memtable);
 
         // TODO: if we're invalidated, should we notifyadded AND removed, or just skip both?
-        fail = notifyAdded(sstables, false, fail);
+        fail = notifyAdded(sstables, memtable, fail);
 
         if (!isDummy() && !cfstore.isValid())
             dropSSTables();
@@ -447,9 +446,9 @@ public class Tracker
         maybeFail(notifyLoaded(added, null));
     }
 
-    Throwable notifyAdded(Iterable<SSTableReader> added, boolean areLoaded, Throwable accumulate)
+    Throwable notifyAdded(Iterable<SSTableReader> added, Memtable memtable, Throwable accumulate)
     {
-        INotification notification = new SSTableAddedNotification(added, areLoaded);
+        INotification notification = new SSTableAddedNotification(added, memtable);
         for (INotificationConsumer subscriber : subscribers)
         {
             try
@@ -464,9 +463,14 @@ public class Tracker
         return accumulate;
     }
 
-    public void notifyAdded(Iterable<SSTableReader> added, boolean requiresIndexing)
+    public void notifyAdded(Iterable<SSTableReader> added, Memtable memtable)
     {
-        maybeFail(notifyAdded(added, requiresIndexing, null));
+        maybeFail(notifyAdded(added, memtable, null));
+    }
+
+    public void notifyAdded(Iterable<SSTableReader> added)
+    {
+        maybeFail(notifyAdded(added, null, null));
     }
 
     public void notifySSTableRepairedStatusChanged(Collection<SSTableReader> repairStatusesChanged)
