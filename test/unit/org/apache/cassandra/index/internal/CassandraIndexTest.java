@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.index.internal;
 
+import java.util.Collections;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -51,6 +52,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -513,18 +515,50 @@ public class CassandraIndexTest extends CQLTester
         String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
         createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
         waitForIndex(KEYSPACE, tableName, indexName);
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        String builtIndexesQuery = String.format("SELECT * FROM %s.\"%s\"",
+                                                 SchemaConstants.SYSTEM_KEYSPACE_NAME,
+                                                 SystemKeyspace.BUILT_INDEXES);
+
         // check that there are no other rows in the built indexes table
-        assertRows(execute(String.format("SELECT * FROM %s.\"%s\"", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.BUILT_INDEXES)),
-                   row(KEYSPACE, indexName));
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
         // rebuild the index and verify the built status table
-        getCurrentColumnFamilyStore().rebuildSecondaryIndex(indexName);
+        cfs.rebuildSecondaryIndex(indexName);
         waitForIndex(KEYSPACE, tableName, indexName);
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
-        // check that there are no other rows in the built indexes table
-        assertRows(execute(String.format("SELECT * FROM %s.\"%s\"", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.BUILT_INDEXES)),
-                   row(KEYSPACE, indexName));
+        // drop the index and verify that it has been removed from the built indexes table
+        dropIndex("DROP INDEX %s." + indexName);
+        assertEmpty(execute(builtIndexesQuery));
+
+        // create the index again and verify that it's added to the built indexes table
+        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
+        waitForIndex(KEYSPACE, tableName, indexName);
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
+
+        // simulate a failing index rebuild and verify that the index isn't added to the built indexes table
+        try
+        {
+            cfs.indexManager.rebuildIndexesBlocking(null, Collections.singleton(indexName));
+        }
+        catch (NullPointerException e)
+        {
+            assertNull(e.getMessage());
+        }
+        assertEmpty(execute(builtIndexesQuery));
+
+        // after the failure further successful index rebuilds should let the index marked as not built
+        Refs<SSTableReader> refs = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL));
+        cfs.indexManager.rebuildIndexesBlocking(refs, Collections.singleton(indexName));
+        assertEmpty(execute(builtIndexesQuery));
+
+        // recreating the index should mark the index as built
+        dropIndex("DROP INDEX %s." + indexName);
+        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
     }
+
 
     // this is slightly annoying, but we cannot read rows from the methods in Util as
     // ReadCommand#executeInternal uses metadata retrieved via the tableId, which the index

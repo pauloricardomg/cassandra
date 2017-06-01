@@ -182,7 +182,7 @@ public class TrackerTest
         Assert.assertEquals(17 + 121 + 9, cfs.metric.liveDiskSpaceUsed.getCount());
         Assert.assertEquals(2, listener.senders.size());
         Assert.assertEquals(tracker, listener.senders.get(0));
-        Assert.assertTrue(listener.received.get(0) instanceof SSTableLoadedNotification);
+        Assert.assertTrue(listener.received.get(0) instanceof SSTableBeforeAddedNotification);
         Assert.assertTrue(listener.received.get(1) instanceof SSTableAddedNotification);
         DatabaseDescriptor.setIncrementalBackupsEnabled(backups);
     }
@@ -361,8 +361,9 @@ public class TrackerTest
         MockListener failListener = new MockListener(true);
         tracker.subscribe(failListener);
         tracker.subscribe(listener);
-        Assert.assertNotNull(tracker.notifyLoaded(singleton(r1), null));
-        Assert.assertEquals(singleton(r1), ((SSTableLoadedNotification) listener.received.get(0)).added);
+        Assert.assertNotNull(tracker.notifyBeforeAdding(singleton(r1), null, null));
+        Assert.assertEquals(singleton(r1), ((SSTableBeforeAddedNotification) listener.received.get(0)).adding);
+        Assert.assertFalse(((SSTableBeforeAddedNotification) listener.received.get(0)).memtable().isPresent());
         listener.received.clear();
         tracker.unsubscribe(listener);
         tracker.subscribe(failListener);

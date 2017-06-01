@@ -51,7 +51,6 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
-import org.apache.cassandra.db.lifecycle.Tracker;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
@@ -62,7 +61,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.INotification;
 import org.apache.cassandra.notifications.INotificationConsumer;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
-import org.apache.cassandra.notifications.SSTableLoadedNotification;
+import org.apache.cassandra.notifications.SSTableBeforeAddedNotification;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.Indexes;
@@ -1230,12 +1229,17 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     public void handleNotification(INotification notification, Object sender)
     {
-        if (notification instanceof SSTableLoadedNotification)
+        if (indexes.isEmpty())
+            return;
+
+        if (notification instanceof SSTableBeforeAddedNotification)
         {
-            indexes.values()
-                   .stream()
-                   .filter(Index::shouldBuildBlocking)
-                   .forEach(this::markIndexBuilding);
+            SSTableBeforeAddedNotification notice = (SSTableBeforeAddedNotification) notification;
+            if (!notice.memtable().isPresent())
+                indexes.values()
+                       .stream()
+                       .filter(Index::shouldBuildBlocking)
+                       .forEach(this::markIndexBuilding);
         }
         else if (notification instanceof SSTableAddedNotification)
         {

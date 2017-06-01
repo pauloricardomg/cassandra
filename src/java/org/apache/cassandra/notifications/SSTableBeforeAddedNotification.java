@@ -18,40 +18,41 @@
 package org.apache.cassandra.notifications;
 
 import java.util.Optional;
-
 import javax.annotation.Nullable;
 
 import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 
 /**
- * Notification sent after SSTables are added to their {@link org.apache.cassandra.db.ColumnFamilyStore}.
+ * Notification sent before SSTables are added to their {@link org.apache.cassandra.db.ColumnFamilyStore}.
+ * Note that this notification doesn't mean that the tables have been added, just that they are about to be added.
+ * The effective addition, if it's successful, will be notified by {@link SSTableAddedNotification}.
  */
-public class SSTableAddedNotification implements INotification
+public class SSTableBeforeAddedNotification implements INotification
 {
-    /** The added SSTables */
-    public final Iterable<SSTableReader> added;
+    /** The SSTables that are going to be added */
+    public final Iterable<SSTableReader> adding;
 
-    /** The memtable from which the tables come when they have been added due to a flush, {@code null} otherwise. */
+    /** The memtable from which the tables come when they are being added due to a flush, {@code null} otherwise. */
     @Nullable
     private final Memtable memtable;
 
     /**
-     * Creates a new {@code SSTableAddedNotification} for the specified SSTables and optional memtable.
+     * Creates a new {@code SSTableBeforeAddedNotification} for the specified SSTables and optional memtable.
      *
-     * @param added    the added SSTables
-     * @param memtable the memtable from which the tables come when they have been added due to a memtable flush,
+     * @param adding   the SSTables that are going to be added
+     * @param memtable the memtable from which the tables come when they are going to be added due to a memtable flush,
      *                 or {@code null} if they don't come from a flush
      */
-    public SSTableAddedNotification(Iterable<SSTableReader> added, @Nullable Memtable memtable)
+    public SSTableBeforeAddedNotification(Iterable<SSTableReader> adding, @Nullable Memtable memtable)
     {
-        this.added = added;
+        this.adding = adding;
         this.memtable = memtable;
     }
 
     /**
-     * Returns the memtable from which the tables come when they have been added due to a memtable flush. If not, an
-     * empty Optional should be returned.
+     * Returns the memtable from which the tables come when they are going to be added due to a memtable flush. If not,
+     * an empty Optional should be returned.
      *
      * @return the origin memtable in case of a flush, {@link Optional#empty()} otherwise
      */

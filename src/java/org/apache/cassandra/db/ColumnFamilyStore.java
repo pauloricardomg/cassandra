@@ -1447,26 +1447,15 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      *
      * param @ filename - filename just flushed to disk
      */
-    public void addSSTable(SSTableReader sstable, Memtable memtable)
-    {
-        assert sstable.getColumnFamilyName().equals(name);
-        addSSTables(Arrays.asList(sstable), memtable);
-    }
-
     public void addSSTable(SSTableReader sstable)
     {
-        addSSTable(sstable, null);
-    }
-
-    public void addSSTables(Collection<SSTableReader> sstables, Memtable memtable)
-    {
-        data.addSSTables(sstables, memtable);
-        CompactionManager.instance.submitBackground(this);
+        addSSTables(Collections.singletonList(sstable));
     }
 
     public void addSSTables(Collection<SSTableReader> sstables)
     {
-        addSSTables(sstables, null);
+        data.addSSTables(sstables);
+        CompactionManager.instance.submitBackground(this);
     }
 
     /**

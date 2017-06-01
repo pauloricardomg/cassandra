@@ -192,18 +192,12 @@ public class Tracker
         // no notifications or backup necessary
     }
 
-    public void addSSTables(Iterable<SSTableReader> sstables, Memtable memtable)
-    {
-        if (memtable == null)
-            notifyLoaded(sstables);
-        addInitialSSTables(sstables);
-        maybeIncrementallyBackup(sstables);
-        notifyAdded(sstables, memtable);
-    }
-
     public void addSSTables(Iterable<SSTableReader> sstables)
     {
-        addSSTables(sstables, null);
+        notifyBeforeAdding(sstables);
+        addInitialSSTables(sstables);
+        maybeIncrementallyBackup(sstables);
+        notifyAdded(sstables);
     }
 
     /** (Re)initializes the tracker, purging all references. */
@@ -354,14 +348,16 @@ public class Tracker
             return;
         }
 
+        Throwable fail;
+        fail = updateSizeTracking(emptySet(), sstables, null);
+
+        fail = notifyBeforeAdding(sstables, memtable, fail);
+
         sstables.forEach(SSTableReader::setupOnline);
         // back up before creating a new Snapshot (which makes the new one eligible for compaction)
         maybeIncrementallyBackup(sstables);
 
         apply(View.replaceFlushed(memtable, sstables));
-
-        Throwable fail;
-        fail = updateSizeTracking(emptySet(), sstables, null);
 
         notifyDiscarded(memtable);
 
@@ -424,9 +420,9 @@ public class Tracker
         return accumulate;
     }
 
-    Throwable notifyLoaded(Iterable<SSTableReader> added, Throwable accumulate)
+    Throwable notifyBeforeAdding(Iterable<SSTableReader> added, Memtable memtable, Throwable accumulate)
     {
-        INotification notification = new SSTableLoadedNotification(added);
+        INotification notification = new SSTableBeforeAddedNotification(added, memtable);
         for (INotificationConsumer subscriber : subscribers)
         {
             try
@@ -441,9 +437,9 @@ public class Tracker
         return accumulate;
     }
 
-    public void notifyLoaded(Iterable<SSTableReader> added)
+    public void notifyBeforeAdding(Iterable<SSTableReader> added)
     {
-        maybeFail(notifyLoaded(added, null));
+        maybeFail(notifyBeforeAdding(added, null, null));
     }
 
     Throwable notifyAdded(Iterable<SSTableReader> added, Memtable memtable, Throwable accumulate)
@@ -461,11 +457,6 @@ public class Tracker
             }
         }
         return accumulate;
-    }
-
-    public void notifyAdded(Iterable<SSTableReader> added, Memtable memtable)
-    {
-        maybeFail(notifyAdded(added, memtable, null));
     }
 
     public void notifyAdded(Iterable<SSTableReader> added)
