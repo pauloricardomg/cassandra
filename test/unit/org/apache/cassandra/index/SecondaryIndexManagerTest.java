@@ -26,7 +26,6 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
-import org.apache.cassandra.notifications.SSTableBeforeAddNotification;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.utils.concurrent.Refs;
 
@@ -47,32 +46,11 @@ public class SecondaryIndexManagerTest extends CQLTester
                                                  SchemaConstants.SYSTEM_KEYSPACE_NAME,
                                                  SystemKeyspace.BUILT_INDEXES);
         assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
+        cfs.indexManager.markAllIndexesRemoved();
+        assertEmpty(execute(builtIndexesQuery));
 
         try (Refs<SSTableReader> sstables = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL)))
         {
-            // Test regular notifcations flow
-            cfs.indexManager.handleNotification(new SSTableBeforeAddNotification(sstables, null), cfs.getTracker());
-            assertEmpty(execute(builtIndexesQuery));
-            cfs.indexManager.handleNotification(new SSTableAddedNotification(sstables, null), cfs.getTracker());
-            assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
-
-            // Test simultanous rebuildings
-            cfs.indexManager.handleNotification(new SSTableBeforeAddNotification(sstables, null), cfs.getTracker());
-            assertEmpty(execute(builtIndexesQuery));
-            cfs.indexManager.handleNotification(new SSTableBeforeAddNotification(sstables, null), cfs.getTracker());
-            assertEmpty(execute(builtIndexesQuery));
-            cfs.indexManager.handleNotification(new SSTableAddedNotification(sstables, null), cfs.getTracker());
-            assertEmpty(execute(builtIndexesQuery));
-            cfs.indexManager.handleNotification(new SSTableAddedNotification(sstables, null), cfs.getTracker());
-            assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
-
-            // Test added notification without a preceeding before-add notification
-            cfs.indexManager.handleNotification(new SSTableAddedNotification(sstables, null), cfs.getTracker());
-            assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
-
-            // Test regular flow again now that we have just received an out of order added notification
-            cfs.indexManager.handleNotification(new SSTableBeforeAddNotification(sstables, null), cfs.getTracker());
-            assertEmpty(execute(builtIndexesQuery));
             cfs.indexManager.handleNotification(new SSTableAddedNotification(sstables, null), cfs.getTracker());
             assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
         }

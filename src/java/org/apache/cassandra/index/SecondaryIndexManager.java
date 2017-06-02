@@ -62,7 +62,6 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.INotification;
 import org.apache.cassandra.notifications.INotificationConsumer;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
-import org.apache.cassandra.notifications.SSTableBeforeAddNotification;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.Indexes;
@@ -113,12 +112,12 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     // default page size (in rows) when rebuilding the index for a whole partition
     public static final int DEFAULT_PAGE_SIZE = 10000;
 
-    private Map<String, Index> indexes = Maps.newConcurrentMap();
+    private final Map<String, Index> indexes = Maps.newConcurrentMap();
 
     /**
      * The indexes that are ready to server requests.
      */
-    private Set<String> builtIndexes = Sets.newConcurrentHashSet();
+    private final Set<String> builtIndexes = Sets.newConcurrentHashSet();
 
     /** The count of pending index builds for each index. */
     private final Map<String, AtomicInteger> pendingBuilds = Maps.newConcurrentMap();
@@ -205,7 +204,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             }
 
             public void onFailure(Throwable t) {
-                callbackFuture.set(t);
+                callbackFuture.setException(t);
             }
         });
         return callbackFuture;
@@ -290,6 +289,14 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
         toRebuild.forEach(this::markIndexBuilding);
         buildIndexesBlocking(sstables, toRebuild);
+    }
+
+    private void buildAllIndexesBlocking(Collection<SSTableReader> sstables)
+    {
+        buildIndexesBlocking(sstables, indexes.values()
+                                              .stream()
+                                              .filter(Index::shouldBuildBlocking)
+                                              .collect(Collectors.toSet()));
     }
 
     // For convenience, may be called directly from Index impls
@@ -378,9 +385,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     }
 
     /**
-     * Performs a blocking (re)indexing of the specified SSTables for the specifed indexes. The specified indexes should
-     * have been marked as building with a call to {@link #markIndexBuilding(Index)}. At the exit of this method the
-     * indexes will be marked as built.
+     * Performs a blocking (re)indexing of the specified SSTables for the specifed indexes.
      *
      * @param sstables the SSTables to be (re)indexed
      * @param indexes the indexes to be (re)built for the specifed SSTables
@@ -389,6 +394,9 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     {
         if (indexes.isEmpty())
             return;
+
+        // Pessimistically mark all indexes as not built
+        indexes.forEach(this::markIndexBuilding);
 
         logger.info("Submitting index build of {} for data in {}",
                     indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")),
@@ -405,11 +413,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         List<Future<?>> futures = new ArrayList<>(byType.size());
         byType.forEach((buildingSupport, groupedIndexes) -> {
             SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
-            ListenableFuture<?> future = CompactionManager.instance.submitIndexBuild(builder);
+            ListenableFuture<?> builderFuture = CompactionManager.instance.submitIndexBuild(builder);
             SettableFuture<Object> callbackFuture = SettableFuture.create();
-            Futures.addCallback(future, new FutureCallback<Object>()
+            Futures.addCallback(builderFuture, new FutureCallback<Object>()
             {
-                public void onSuccess(Object result)
+                public void onSuccess(Object o)
                 {
                     flushIndexesBlocking(groupedIndexes);
                     groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
@@ -417,11 +425,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                 StringUtils.join(groupedIndexes.stream()
                                                                .map(i -> i.getIndexMetadata().name)
                                                                .collect(Collectors.toList()), ','));
-                    callbackFuture.set(result);
+                    callbackFuture.set(o);
                 }
 
                 public void onFailure(Throwable t) {
-                    callbackFuture.set(t);
+                    callbackFuture.setException(t);
                 }
             });
             futures.add(callbackFuture);
@@ -1242,24 +1250,13 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     public void handleNotification(INotification notification, Object sender)
     {
-        if (indexes.isEmpty())
-            return;
-
-        if (notification instanceof SSTableBeforeAddNotification)
-        {
-            SSTableBeforeAddNotification notice = (SSTableBeforeAddNotification) notification;
-            if (!notice.memtable().isPresent())
-                indexes.values().stream().filter(Index::shouldBuildBlocking).forEach(this::markIndexBuilding);
-        }
-        else if (notification instanceof SSTableAddedNotification)
+        if (!indexes.isEmpty() && notification instanceof SSTableAddedNotification)
         {
             SSTableAddedNotification notice = (SSTableAddedNotification) notification;
+
+            // SSTables asociated to a memtable come from a flush, so their contents have already been indexed
             if (!notice.memtable().isPresent())
-                buildIndexesBlocking(Lists.newArrayList(notice.added),
-                                     indexes.values()
-                                            .stream()
-                                            .filter(Index::shouldBuildBlocking)
-                                            .collect(Collectors.toSet()));
+                buildAllIndexesBlocking(Lists.newArrayList(notice.added));
         }
     }
 }

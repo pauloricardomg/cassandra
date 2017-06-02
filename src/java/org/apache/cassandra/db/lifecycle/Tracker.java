@@ -194,7 +194,6 @@ public class Tracker
 
     public void addSSTables(Iterable<SSTableReader> sstables)
     {
-        notifyBeforeAdd(sstables);
         addInitialSSTables(sstables);
         maybeIncrementallyBackup(sstables);
         notifyAdded(sstables);
@@ -348,15 +347,14 @@ public class Tracker
             return;
         }
 
-        Throwable fail = notifyBeforeAdd(sstables, memtable, null);
-
         sstables.forEach(SSTableReader::setupOnline);
         // back up before creating a new Snapshot (which makes the new one eligible for compaction)
         maybeIncrementallyBackup(sstables);
 
         apply(View.replaceFlushed(memtable, sstables));
 
-        fail = updateSizeTracking(emptySet(), sstables, fail);
+        Throwable fail;
+        fail = updateSizeTracking(emptySet(), sstables, null);
 
         notifyDiscarded(memtable);
 
@@ -417,28 +415,6 @@ public class Tracker
             }
         }
         return accumulate;
-    }
-
-    Throwable notifyBeforeAdd(Iterable<SSTableReader> added, Memtable memtable, Throwable accumulate)
-    {
-        INotification notification = new SSTableBeforeAddNotification(added, memtable);
-        for (INotificationConsumer subscriber : subscribers)
-        {
-            try
-            {
-                subscriber.handleNotification(notification, this);
-            }
-            catch (Throwable t)
-            {
-                accumulate = merge(accumulate, t);
-            }
-        }
-        return accumulate;
-    }
-
-    public void notifyBeforeAdd(Iterable<SSTableReader> added)
-    {
-        maybeFail(notifyBeforeAdd(added, null, null));
     }
 
     Throwable notifyAdded(Iterable<SSTableReader> added, Memtable memtable, Throwable accumulate)
