@@ -33,12 +33,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Longs;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -192,22 +189,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             return Futures.immediateFuture(null);
         }
 
-        // Run intialization task asynchnously with a callback to mark it as built
-        ListenableFuture<?> intitalizationFuture = asyncExecutor.submit(index.getInitializationTask());
-        SettableFuture<Object> callbackFuture = SettableFuture.create();
-        Futures.addCallback(intitalizationFuture, new FutureCallback<Object>()
-        {
-            public void onSuccess(Object result)
-            {
-                markIndexBuilt(index);
-                callbackFuture.set(result);
-            }
-
-            public void onFailure(Throwable t) {
-                callbackFuture.setException(t);
-            }
+        // Run intialization task asynchnously with a future transformation to mark it as built
+        return Futures.transform(asyncExecutor.submit(index.getInitializationTask()), (Object o) -> {
+            markIndexBuilt(index);
+            return o;
         });
-        return callbackFuture;
     }
 
     /**
@@ -407,30 +393,19 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             stored.add(index);
         }
 
-        // Send all the building tasks with a callback to mark the indexes as built
+        // Send all the building tasks with a future transformation to flush the indexes as mark them as built
         List<Future<?>> futures = new ArrayList<>(byType.size());
         byType.forEach((buildingSupport, groupedIndexes) -> {
             SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
-            ListenableFuture<?> builderFuture = CompactionManager.instance.submitIndexBuild(builder);
-            SettableFuture<Object> callbackFuture = SettableFuture.create();
-            Futures.addCallback(builderFuture, new FutureCallback<Object>()
-            {
-                public void onSuccess(Object o)
-                {
-                    flushIndexesBlocking(groupedIndexes);
-                    groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
-                    logger.info("Index build of {} complete",
-                                StringUtils.join(groupedIndexes.stream()
-                                                               .map(i -> i.getIndexMetadata().name)
-                                                               .collect(Collectors.toList()), ','));
-                    callbackFuture.set(o);
-                }
-
-                public void onFailure(Throwable t) {
-                    callbackFuture.setException(t);
-                }
-            });
-            futures.add(callbackFuture);
+            futures.add(Futures.transform(CompactionManager.instance.submitIndexBuild(builder), (Object o) -> {
+                flushIndexesBlocking(groupedIndexes);
+                groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
+                logger.info("Index build of {} complete",
+                            StringUtils.join(groupedIndexes.stream()
+                                                           .map(i -> i.getIndexMetadata().name)
+                                                           .collect(Collectors.toList()), ','));
+                return o;
+            }));
         });
         FBUtilities.waitOnFutures(futures);
     }
