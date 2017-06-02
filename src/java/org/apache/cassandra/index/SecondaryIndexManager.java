@@ -33,15 +33,16 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Longs;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.SettableFuture;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.driver.core.utils.MoreFutures;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.StageManager;
@@ -61,7 +62,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.INotification;
 import org.apache.cassandra.notifications.INotificationConsumer;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
-import org.apache.cassandra.notifications.SSTableBeforeAddedNotification;
+import org.apache.cassandra.notifications.SSTableBeforeAddNotification;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.Indexes;
@@ -193,15 +194,21 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         }
 
         // Run intialization task asynchnously with a callback to mark it as built
-        ListenableFuture<?> future = asyncExecutor.submit(index.getInitializationTask());
-        Futures.addCallback(future, new MoreFutures.SuccessCallback<Object>()
+        ListenableFuture<?> intitalizationFuture = asyncExecutor.submit(index.getInitializationTask());
+        SettableFuture<Object> callbackFuture = SettableFuture.create();
+        Futures.addCallback(intitalizationFuture, new FutureCallback<Object>()
         {
             public void onSuccess(Object result)
             {
                 markIndexBuilt(index);
+                callbackFuture.set(result);
+            }
+
+            public void onFailure(Throwable t) {
+                callbackFuture.set(t);
             }
         });
-        return future;
+        return callbackFuture;
     }
 
     /**
@@ -283,14 +290,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
         toRebuild.forEach(this::markIndexBuilding);
         buildIndexesBlocking(sstables, toRebuild);
-    }
-
-    private void buildAllIndexesBlocking(Collection<SSTableReader> sstables)
-    {
-        buildIndexesBlocking(sstables, indexes.values()
-                                              .stream()
-                                              .filter(Index::shouldBuildBlocking)
-                                              .collect(Collectors.toSet()));
     }
 
     // For convenience, may be called directly from Index impls
@@ -378,6 +377,14 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         return StringUtils.substringAfter(cfName, Directories.SECONDARY_INDEX_NAME_SEPARATOR);
     }
 
+    /**
+     * Performs a blocking (re)indexing of the specified SSTables for the specifed indexes. The specified indexes should
+     * have been marked as building with a call to {@link #markIndexBuilding(Index)}. At the exit of this method the
+     * indexes will be marked as built.
+     *
+     * @param sstables the SSTables to be (re)indexed
+     * @param indexes the indexes to be (re)built for the specifed SSTables
+     */
     private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes)
     {
         if (indexes.isEmpty())
@@ -399,7 +406,8 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         byType.forEach((buildingSupport, groupedIndexes) -> {
             SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
             ListenableFuture<?> future = CompactionManager.instance.submitIndexBuild(builder);
-            Futures.addCallback(future, new MoreFutures.SuccessCallback<Object>()
+            SettableFuture<Object> callbackFuture = SettableFuture.create();
+            Futures.addCallback(future, new FutureCallback<Object>()
             {
                 public void onSuccess(Object result)
                 {
@@ -409,9 +417,14 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                 StringUtils.join(groupedIndexes.stream()
                                                                .map(i -> i.getIndexMetadata().name)
                                                                .collect(Collectors.toList()), ','));
+                    callbackFuture.set(result);
+                }
+
+                public void onFailure(Throwable t) {
+                    callbackFuture.set(t);
                 }
             });
-            futures.add(future);
+            futures.add(callbackFuture);
         });
         FBUtilities.waitOnFutures(futures);
     }
@@ -1232,20 +1245,21 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         if (indexes.isEmpty())
             return;
 
-        if (notification instanceof SSTableBeforeAddedNotification)
+        if (notification instanceof SSTableBeforeAddNotification)
         {
-            SSTableBeforeAddedNotification notice = (SSTableBeforeAddedNotification) notification;
+            SSTableBeforeAddNotification notice = (SSTableBeforeAddNotification) notification;
             if (!notice.memtable().isPresent())
-                indexes.values()
-                       .stream()
-                       .filter(Index::shouldBuildBlocking)
-                       .forEach(this::markIndexBuilding);
+                indexes.values().stream().filter(Index::shouldBuildBlocking).forEach(this::markIndexBuilding);
         }
         else if (notification instanceof SSTableAddedNotification)
         {
             SSTableAddedNotification notice = (SSTableAddedNotification) notification;
             if (!notice.memtable().isPresent())
-                buildAllIndexesBlocking(Lists.newArrayList(notice.added));
+                buildIndexesBlocking(Lists.newArrayList(notice.added),
+                                     indexes.values()
+                                            .stream()
+                                            .filter(Index::shouldBuildBlocking)
+                                            .collect(Collectors.toSet()));
         }
     }
 }

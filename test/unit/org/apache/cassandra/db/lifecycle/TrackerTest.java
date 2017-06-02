@@ -183,7 +183,7 @@ public class TrackerTest
         Assert.assertEquals(17 + 121 + 9, cfs.metric.liveDiskSpaceUsed.getCount());
         Assert.assertEquals(2, listener.senders.size());
         Assert.assertEquals(tracker, listener.senders.get(0));
-        Assert.assertTrue(listener.received.get(0) instanceof SSTableBeforeAddedNotification);
+        Assert.assertTrue(listener.received.get(0) instanceof SSTableBeforeAddNotification);
         Assert.assertTrue(listener.received.get(1) instanceof SSTableAddedNotification);
         DatabaseDescriptor.setIncrementalBackupsEnabled(backups);
     }
@@ -305,8 +305,8 @@ public class TrackerTest
         tracker.replaceFlushed(prev2, singleton(reader));
         Assert.assertEquals(1, tracker.getView().sstables.size());
         Assert.assertEquals(3, listener.received.size());
-        Assert.assertEquals(singleton(reader), ((SSTableBeforeAddedNotification) listener.received.get(0)).adding);
-        Assert.assertEquals(Optional.of(prev2), ((SSTableBeforeAddedNotification) listener.received.get(0)).memtable());
+        Assert.assertEquals(singleton(reader), ((SSTableBeforeAddNotification) listener.received.get(0)).adding);
+        Assert.assertEquals(Optional.of(prev2), ((SSTableBeforeAddNotification) listener.received.get(0)).memtable());
         Assert.assertEquals(prev2, ((MemtableDiscardedNotification) listener.received.get(1)).memtable);
         Assert.assertEquals(singleton(reader), ((SSTableAddedNotification) listener.received.get(2)).added);
         Assert.assertEquals(Optional.of(prev2), ((SSTableAddedNotification) listener.received.get(2)).memtable());
@@ -329,8 +329,8 @@ public class TrackerTest
         Assert.assertEquals(0, cfs.metric.liveDiskSpaceUsed.getCount());
         Assert.assertEquals(6, listener.received.size());
         Assert.assertEquals(prev1, ((MemtableSwitchedNotification) listener.received.get(0)).memtable);
-        Assert.assertEquals(singleton(reader), ((SSTableBeforeAddedNotification) listener.received.get(1)).adding);
-        Assert.assertEquals(Optional.of(prev1), ((SSTableBeforeAddedNotification) listener.received.get(1)).memtable());
+        Assert.assertEquals(singleton(reader), ((SSTableBeforeAddNotification) listener.received.get(1)).adding);
+        Assert.assertEquals(Optional.of(prev1), ((SSTableBeforeAddNotification) listener.received.get(1)).memtable());
         Assert.assertEquals(prev1, ((MemtableDiscardedNotification) listener.received.get(2)).memtable);
         Assert.assertEquals(singleton(reader), ((SSTableAddedNotification) listener.received.get(3)).added);
         Assert.assertEquals(Optional.of(prev1), ((SSTableAddedNotification) listener.received.get(3)).memtable());
@@ -368,9 +368,9 @@ public class TrackerTest
         MockListener failListener = new MockListener(true);
         tracker.subscribe(failListener);
         tracker.subscribe(listener);
-        Assert.assertNotNull(tracker.notifyBeforeAdding(singleton(r1), null, null));
-        Assert.assertEquals(singleton(r1), ((SSTableBeforeAddedNotification) listener.received.get(0)).adding);
-        Assert.assertFalse(((SSTableBeforeAddedNotification) listener.received.get(0)).memtable().isPresent());
+        Assert.assertNotNull(tracker.notifyBeforeAdd(singleton(r1), null, null));
+        Assert.assertEquals(singleton(r1), ((SSTableBeforeAddNotification) listener.received.get(0)).adding);
+        Assert.assertFalse(((SSTableBeforeAddNotification) listener.received.get(0)).memtable().isPresent());
         listener.received.clear();
         tracker.unsubscribe(listener);
         tracker.subscribe(failListener);

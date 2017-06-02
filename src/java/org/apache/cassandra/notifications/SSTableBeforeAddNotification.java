@@ -28,7 +28,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
  * Note that this notification doesn't mean that the tables have been added, just that they are about to be added.
  * The effective addition, if it's successful, will be notified by {@link SSTableAddedNotification}.
  */
-public class SSTableBeforeAddedNotification implements INotification
+public class SSTableBeforeAddNotification implements INotification
 {
     /** The SSTables that are going to be added */
     public final Iterable<SSTableReader> adding;
@@ -38,13 +38,13 @@ public class SSTableBeforeAddedNotification implements INotification
     private final Memtable memtable;
 
     /**
-     * Creates a new {@code SSTableBeforeAddedNotification} for the specified SSTables and optional memtable.
+     * Creates a new {@code SSTableBeforeAddNotification} for the specified SSTables and optional memtable.
      *
      * @param adding   the SSTables that are going to be added
      * @param memtable the memtable from which the tables come when they are going to be added due to a memtable flush,
      *                 or {@code null} if they don't come from a flush
      */
-    public SSTableBeforeAddedNotification(Iterable<SSTableReader> adding, @Nullable Memtable memtable)
+    public SSTableBeforeAddNotification(Iterable<SSTableReader> adding, @Nullable Memtable memtable)
     {
         this.adding = adding;
         this.memtable = memtable;

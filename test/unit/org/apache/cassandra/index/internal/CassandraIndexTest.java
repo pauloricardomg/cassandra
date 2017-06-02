@@ -511,9 +511,8 @@ public class CassandraIndexTest extends CQLTester
     @Test
     public void indexCorrectlyMarkedAsBuildAndRemoved() throws Throwable
     {
-        String indexName = "build_remove_test_idx";
         String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
-        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
+        String indexName = createIndex("CREATE INDEX ON %s(c)");
         waitForIndex(KEYSPACE, tableName, indexName);
         ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
         String builtIndexesQuery = String.format("SELECT * FROM %s.\"%s\"",
@@ -525,7 +524,6 @@ public class CassandraIndexTest extends CQLTester
 
         // rebuild the index and verify the built status table
         cfs.rebuildSecondaryIndex(indexName);
-        waitForIndex(KEYSPACE, tableName, indexName);
         assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
         // drop the index and verify that it has been removed from the built indexes table
@@ -541,6 +539,7 @@ public class CassandraIndexTest extends CQLTester
         try
         {
             cfs.indexManager.rebuildIndexesBlocking(null, Collections.singleton(indexName));
+            fail("Index rebuilding should fail");
         }
         catch (NullPointerException e)
         {
