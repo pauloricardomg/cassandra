@@ -287,7 +287,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             return;
         }
 
-        toRebuild.forEach(this::markIndexBuilding);
         buildIndexesBlocking(sstables, toRebuild);
     }
 
@@ -307,7 +306,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
                  Refs<SSTableReader> sstables = viewFragment.refs)
             {
-                markIndexBuilding(index);
                 buildIndexesBlocking(sstables, Collections.singleton(index));
             }
         }
