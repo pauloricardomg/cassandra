@@ -348,16 +348,15 @@ public class Tracker
             return;
         }
 
-        Throwable fail;
-        fail = updateSizeTracking(emptySet(), sstables, null);
-
-        fail = notifyBeforeAdding(sstables, memtable, fail);
+        Throwable fail = notifyBeforeAdding(sstables, memtable, null);
 
         sstables.forEach(SSTableReader::setupOnline);
         // back up before creating a new Snapshot (which makes the new one eligible for compaction)
         maybeIncrementallyBackup(sstables);
 
         apply(View.replaceFlushed(memtable, sstables));
+
+        fail = updateSizeTracking(emptySet(), sstables, fail);
 
         notifyDiscarded(memtable);
 
