@@ -1449,6 +1449,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     public void addSSTable(SSTableReader sstable)
     {
+        assert sstable.getColumnFamilyName().equals(name);
         addSSTables(Collections.singletonList(sstable));
     }
 
