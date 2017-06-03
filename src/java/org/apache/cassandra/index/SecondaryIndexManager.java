@@ -111,9 +111,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     private final Map<String, Index> indexes = Maps.newConcurrentMap();
 
-    /**
-     * The indexes that are ready to server requests.
-     */
+    /** The indexes that are ready to server requests. */
     private final Set<String> builtIndexes = Sets.newConcurrentHashSet();
 
     /** The count of pending index builds for each index. */
