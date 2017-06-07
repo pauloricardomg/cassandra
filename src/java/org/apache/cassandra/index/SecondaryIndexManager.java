@@ -392,6 +392,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         }
 
         // Send all the building tasks with a future transformation to flush the indexes as mark them as built
+        // The flush-and-mark transformation is run in the async executor to don't take time in the compaction thread
         List<Future<?>> futures = new ArrayList<>(byType.size());
         byType.forEach((buildingSupport, groupedIndexes) -> {
             SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
@@ -403,7 +404,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                                            .map(i -> i.getIndexMetadata().name)
                                                            .collect(Collectors.toList()), ','));
                 return o;
-            }));
+            }, asyncExecutor));
         });
         FBUtilities.waitOnFutures(futures);
     }
