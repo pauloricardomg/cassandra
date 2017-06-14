@@ -221,15 +221,15 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             @Override
             public void onFailure(Throwable t)
             {
-                initialization.setException(t);
                 markIndexFailed(index);
+                initialization.setException(t);
             }
 
             @Override
             public void onSuccess(Object o)
             {
-                initialization.set(o);
                 markIndexBuilt(index);
+                initialization.set(o);
             }
         }, MoreExecutors.directExecutor());
 
