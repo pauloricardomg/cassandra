@@ -373,7 +373,7 @@ public class SecondaryIndexManagerTest extends CQLTester
         try
         {
             ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
-            cfs.indexManager.rebuildIndexesBlocking(cfs.getLiveSSTables(), Collections.singleton(indexName));
+            cfs.indexManager.rebuildFromSSTablesBlocking(Collections.singleton(indexName), cfs.getLiveSSTables(), true);
             fail("Should have failed!");
         }
         catch (Throwable ex)
@@ -401,7 +401,7 @@ public class SecondaryIndexManagerTest extends CQLTester
         {
             try
             {
-                cfs.indexManager.rebuildIndexesBlocking(cfs.getLiveSSTables(), Collections.singleton(indexName));
+                cfs.indexManager.rebuildIndexesBlocking(Collections.singleton(indexName));
                 done = true;
             }
             catch (IllegalStateException e)

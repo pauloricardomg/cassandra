@@ -110,12 +110,12 @@ import org.apache.cassandra.utils.concurrent.Refs;
  * a target replica.
  * <br><br>
  * Finally, this class provides a clear and safe lifecycle to manage index builds, either full rebuilds via
- * {@link this#rebuildIndexesBlocking(Collection, Set)} or builds of new sstables
+ * {@link this#rebuildIndexesBlocking(Set)} or builds of new sstables
  * added via {@link org.apache.cassandra.notifications.SSTableAddedNotification}s, guaranteeing
  * the following:
  * <ul>
  * <li>The initialization task and any subsequent successful (re)build mark the index as built.</li>
- * <li>If any (re)build operation fails, the index is not marked as built, and only another full rebuild can mark the 
+ * <li>If any (re)build operation fails, the index is not marked as built, and only another full rebuild can mark the
  * index as built.</li>
  * <li>Full rebuilds cannot be run concurrently with other full or sstable (re)builds.</li>
  * <li>SSTable builds can always be run concurrently with any other builds.</li>
@@ -292,7 +292,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     }
 
     /**
-    * Does a full, blocking rebuild of the indexes specified by columns from the sstables.
+    * Does a blocking rebuild of the indexes specified by columns from the sstables.
     * Caller must acquire and release references to the sstables used here.
     * Note also that this method of (re)building indexes:
     *   a) takes a set of index *names* rather than Indexers
@@ -303,7 +303,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     * @param sstables the data to build from
     * @param indexNames the list of indexes to be rebuilt
     */
-    public void rebuildIndexesBlocking(Collection<SSTableReader> sstables, Set<String> indexNames)
+    protected void rebuildFromSSTablesBlocking(Set<String> indexNames, Collection<SSTableReader> sstables, boolean isFullRebuild)
     {
         Set<Index> toRebuild = indexes.values().stream()
                                                .filter(index -> indexNames.contains(index.getIndexMetadata().name))
@@ -315,19 +315,15 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             return;
         }
 
-        buildIndexesBlocking(sstables, toRebuild, true);
+        buildIndexesBlocking(sstables, toRebuild, isFullRebuild);
     }
 
-    @VisibleForTesting
-    public void buildIndexBlocking(Index index)
+    public void rebuildIndexesBlocking(Set<String> indexNames)
     {
-        if (index.shouldBuildBlocking())
+        try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
+             Refs<SSTableReader> allSSTables = viewFragment.refs)
         {
-            try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
-                 Refs<SSTableReader> sstables = viewFragment.refs)
-            {
-                buildIndexesBlocking(sstables, Collections.singleton(index), true);
-            }
+            rebuildFromSSTablesBlocking(indexNames, allSSTables, true);
         }
     }
 
@@ -407,7 +403,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      *
      * @param sstables the SSTables to be (re)indexed
      * @param indexes the indexes to be (re)built for the specifed SSTables
-     * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise 
+     * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise
      */
     @SuppressWarnings({"unchecked"})
     private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes, boolean isFullRebuild)
@@ -500,7 +496,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     }
 
     /**
-     * Marks the specified indexes as (re)building if: 
+     * Marks the specified indexes as (re)building if:
      * 1) There's no in progress rebuild of any of the given indexes.
      * 2) There's an in progress rebuild but the caller is not a full rebuild.
      *
@@ -520,7 +516,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * rebuilding has finished, so that the index build state can be correctly managed and the index rebuilt.
      *
      * @param indexes the index to be marked as building
-     * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise 
+     * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise
      */
     private synchronized void markIndexesBuilding(Set<Index> indexes, boolean isFullRebuild)
     {
