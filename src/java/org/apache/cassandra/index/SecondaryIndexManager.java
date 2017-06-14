@@ -134,6 +134,9 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     /** The indexes that had a build failure. */
     private final Set<String> failedIndexes = Sets.newConcurrentHashSet();
 
+    /** The indexes that are available for querying. */
+    private final Set<String> queryableIndexes = Sets.newConcurrentHashSet();
+
     /** The count of pending index builds for each index. */
     private final Map<String, AtomicInteger> inProgressBuilds = Maps.newConcurrentMap();
 
@@ -210,6 +213,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         // if there's no initialization, just mark as built and return:
         if (initialBuildTask == null)
         {
+            queryableIndexes.add(indexName);
             markIndexBuilt(index);
             return Futures.immediateFuture(null);
         }
@@ -228,6 +232,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             @Override
             public void onSuccess(Object o)
             {
+                queryableIndexes.add(indexName);
                 markIndexBuilt(index);
                 initialization.set(o);
             }
@@ -256,7 +261,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      */
     public boolean isIndexQueryable(Index index)
     {
-        return indexes.containsKey(index.getIndexMetadata().name);
+        return queryableIndexes.contains(index.getIndexMetadata().name);
     }
 
     public synchronized void removeIndex(String indexName)
@@ -1024,6 +1029,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     private Index unregisterIndex(String name)
     {
+        queryableIndexes.remove(name);
         Index removed = indexes.remove(name);
         logger.trace(removed == null ? "Index {} was not registered" : "Removed index {} from registry", name);
         return removed;
