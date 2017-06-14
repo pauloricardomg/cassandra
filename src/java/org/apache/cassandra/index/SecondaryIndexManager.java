@@ -418,10 +418,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         // Mark all indexes as building: this step must happen first, because if any index can't be marked, the whole
         // process needs to abort
         markIndexesBuilding(indexes, isFullRebuild);
-        
+
         // Build indexes in a try/catch, so that any index not marked as either built or failed will be marked as failed:
         final Set<Index> builtIndexes = new HashSet<>();
         final Set<Index> unbuiltIndexes = new HashSet<>();
+
         try
         {
             logger.info("Submitting index build of {} for data in {}",
@@ -439,69 +440,62 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             // Schedule all index building tasks with a callback to mark them as built or failed
             List<Future<?>> futures = new ArrayList<>(byType.size());
             byType.forEach((buildingSupport, groupedIndexes) ->
-            {
-                SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
-                final SettableFuture build = SettableFuture.create();
-                Futures.addCallback(CompactionManager.instance.submitIndexBuild(builder), new FutureCallback()
-                {
-                    String indexNames = StringUtils.join(groupedIndexes.stream()
-                            .map(i -> i.getIndexMetadata().name)
-                            .collect(Collectors.toList()), ',');
+                           {
+                               SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
+                               final SettableFuture build = SettableFuture.create();
+                               Futures.addCallback(CompactionManager.instance.submitIndexBuild(builder), new FutureCallback()
+                               {
+                                   String indexNames = StringUtils.join(groupedIndexes.stream()
+                                                                                      .map(i -> i.getIndexMetadata().name)
+                                                                                      .collect(Collectors.toList()), ',');
 
-                    @Override
-                    public void onFailure(Throwable t)
-                    {
-                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexFailed);
-                        logger.info("Index build of {} failed", indexNames);
-                        unbuiltIndexes.addAll(groupedIndexes);
-                        build.setException(t);
-                    }
+                                   @Override
+                                   public void onFailure(Throwable t)
+                                   {
+                                       groupedIndexes.forEach(SecondaryIndexManager.this::markIndexFailed);
+                                       logger.info("Index build of {} failed", indexNames);
+                                       unbuiltIndexes.addAll(groupedIndexes);
+                                       build.setException(t);
+                                   }
 
-                    @Override
-                    public void onSuccess(Object o)
-                    {
-                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
-                        logger.info("Index build of {} completed", indexNames);
-                        builtIndexes.addAll(groupedIndexes);
-                        build.set(o);
-                    }
-                });
-                futures.add(build);
-            });
+                                   @Override
+                                   public void onSuccess(Object o)
+                                   {
+                                       groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
+                                       logger.info("Index build of {} completed", indexNames);
+                                       builtIndexes.addAll(groupedIndexes);
+                                       build.set(o);
+                                   }
+                               });
+                               futures.add(build);
+                           });
 
             // Finally wait for the index builds to finish and flush the indexes that built successfully
-            try
-            {
-                FBUtilities.waitOnFutures(futures);
-            }
-            finally
-            {
-                flushIndexesBlocking(builtIndexes, new FutureCallback()
-                {
-                    String indexNames = StringUtils.join(builtIndexes.stream()
-                            .map(i -> i.getIndexMetadata().name)
-                            .collect(Collectors.toList()), ',');
-
-                    @Override
-                    public void onFailure(Throwable ignored)
-                    {
-                        logger.info("Index flush of {} failed", indexNames);
-                    }
-
-                    @Override
-                    public void onSuccess(Object ignored)
-                    {
-                        logger.info("Index flush of {} completed", indexNames);
-                    }
-                });
-            }
+            FBUtilities.waitOnFutures(futures);
         }
-        catch (Throwable ex)
+        finally
         {
-            // Fail any indexes that couldn't be marked:
-            Set<Index> missedIndexes = Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes));
-            missedIndexes.forEach(SecondaryIndexManager.this::markIndexFailed);
-            Throwables.failIfCanCast(ex, null);
+            // Fail any indexes that couldn't be marked
+            Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes)).forEach(SecondaryIndexManager.this::markIndexFailed);
+
+            flushIndexesBlocking(builtIndexes, new FutureCallback()
+            {
+                String indexNames = StringUtils.join(builtIndexes.stream()
+                                                                 .map(i -> i.getIndexMetadata().name)
+                                                                 .collect(Collectors.toList()), ',');
+
+                @Override
+                public void onFailure(Throwable ignored)
+                {
+                    logger.info("Index flush of {} failed", indexNames);
+                }
+
+                @Override
+                public void onSuccess(Object ignored)
+                {
+                    logger.info("Index flush of {} completed", indexNames);
+                }
+            });
         }
     }
 
@@ -525,7 +519,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * {@link #markIndexBuilt(Index)} or {@link #markIndexFailed(Index)} should be always called after the
      * rebuilding has finished, so that the index build state can be correctly managed and the index rebuilt.
      *
-     * @param index the index to be marked as building
+     * @param indexes the index to be marked as building
      * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise 
      */
     private synchronized void markIndexesBuilding(Set<Index> indexes, boolean isFullRebuild)
