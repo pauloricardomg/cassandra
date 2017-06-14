@@ -110,8 +110,8 @@ import org.apache.cassandra.utils.concurrent.Refs;
  * a target replica.
  * <br><br>
  * Finally, this class provides a clear and safe lifecycle to manage index builds, either full rebuilds via
- * {@link rebuildIndexesBlocking(Collection<SSTableReader>, Set<String>)} or builds of new sstables
- * added via {@link org.apache.cassandra.notifications.INotificationConsumerSSTableAddedNotification}s, guaranteeing
+ * {@link this#rebuildIndexesBlocking(Collection, Set)} or builds of new sstables
+ * added via {@link org.apache.cassandra.notifications.SSTableAddedNotification}s, guaranteeing
  * the following:
  * <ul>
  * <li>The initialization task and any subsequent successful (re)build mark the index as built.</li>
@@ -557,7 +557,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     /**
      * Marks the specified index as built if there are no in progress index builds and the index is not failed.
-     * {@link #markIndexesBuilding(Set<Index>)} should always be invoked before this method.
+     * {@link #markIndexesBuilding(Set, boolean)}} should always be invoked before this method.
      *
      * @param index the index to be marked as built
      */
@@ -580,7 +580,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     
     /**
      * Marks the specified index as failed.
-     * {@link #markIndexesBuilding(Set<Index>)} should always be invoked before this method.
+     * {@link #markIndexesBuilding(Set, boolean)} should always be invoked before this method.
      *
      * @param index the index to be marked as built
      */
