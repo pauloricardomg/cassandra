@@ -25,6 +25,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -33,10 +34,15 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Longs;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.SettableFuture;
+
 import org.apache.commons.lang3.StringUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +72,7 @@ import org.apache.cassandra.service.pager.SinglePartitionPager;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.Refs;
 
@@ -73,7 +80,7 @@ import org.apache.cassandra.utils.concurrent.Refs;
  * Handles the core maintenance functionality associated with indexes: adding/removing them to or from
  * a table, (re)building during bootstrap or other streaming operations, flushing, reloading metadata
  * and so on.
- *
+ * <br><br>
  * The Index interface defines a number of methods which return {@code Callable<?>}. These are primarily the
  * management tasks for an index implementation. Most of them are currently executed in a blocking
  * fashion via submission to SIM's blockingExecutor. This provides the desired behaviour in pretty
@@ -82,25 +89,37 @@ import org.apache.cassandra.utils.concurrent.Refs;
  * then be defined with as void and called directly from SIM (rather than being run via the executor service).
  * Separating the task defintion from execution gives us greater flexibility though, so that in future, for example,
  * if the flush process allows it we leave open the possibility of executing more of these tasks asynchronously.
- *
+ * <br><br>
  * The primary exception to the above is the Callable returned from Index#addIndexedColumn. This may
  * involve a significant effort, building a new index over any existing data. We perform this task asynchronously;
  * as it is called as part of a schema update, which we do not want to block for a long period. Building non-custom
  * indexes is performed on the CompactionManager.
- *
+ * <br><br>
  * This class also provides instances of processors which listen to updates to the base table and forward to
  * registered Indexes the info required to keep those indexes up to date.
  * There are two variants of these processors, each with a factory method provided by SIM:
  *      IndexTransaction: deals with updates generated on the regular write path.
  *      CleanupTransaction: used when partitions are modified during compaction or cleanup operations.
  * Further details on their usage and lifecycles can be found in the interface definitions below.
- *
- * Finally, the bestIndexFor method is used at query time to identify the most selective index of those able
+ * <br><br>
+ * The bestIndexFor method is used at query time to identify the most selective index of those able
  * to satisfy any search predicates defined by a ReadCommand's RowFilter. It returns a thin IndexAccessor object
  * which enables the ReadCommand to access the appropriate functions of the Index at various stages in its lifecycle.
  * e.g. the getEstimatedResultRows is required when StorageProxy calculates the initial concurrency factor for
  * distributing requests to replicas, whereas a Searcher instance is needed when the ReadCommand is executed locally on
  * a target replica.
+ * <br><br>
+ * Finally, this class provides a clear and safe lifecycle to manage index builds, either full rebuilds via
+ * {@link rebuildIndexesBlocking(Collection<SSTableReader>, Set<String>)} or builds of new sstables
+ * added via {@link org.apache.cassandra.notifications.INotificationConsumerSSTableAddedNotification}s, guaranteeing
+ * the following:
+ * <ul>
+ * <li>The initialization task and any subsequent successful (re)build mark the index as built.</li>
+ * <li>If any (re)build operation fails, the index is not marked as built, and only another full rebuild can mark the 
+ * index as built.</li>
+ * <li>Full rebuilds cannot be run concurrently with other full or sstable (re)builds.</li>
+ * <li>SSTable builds can always be run concurrently with any other builds.</li>
+ * </ul>
  */
 public class SecondaryIndexManager implements IndexRegistry, INotificationConsumer
 {
@@ -109,13 +128,14 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     // default page size (in rows) when rebuilding the index for a whole partition
     public static final int DEFAULT_PAGE_SIZE = 10000;
 
+    /** All registered indexes. */
     private final Map<String, Index> indexes = Maps.newConcurrentMap();
 
-    /** The indexes that are ready to server requests. */
-    private final Set<String> builtIndexes = Sets.newConcurrentHashSet();
+    /** The indexes that had a build failure. */
+    private final Set<String> failedIndexes = Sets.newConcurrentHashSet();
 
     /** The count of pending index builds for each index. */
-    private final Map<String, AtomicInteger> pendingBuilds = Maps.newConcurrentMap();
+    private final Map<String, AtomicInteger> inProgressBuilds = Maps.newConcurrentMap();
 
     // executes tasks returned by Indexer#addIndexColumn which may require index(es) to be (re)built
     private static final ListeningExecutorService asyncExecutor = MoreExecutors.listeningDecorator(
@@ -127,7 +147,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                          "internal"));
 
     // executes all blocking tasks produced by Indexers e.g. getFlushTask, getMetadataReloadTask etc
-    private static final ExecutorService blockingExecutor = MoreExecutors.newDirectExecutorService();
+    private static final ListeningExecutorService blockingExecutor = MoreExecutors.newDirectExecutorService();
 
     /**
      * The underlying column family containing the source data for these indexes
@@ -167,31 +187,53 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                : blockingExecutor.submit(reloadTask);
     }
 
-    private Future<?> createIndex(IndexMetadata indexDef)
+    @SuppressWarnings("unchecked")
+    private synchronized Future<?> createIndex(IndexMetadata indexDef)
     {
-        Index index = createInstance(indexDef);
+        final Index index = createInstance(indexDef);
+        String keyspaceName = baseCfs.keyspace.getName();
+        String indexName = index.getIndexMetadata().name;
         index.register(this);
 
-        // pessimistically mark the index as needed of future rebuilding
-        markIndexBuilding(index);
-
+        // mark the index as failed if not built as the two conditions are equivalent
+        if (!SystemKeyspace.isIndexBuilt(keyspaceName, indexName))
+            failedIndexes.add(indexName);
+        
         // if the index didn't register itself, we can probably assume that no initialization needs to happen
-        final Callable<?> initialBuildTask = indexes.containsKey(indexDef.name)
+        Callable<?> initialBuildTask = indexes.containsKey(indexDef.name)
                                            ? index.getInitializationTask()
                                            : null;
+        
+        // now mark as building prior to initializing
+        markIndexesBuilding(ImmutableSet.of(index), true);
+        
+        // if there's no initialization, just mark as built and return:
         if (initialBuildTask == null)
         {
-            // We need to make sure that the index is marked as built in the case where the initialBuildTask
-            // does not need to be run (if the index didn't register itself or if the base table was empty).
             markIndexBuilt(index);
             return Futures.immediateFuture(null);
         }
 
-        // Run intialization task asynchnously with a future transformation to mark it as built
-        return Futures.transform(asyncExecutor.submit(index.getInitializationTask()), (Object o) -> {
-            markIndexBuilt(index);
-            return o;
-        });
+        // otherwise run the initialization task asynchronously with a callback to mark it built or failed
+        final SettableFuture initialization = SettableFuture.create();
+        Futures.addCallback(asyncExecutor.submit(initialBuildTask), new FutureCallback()
+        {
+            @Override
+            public void onFailure(Throwable t)
+            {
+                initialization.setException(t);
+                markIndexFailed(index);
+            }
+
+            @Override
+            public void onSuccess(Object o)
+            {
+                initialization.set(o);
+                markIndexBuilt(index);
+            }
+        }, MoreExecutors.directExecutor());
+
+        return initialization;
     }
 
     /**
@@ -210,11 +252,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * Checks if the specified index is queryable.
      *
      * @param index the index
-     * @return <code>true</code> if the specified index is queryable, <code>false</code> otherwise
+     * @return <code>true</code> if the specified index is registered, <code>false</code> otherwise
      */
     public boolean isIndexQueryable(Index index)
     {
-        return builtIndexes.contains(index.getIndexMetadata().name);
+        return indexes.containsKey(index.getIndexMetadata().name);
     }
 
     public synchronized void removeIndex(String indexName)
@@ -223,7 +265,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         if (null != index)
         {
             markIndexRemoved(indexName);
-            executeBlocking(index.getInvalidateTask());
+            executeBlocking(index.getInvalidateTask(), null);
         }
     }
 
@@ -252,9 +294,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     /**
     * Does a full, blocking rebuild of the indexes specified by columns from the sstables.
     * Caller must acquire and release references to the sstables used here.
-    * Note also that only this method of (re)building indexes:
+    * Note also that this method of (re)building indexes:
     *   a) takes a set of index *names* rather than Indexers
-    *   b) marks exsiting indexes removed prior to rebuilding
+    *   b) marks existing indexes removed prior to rebuilding
+    *   c) fails if such marking operation conflicts with any ongoing index builds, as full rebuilds cannot be run
+    *      concurrently
     *
     * @param sstables the data to build from
     * @param indexNames the list of indexes to be rebuilt
@@ -271,18 +315,10 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             return;
         }
 
-        buildIndexesBlocking(sstables, toRebuild);
+        buildIndexesBlocking(sstables, toRebuild, true);
     }
 
-    private void buildAllIndexesBlocking(Collection<SSTableReader> sstables)
-    {
-        buildIndexesBlocking(sstables, indexes.values()
-                                              .stream()
-                                              .filter(Index::shouldBuildBlocking)
-                                              .collect(Collectors.toSet()));
-    }
-
-    // For convenience, may be called directly from Index impls
+    @VisibleForTesting
     public void buildIndexBlocking(Index index)
     {
         if (index.shouldBuildBlocking())
@@ -290,7 +326,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
                  Refs<SSTableReader> sstables = viewFragment.refs)
             {
-                buildIndexesBlocking(sstables, Collections.singleton(index));
+                buildIndexesBlocking(sstables, Collections.singleton(index), true);
             }
         }
     }
@@ -367,82 +403,207 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     }
 
     /**
-     * Performs a blocking (re)indexing of the specified SSTables for the specifed indexes.
+     * Performs a blocking (re)indexing of the specified SSTables for the specified indexes.
      *
      * @param sstables the SSTables to be (re)indexed
      * @param indexes the indexes to be (re)built for the specifed SSTables
+     * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise 
      */
-    private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes)
+    @SuppressWarnings({"unchecked"})
+    private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes, boolean isFullRebuild)
     {
         if (indexes.isEmpty())
             return;
 
-        // Pessimistically mark all indexes as not built
-        indexes.forEach(this::markIndexBuilding);
-
-        logger.info("Submitting index build of {} for data in {}",
-                    indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")),
-                    sstables.stream().map(SSTableReader::toString).collect(Collectors.joining(",")));
-
-        Map<Index.IndexBuildingSupport, Set<Index>> byType = new HashMap<>();
-        for (Index index : indexes)
+        // Mark all indexes as building: this step must happen first, because if any index can't be marked, the whole
+        // process needs to abort
+        markIndexesBuilding(indexes, isFullRebuild);
+        
+        // Build indexes in a try/catch, so that any index not marked as either built or failed will be marked as failed:
+        final Set<Index> builtIndexes = new HashSet<>();
+        final Set<Index> unbuiltIndexes = new HashSet<>();
+        try
         {
-            Set<Index> stored = byType.computeIfAbsent(index.getBuildTaskSupport(), i -> new HashSet<>());
-            stored.add(index);
-        }
+            logger.info("Submitting index build of {} for data in {}",
+                        indexes.stream().map(i -> i.getIndexMetadata().name).collect(Collectors.joining(",")),
+                        sstables.stream().map(SSTableReader::toString).collect(Collectors.joining(",")));
 
-        // Send all the building tasks with a future transformation to flush the indexes as mark them as built
-        // The flush-and-mark transformation is run in the async executor to don't take time in the compaction thread
-        List<Future<?>> futures = new ArrayList<>(byType.size());
-        byType.forEach((buildingSupport, groupedIndexes) -> {
-            SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
-            futures.add(Futures.transform(CompactionManager.instance.submitIndexBuild(builder), (Object o) -> {
-                flushIndexesBlocking(groupedIndexes);
-                groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
-                logger.info("Index build of {} complete",
-                            StringUtils.join(groupedIndexes.stream()
-                                                           .map(i -> i.getIndexMetadata().name)
-                                                           .collect(Collectors.toList()), ','));
-                return o;
-            }, asyncExecutor));
-        });
-        FBUtilities.waitOnFutures(futures);
+            // Group all building tasks
+            Map<Index.IndexBuildingSupport, Set<Index>> byType = new HashMap<>();
+            for (Index index : indexes)
+            {
+                Set<Index> stored = byType.computeIfAbsent(index.getBuildTaskSupport(), i -> new HashSet<>());
+                stored.add(index);
+            }
+
+            // Schedule all index building tasks with a callback to mark them as built or failed
+            List<Future<?>> futures = new ArrayList<>(byType.size());
+            byType.forEach((buildingSupport, groupedIndexes) ->
+            {
+                SecondaryIndexBuilder builder = buildingSupport.getIndexBuildTask(baseCfs, groupedIndexes, sstables);
+                final SettableFuture build = SettableFuture.create();
+                Futures.addCallback(CompactionManager.instance.submitIndexBuild(builder), new FutureCallback()
+                {
+                    String indexNames = StringUtils.join(groupedIndexes.stream()
+                            .map(i -> i.getIndexMetadata().name)
+                            .collect(Collectors.toList()), ',');
+
+                    @Override
+                    public void onFailure(Throwable t)
+                    {
+                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexFailed);
+                        logger.info("Index build of {} failed", indexNames);
+                        unbuiltIndexes.addAll(groupedIndexes);
+                        build.setException(t);
+                    }
+
+                    @Override
+                    public void onSuccess(Object o)
+                    {
+                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
+                        logger.info("Index build of {} completed", indexNames);
+                        builtIndexes.addAll(groupedIndexes);
+                        build.set(o);
+                    }
+                });
+                futures.add(build);
+            });
+
+            // Finally wait for the index builds to finish and flush the indexes that built successfully
+            try
+            {
+                FBUtilities.waitOnFutures(futures);
+            }
+            finally
+            {
+                flushIndexesBlocking(builtIndexes, new FutureCallback()
+                {
+                    String indexNames = StringUtils.join(builtIndexes.stream()
+                            .map(i -> i.getIndexMetadata().name)
+                            .collect(Collectors.toList()), ',');
+
+                    @Override
+                    public void onFailure(Throwable ignored)
+                    {
+                        logger.info("Index flush of {} failed", indexNames);
+                    }
+
+                    @Override
+                    public void onSuccess(Object ignored)
+                    {
+                        logger.info("Index flush of {} completed", indexNames);
+                    }
+                });
+            }
+        }
+        catch (Throwable ex)
+        {
+            // Fail any indexes that couldn't be marked:
+            Set<Index> missedIndexes = Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes));
+            missedIndexes.forEach(SecondaryIndexManager.this::markIndexFailed);
+            Throwables.failIfCanCast(ex, null);
+        }
     }
 
     /**
-     * Marks the specified index as (re)building. {@link #markIndexBuilt(Index)} should be called after the
-     * (re)building has finished. If this is not done, the index (re)building will be retried during the next start.
+     * Marks the specified indexes as (re)building if: 
+     * 1) There's no in progress rebuild of any of the given indexes.
+     * 2) There's an in progress rebuild but the caller is not a full rebuild.
+     * 
+     * Otherwise, this method invocation fails, as it is not possible to run full rebuilds while other concurrent rebuilds
+     * are in progress. Please note this is checked atomically against all given indexes; that is, no index will be marked
+     * if even a single one fails.
+     * 
+     * Marking an index as "building" practically means:
+     * 1) The index is removed from the "failed" set if this is a full rebuild.
+     * 2) The index is removed from the system keyspace built indexes.
+     * 
+     * Thread safety is guaranteed by having all methods managing index builds synchronized: being synchronized on
+     * the SecondaryIndexManager instance, it means all invocations for all different indexes will go through the same
+     * lock, but this is fine as the work done while holding such lock is trivial.
+     * 
+     * {@link #markIndexBuilt(Index)} or {@link #markIndexFailed(Index)} should be always called after the
+     * rebuilding has finished, so that the index build state can be correctly managed and the index rebuilt.
      *
      * @param index the index to be marked as building
+     * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise 
      */
-    private synchronized void markIndexBuilding(Index index)
+    private synchronized void markIndexesBuilding(Set<Index> indexes, boolean isFullRebuild)
     {
-        String indexName = index.getIndexMetadata().name;
-        AtomicInteger counter = pendingBuilds.computeIfAbsent(indexName, i -> new AtomicInteger(0));
-        if (counter.getAndIncrement() == 0 && DatabaseDescriptor.isDaemonInitialized())
-            SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
+        String keyspaceName = baseCfs.keyspace.getName();
+
+        // First step is to validate against concurrent rebuilds; it would be more optimized to do everything on a single
+        // step, but we're not really expecting a very high number of indexes, and this isn't on any hot path, so
+        // we're favouring readability over performance
+        indexes.forEach(index ->
+        {
+            String indexName = index.getIndexMetadata().name;
+            AtomicInteger counter = inProgressBuilds.computeIfAbsent(indexName, ignored -> new AtomicInteger(0));
+
+            if (counter.get() > 0 && isFullRebuild)
+                throw new IllegalStateException(String.format("Cannot rebuild index %s as another index build for the same index is currently in progress.", indexName));
+        });
+
+        // Second step is the actual marking:
+        indexes.forEach(index ->
+        {
+            String indexName = index.getIndexMetadata().name;
+            AtomicInteger counter = inProgressBuilds.computeIfAbsent(indexName, ignored -> new AtomicInteger(0));
+
+            if (DatabaseDescriptor.isDaemonInitialized())
+            {
+                if (isFullRebuild)
+                    failedIndexes.remove(indexName);
+
+                if (counter.getAndIncrement() == 0)
+                    SystemKeyspace.setIndexRemoved(keyspaceName, indexName);
+            }
+        });
     }
 
     /**
-     * Marks the specified index as built if there are no additional ongoing index (re)buildings.
-     * {@link #markIndexBuilding(Index)} should always be invoked before this method.
+     * Marks the specified index as built if there are no in progress index builds and the index is not failed.
+     * {@link #markIndexesBuilding(Set<Index>)} should always be invoked before this method.
      *
      * @param index the index to be marked as built
      */
     private synchronized void markIndexBuilt(Index index)
     {
         String indexName = index.getIndexMetadata().name;
-        builtIndexes.add(indexName);
-        AtomicInteger counter = pendingBuilds.get(indexName);
+        AtomicInteger counter = inProgressBuilds.get(indexName);
         if (counter != null)
         {
             assert counter.get() > 0;
             if (counter.decrementAndGet() == 0)
             {
-                if (DatabaseDescriptor.isDaemonInitialized())
+                if (!failedIndexes.contains(indexName) && DatabaseDescriptor.isDaemonInitialized())
                     SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
-                pendingBuilds.remove(indexName);
+
+                inProgressBuilds.remove(indexName);
             }
+        }
+    }
+    
+    /**
+     * Marks the specified index as failed.
+     * {@link #markIndexesBuilding(Set<Index>)} should always be invoked before this method.
+     *
+     * @param index the index to be marked as built
+     */
+    private synchronized void markIndexFailed(Index index)
+    {
+        String indexName = index.getIndexMetadata().name;
+        AtomicInteger counter = inProgressBuilds.get(indexName);
+        if (counter != null)
+        {
+            assert counter.get() > 0;
+            
+            counter.decrementAndGet();
+            
+            if (DatabaseDescriptor.isDaemonInitialized())
+                SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
+
+            failedIndexes.add(indexName);
         }
     }
 
@@ -454,7 +615,8 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     private synchronized void markIndexRemoved(String indexName)
     {
         SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
-        pendingBuilds.remove(indexName);
+        failedIndexes.remove(indexName);
+        inProgressBuilds.remove(indexName);
     }
 
     public Index getIndexByName(String indexName)
@@ -493,7 +655,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      */
     public void truncateAllIndexesBlocking(final long truncatedAt)
     {
-        executeAllBlocking(indexes.values().stream(), (index) -> index.getTruncateTask(truncatedAt));
+        executeAllBlocking(indexes.values().stream(), (index) -> index.getTruncateTask(truncatedAt), null);
     }
 
     /**
@@ -502,7 +664,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     public void invalidateAllIndexesBlocking()
     {
         markAllIndexesRemoved();
-        executeAllBlocking(indexes.values().stream(), Index::getInvalidateTask);
+        executeAllBlocking(indexes.values().stream(), Index::getInvalidateTask, null);
     }
 
     /**
@@ -517,6 +679,33 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * Perform a blocking flush of selected indexes
      */
     public void flushIndexesBlocking(Set<Index> indexes)
+    {
+        flushIndexesBlocking(indexes, null);
+    }
+
+    /**
+     * Performs a blocking flush of all custom indexes
+     */
+    public void flushAllNonCFSBackedIndexesBlocking()
+    {
+        executeAllBlocking(indexes.values()
+                                  .stream()
+                                  .filter(index -> !index.getBackingTable().isPresent()),
+                           Index::getBlockingFlushTask, null);
+    }
+
+    /**
+     * Performs a blocking execution of pre-join tasks of all indexes
+     */
+    public void executePreJoinTasksBlocking(boolean hadBootstrap)
+    {
+        logger.info("Executing pre-join{} tasks for: {}", hadBootstrap ? " post-bootstrap" : "", this.baseCfs);
+        executeAllBlocking(indexes.values().stream(), (index) -> {
+            return index.getPreJoinTask(hadBootstrap);
+        }, null);
+    }
+    
+    private void flushIndexesBlocking(Set<Index> indexes, FutureCallback<Object> callback)
     {
         if (indexes.isEmpty())
             return;
@@ -534,30 +723,8 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                      .orElseGet(() -> nonCfsIndexes.add(index)));
         }
 
-        executeAllBlocking(nonCfsIndexes.stream(), Index::getBlockingFlushTask);
+        executeAllBlocking(nonCfsIndexes.stream(), Index::getBlockingFlushTask, callback);
         FBUtilities.waitOnFutures(wait);
-    }
-
-    /**
-     * Performs a blocking flush of all custom indexes
-     */
-    public void flushAllNonCFSBackedIndexesBlocking()
-    {
-        executeAllBlocking(indexes.values()
-                                  .stream()
-                                  .filter(index -> !index.getBackingTable().isPresent()),
-                           Index::getBlockingFlushTask);
-    }
-
-    /**
-     * Performs a blocking execution of pre-join tasks of all indexes
-     */
-    public void executePreJoinTasksBlocking(boolean hadBootstrap)
-    {
-        logger.info("Executing pre-join{} tasks for: {}", hadBootstrap ? " post-bootstrap" : "", this.baseCfs);
-        executeAllBlocking(indexes.values().stream(), (index) -> {
-            return index.getPreJoinTask(hadBootstrap);
-        });
     }
 
     /**
@@ -858,9 +1025,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     private Index unregisterIndex(String name)
     {
         Index removed = indexes.remove(name);
-        builtIndexes.remove(name);
-        logger.trace(removed == null ? "Index {} was not registered" : "Removed index {} from registry",
-                     name);
+        logger.trace(removed == null ? "Index {} was not registered" : "Removed index {} from registry", name);
         return removed;
     }
 
@@ -1197,13 +1362,17 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         }
     }
 
-    private static void executeBlocking(Callable<?> task)
+    private void executeBlocking(Callable<?> task, FutureCallback<Object> callback)
     {
         if (null != task)
-            FBUtilities.waitOnFuture(blockingExecutor.submit(task));
+        {
+            ListenableFuture<?> f = blockingExecutor.submit(task);
+            if (callback != null) Futures.addCallback(f, callback);
+            FBUtilities.waitOnFuture(f);
+        }
     }
 
-    private static void executeAllBlocking(Stream<Index> indexers, Function<Index, Callable<?>> function)
+    private void executeAllBlocking(Stream<Index> indexers, Function<Index, Callable<?>> function, FutureCallback<Object> callback)
     {
         if (function == null)
         {
@@ -1215,7 +1384,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         indexers.forEach(indexer -> {
             Callable<?> task = function.apply(indexer);
             if (null != task)
-                waitFor.add(blockingExecutor.submit(task));
+            {
+                ListenableFuture<?> f = blockingExecutor.submit(task);
+                if (callback != null) Futures.addCallback(f, callback);
+                waitFor.add(f);
+            }
         });
         FBUtilities.waitOnFutures(waitFor);
     }
@@ -1228,7 +1401,12 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
             // SSTables asociated to a memtable come from a flush, so their contents have already been indexed
             if (!notice.memtable().isPresent())
-                buildAllIndexesBlocking(Lists.newArrayList(notice.added));
+                buildIndexesBlocking(Lists.newArrayList(notice.added),
+                                     indexes.values()
+                                     .stream()
+                                     .filter(Index::shouldBuildBlocking)
+                                     .collect(Collectors.toSet()),
+                                     false);
         }
     }
 }
