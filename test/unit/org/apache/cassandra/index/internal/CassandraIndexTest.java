@@ -539,7 +539,7 @@ public class CassandraIndexTest extends CQLTester
         // simulate a failing index rebuild and verify that the index isn't added to the built indexes table
         try
         {
-            cfs.indexManager.rebuildIndexesBlocking(null, Collections.singleton(indexName));
+            cfs.indexManager.rebuildFromSSTablesBlocking(Collections.singleton(indexName), null, true);
             fail("Index rebuilding should fail");
         }
         catch (NullPointerException e)
@@ -551,10 +551,9 @@ public class CassandraIndexTest extends CQLTester
         // after the failure further successful partial index rebuilds should let the index marked as not built
         Refs<SSTableReader> refs = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL));
         cfs.indexManager.handleNotification(new SSTableAddedNotification(refs, null), this);
-        assertEmpty(execute(builtIndexesQuery));
 
         // after the failure further successful full index rebuilds should let the index marked as built
-        cfs.indexManager.rebuildIndexesBlocking(refs, Collections.singleton(indexName));
+        cfs.indexManager.rebuildIndexesBlocking(Collections.singleton(indexName));
         assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
         // recreating the index should mark the index as built

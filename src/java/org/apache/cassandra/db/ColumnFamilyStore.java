@@ -814,14 +814,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         ColumnFamilyStore cfs = Keyspace.open(ksName).getColumnFamilyStore(cfName);
 
-        Set<String> indexes = new HashSet<String>(Arrays.asList(idxNames));
-
-        Iterable<SSTableReader> sstables = cfs.getSSTables(SSTableSet.CANONICAL);
-        try (Refs<SSTableReader> refs = Refs.ref(sstables))
-        {
-            logger.info("User Requested secondary index re-build for {}/{} indexes: {}", ksName, cfName, Joiner.on(',').join(idxNames));
-            cfs.indexManager.rebuildIndexesBlocking(refs, indexes);
-        }
+        logger.info("User Requested secondary index re-build for {}/{} indexes: {}", ksName, cfName, Joiner.on(',').join(idxNames));
+        cfs.indexManager.rebuildIndexesBlocking(Sets.newHashSet(Arrays.asList(idxNames)));
     }
 
     public AbstractCompactionStrategy createCompactionStrategyInstance(CompactionParams compactionParams)
