@@ -40,6 +40,7 @@ import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
@@ -547,10 +548,14 @@ public class CassandraIndexTest extends CQLTester
         }
         assertEmpty(execute(builtIndexesQuery));
 
-        // after the failure further successful index rebuilds should let the index marked as not built
+        // after the failure further successful partial index rebuilds should let the index marked as not built
         Refs<SSTableReader> refs = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL));
-        cfs.indexManager.rebuildIndexesBlocking(refs, Collections.singleton(indexName));
+        cfs.indexManager.handleNotification(new SSTableAddedNotification(refs, null), this);
         assertEmpty(execute(builtIndexesQuery));
+
+        // after the failure further successful full index rebuilds should let the index marked as built
+        cfs.indexManager.rebuildIndexesBlocking(refs, Collections.singleton(indexName));
+        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
         // recreating the index should mark the index as built
         dropIndex("DROP INDEX %s." + indexName);
