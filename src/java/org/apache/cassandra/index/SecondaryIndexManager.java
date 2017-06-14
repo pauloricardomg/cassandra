@@ -198,15 +198,15 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         // mark the index as failed if not built as the two conditions are equivalent
         if (!SystemKeyspace.isIndexBuilt(keyspaceName, indexName))
             failedIndexes.add(indexName);
-        
+
         // if the index didn't register itself, we can probably assume that no initialization needs to happen
         Callable<?> initialBuildTask = indexes.containsKey(indexDef.name)
                                            ? index.getInitializationTask()
                                            : null;
-        
+
         // now mark as building prior to initializing
         markIndexesBuilding(ImmutableSet.of(index), true);
-        
+
         // if there's no initialization, just mark as built and return:
         if (initialBuildTask == null)
         {
@@ -503,19 +503,19 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * Marks the specified indexes as (re)building if: 
      * 1) There's no in progress rebuild of any of the given indexes.
      * 2) There's an in progress rebuild but the caller is not a full rebuild.
-     * 
+     *
      * Otherwise, this method invocation fails, as it is not possible to run full rebuilds while other concurrent rebuilds
      * are in progress. Please note this is checked atomically against all given indexes; that is, no index will be marked
      * if even a single one fails.
-     * 
+     *
      * Marking an index as "building" practically means:
      * 1) The index is removed from the "failed" set if this is a full rebuild.
      * 2) The index is removed from the system keyspace built indexes.
-     * 
+     *
      * Thread safety is guaranteed by having all methods managing index builds synchronized: being synchronized on
      * the SecondaryIndexManager instance, it means all invocations for all different indexes will go through the same
      * lock, but this is fine as the work done while holding such lock is trivial.
-     * 
+     *
      * {@link #markIndexBuilt(Index)} or {@link #markIndexFailed(Index)} should be always called after the
      * rebuilding has finished, so that the index build state can be correctly managed and the index rebuilt.
      *
@@ -577,7 +577,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             }
         }
     }
-    
+
     /**
      * Marks the specified index as failed.
      * {@link #markIndexesBuilding(Set, boolean)} should always be invoked before this method.
@@ -591,9 +591,9 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         if (counter != null)
         {
             assert counter.get() > 0;
-            
+
             counter.decrementAndGet();
-            
+
             if (DatabaseDescriptor.isDaemonInitialized())
                 SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
 
@@ -698,7 +698,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             return index.getPreJoinTask(hadBootstrap);
         }, null);
     }
-    
+
     private void flushIndexesBlocking(Set<Index> indexes, FutureCallback<Object> callback)
     {
         if (indexes.isEmpty())
