@@ -338,7 +338,7 @@ public class SecondaryIndexManagerTest extends CQLTester
         TestingIndex.shouldBlockBuild = false;
 
         // try adding sstables but make the build fail:
-        TestingIndex.shouldFail = true;
+        TestingIndex.shouldFailBuild = true;
         ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
         try (Refs<SSTableReader> sstables = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL)))
         {
@@ -351,7 +351,7 @@ public class SecondaryIndexManagerTest extends CQLTester
         }
 
         // disable failures:
-        TestingIndex.shouldFail = false;
+        TestingIndex.shouldFailBuild = false;
 
         // unblock the pending build:
         TestingIndex.unblockBuild();
@@ -369,7 +369,7 @@ public class SecondaryIndexManagerTest extends CQLTester
         final String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
 
         // Rebuild the index with failure and verify it is not marked as built
-        TestingIndex.shouldFail = true;
+        TestingIndex.shouldFailBuild = true;
         try
         {
             ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
@@ -381,6 +381,78 @@ public class SecondaryIndexManagerTest extends CQLTester
             assertTrue(ex.getMessage().contains("configured to fail"));
         }
         assertNotMarkedAsBuilt();
+    }
+
+    @Test
+    public void initializingIndexNotQueryable() throws Throwable
+    {
+        TestingIndex.blockCreate();
+        String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+        String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+
+        // the index shouldn't be queryable while the initialization hasn't finished
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        Index index = cfs.indexManager.getIndexByName(indexName);
+        assertFalse(cfs.indexManager.isIndexQueryable(index));
+
+        // the index should be queryable once the initialization has finished
+        TestingIndex.unblockCreate();
+        waitForIndex(KEYSPACE, tableName, indexName);
+        assertTrue(cfs.indexManager.isIndexQueryable(index));
+    }
+
+    @Test
+    public void initializingIndexNotQueryableAfterPartialRebuild() throws Throwable
+    {
+        TestingIndex.blockCreate();
+        String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+        String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+
+        // the index shouldn't be queryable while the initialization hasn't finished
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        Index index = cfs.indexManager.getIndexByName(indexName);
+        assertFalse(cfs.indexManager.isIndexQueryable(index));
+
+        // a failing partial build doesn't set the index as queryable
+        TestingIndex.shouldFailBuild = true;
+        try
+        {
+            cfs.indexManager.handleNotification(new SSTableAddedNotification(cfs.getLiveSSTables(), null), this);
+            fail("Should have failed!");
+        }
+        catch (Throwable ex)
+        {
+            assertTrue(ex.getMessage().contains("configured to fail"));
+        }
+        assertFalse(cfs.indexManager.isIndexQueryable(index));
+
+        // a successful partial build doesn't set the index as queryable
+        TestingIndex.shouldFailBuild = false;
+        cfs.indexManager.handleNotification(new SSTableAddedNotification(cfs.getLiveSSTables(), null), this);
+        assertFalse(cfs.indexManager.isIndexQueryable(index));
+
+        // the index should be queryable once the initialization has finished
+        TestingIndex.unblockCreate();
+        waitForIndex(KEYSPACE, tableName, indexName);
+        assertTrue(cfs.indexManager.isIndexQueryable(index));
+    }
+
+    @Test
+    public void indexWithfailedInitializationIsQueryableAfterFullRebuild() throws Throwable
+    {
+        createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+
+        TestingIndex.shouldFailCreate = true;
+        String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+
+        tryRebuild(indexName, true);
+        TestingIndex.shouldFailCreate = false;
+
+        // a successfull full rebuild should set the index as queryable
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        Index index = cfs.indexManager.getIndexByName(indexName);
+        cfs.indexManager.rebuildIndexesBlocking(Collections.singleton(indexName));
+        assertTrue(cfs.indexManager.isIndexQueryable(index));
     }
 
     private void assertMarkedAsBuilt(String indexName) throws Throwable
@@ -423,7 +495,8 @@ public class SecondaryIndexManagerTest extends CQLTester
         private static volatile CountDownLatch buildWaitLatch;
         public static volatile boolean shouldBlockCreate = false;
         public static volatile boolean shouldBlockBuild = false;
-        public static volatile boolean shouldFail = false;
+        public static volatile boolean shouldFailCreate = false;
+        public static volatile boolean shouldFailBuild = false;
 
         public TestingIndex(ColumnFamilyStore baseCfs, IndexMetadata metadata)
         {
@@ -472,7 +545,7 @@ public class SecondaryIndexManagerTest extends CQLTester
             buildWaitLatch = null;
             shouldBlockCreate = false;
             shouldBlockBuild = false;
-            shouldFail = false;
+            shouldFailBuild = false;
         }
 
         public Callable<?> getInitializationTask()
@@ -484,6 +557,12 @@ public class SecondaryIndexManagerTest extends CQLTester
                     createWaitLatch.countDown();
                     createLatch.await();
                 }
+
+                if (shouldFailCreate)
+                {
+                    throw new IllegalStateException("Index is configured to fail.");
+                }
+
                 return null;
             };
         }
@@ -508,7 +587,7 @@ public class SecondaryIndexManagerTest extends CQLTester
                             @Override
                             public void build()
                             {
-                                if (shouldFail)
+                                if (shouldFailBuild)
                                 {
                                     throw new IllegalStateException("Index is configured to fail.");
                                 }

@@ -455,15 +455,16 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                final SettableFuture build = SettableFuture.create();
                                Futures.addCallback(CompactionManager.instance.submitIndexBuild(builder), new FutureCallback()
                                {
-                                   String indexNames = StringUtils.join(groupedIndexes.stream()
-                                                                                      .map(i -> i.getIndexMetadata().name)
-                                                                                      .collect(Collectors.toList()), ',');
+                                   List<String> indexNames = groupedIndexes.stream()
+                                                                           .map(i -> i.getIndexMetadata().name)
+                                                                           .collect(Collectors.toList());
+                                   String joinedIndexNames = StringUtils.join(indexNames, ',');
 
                                    @Override
                                    public void onFailure(Throwable t)
                                    {
                                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexFailed);
-                                       logger.info("Index build of {} failed", indexNames);
+                                       logger.info("Index build of {} failed", joinedIndexNames);
                                        unbuiltIndexes.addAll(groupedIndexes);
                                        build.setException(t);
                                    }
@@ -471,8 +472,10 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                    @Override
                                    public void onSuccess(Object o)
                                    {
+                                       if (isFullRebuild)
+                                           queryableIndexes.addAll(indexNames);
                                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
-                                       logger.info("Index build of {} completed", indexNames);
+                                       logger.info("Index build of {} completed", joinedIndexNames);
                                        builtIndexes.addAll(groupedIndexes);
                                        build.set(o);
                                    }
