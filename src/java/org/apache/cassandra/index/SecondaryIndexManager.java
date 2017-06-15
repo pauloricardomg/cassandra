@@ -484,6 +484,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             // Fail any indexes that couldn't be marked
             Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes)).forEach(SecondaryIndexManager.this::markIndexFailed);
 
+            // Flush all built indexes with an aynchronous callback to log the success or failure of the flush
             flushIndexesBlocking(builtIndexes, new FutureCallback()
             {
                 String indexNames = StringUtils.join(builtIndexes.stream()
