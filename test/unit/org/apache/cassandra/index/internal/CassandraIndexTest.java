@@ -539,7 +539,7 @@ public class CassandraIndexTest extends CQLTester
         // simulate a failing index rebuild and verify that the index isn't added to the built indexes table
         try
         {
-            cfs.indexManager.rebuildFromSSTablesBlocking(Collections.singleton(indexName), null, true);
+            cfs.indexManager.rebuildFromSSTablesBlocking(null, Collections.singleton(indexName), true);
             fail("Index rebuilding should fail");
         }
         catch (NullPointerException e)

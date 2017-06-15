@@ -317,7 +317,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * @param sstables   the data to build from
      * @param indexNames the list of indexes to be rebuilt
      */
-    public void rebuildFromSSTablesBlocking(Set<String> indexNames, Collection<SSTableReader> sstables, boolean isFullRebuild)
+    public void rebuildFromSSTablesBlocking(Collection<SSTableReader> sstables, Set<String> indexNames, boolean isFullRebuild)
     {
         Set<Index> toRebuild = indexes.values().stream()
                                       .filter(index -> indexNames.contains(index.getIndexMetadata().name))
@@ -337,7 +337,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
              Refs<SSTableReader> allSSTables = viewFragment.refs)
         {
-            rebuildFromSSTablesBlocking(indexNames, allSSTables, true);
+            rebuildFromSSTablesBlocking(allSSTables, indexNames, true);
         }
     }
 
