@@ -231,7 +231,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             @Override
             public void onFailure(Throwable t)
             {
-                markIndexFailed(index);
+                logAndMarkIndexesFailed(Collections.singleton(index), t);
                 initialization.setException(t);
             }
 
@@ -449,16 +449,10 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                final SettableFuture build = SettableFuture.create();
                                Futures.addCallback(CompactionManager.instance.submitIndexBuild(builder), new FutureCallback()
                                {
-                                   List<String> indexNames = groupedIndexes.stream()
-                                                                           .map(i -> i.getIndexMetadata().name)
-                                                                           .collect(Collectors.toList());
-                                   String joinedIndexNames = StringUtils.join(indexNames, ',');
-
                                    @Override
                                    public void onFailure(Throwable t)
                                    {
-                                       groupedIndexes.forEach(SecondaryIndexManager.this::markIndexFailed);
-                                       logger.info("Index build of {} failed", joinedIndexNames);
+                                       logAndMarkIndexesFailed(groupedIndexes, t);
                                        unbuiltIndexes.addAll(groupedIndexes);
                                        build.setException(t);
                                    }
@@ -467,9 +461,9 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                    public void onSuccess(Object o)
                                    {
                                        if (isFullRebuild)
-                                           queryableIndexes.addAll(indexNames);
+                                           groupedIndexes.forEach(i -> queryableIndexes.add(i.getIndexMetadata().name));
                                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
-                                       logger.info("Index build of {} completed", joinedIndexNames);
+                                       logger.info("Index build of {} completed", getIndexNames(groupedIndexes));
                                        builtIndexes.addAll(groupedIndexes);
                                        build.set(o);
                                    }
@@ -490,7 +484,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             try
             {
                 // Fail any indexes that couldn't be marked
-                Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes)).forEach(SecondaryIndexManager.this::markIndexFailed);
+                Set<Index> failedIndexes = Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes));
+                if (!failedIndexes.isEmpty())
+                {
+                    logAndMarkIndexesFailed(failedIndexes, accumulatedFail);
+                }
 
                 // Flush all built indexes with an aynchronous callback to log the success or failure of the flush
                 flushIndexesBlocking(builtIndexes, new FutureCallback()
@@ -524,6 +522,14 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                 }
             }
         }
+    }
+
+    private String getIndexNames(Set<Index> indexes)
+    {
+        List<String> indexNames = indexes.stream()
+                                         .map(i -> i.getIndexMetadata().name)
+                                         .collect(Collectors.toList());
+        return StringUtils.join(indexNames, ',');
     }
 
     /**
@@ -623,6 +629,15 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
             needsFullRebuild.add(indexName);
         }
+    }
+
+    private void logAndMarkIndexesFailed(Set<Index> indexes, Throwable indexBuildFailure)
+    {
+        if (indexBuildFailure != null)
+            logger.warn(String.format("Index build of %s failed. Please run full index rebuild to fix it.", getIndexNames(indexes)), indexBuildFailure);
+        else
+            logger.warn("Index build of {} failed. Please run full index rebuild to fix it.", getIndexNames(indexes));
+        indexes.forEach(SecondaryIndexManager.this::markIndexFailed);
     }
 
     /**
