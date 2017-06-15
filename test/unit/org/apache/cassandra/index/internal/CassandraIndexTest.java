@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.index.internal;
 
-import java.util.Collections;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -34,26 +33,21 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
-import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.exceptions.InvalidRequestException;
-import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.concurrent.Refs;
 
 import static org.apache.cassandra.Util.throwAssert;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -512,54 +506,21 @@ public class CassandraIndexTest extends CQLTester
     @Test
     public void indexCorrectlyMarkedAsBuildAndRemoved() throws Throwable
     {
+        String indexName = "build_remove_test_idx";
         String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
-        String indexName = createIndex("CREATE INDEX ON %s(c)");
+        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
         waitForIndex(KEYSPACE, tableName, indexName);
-        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
-        String builtIndexesQuery = String.format("SELECT * FROM %s.\"%s\"",
-                                                 SchemaConstants.SYSTEM_KEYSPACE_NAME,
-                                                 SystemKeyspace.BUILT_INDEXES);
-
         // check that there are no other rows in the built indexes table
-        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
+        assertRows(execute(String.format("SELECT * FROM %s.\"%s\"", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.BUILT_INDEXES)),
+                   row(KEYSPACE, indexName));
 
         // rebuild the index and verify the built status table
-        cfs.rebuildSecondaryIndex(indexName);
-        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
-
-        // drop the index and verify that it has been removed from the built indexes table
-        dropIndex("DROP INDEX %s." + indexName);
-        assertEmpty(execute(builtIndexesQuery));
-
-        // create the index again and verify that it's added to the built indexes table
-        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
+        getCurrentColumnFamilyStore().rebuildSecondaryIndex(indexName);
         waitForIndex(KEYSPACE, tableName, indexName);
-        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
 
-        // simulate a failing index rebuild and verify that the index isn't added to the built indexes table
-        try
-        {
-            cfs.indexManager.rebuildFromSSTablesBlocking(null, Collections.singleton(indexName), true);
-            fail("Index rebuilding should fail");
-        }
-        catch (NullPointerException e)
-        {
-            assertNull(e.getMessage());
-        }
-        assertEmpty(execute(builtIndexesQuery));
-
-        // after the failure further successful partial index rebuilds should let the index marked as not built
-        Refs<SSTableReader> refs = Refs.ref(cfs.getSSTables(SSTableSet.CANONICAL));
-        cfs.indexManager.handleNotification(new SSTableAddedNotification(refs, null), this);
-
-        // after the failure further successful full index rebuilds should let the index marked as built
-        cfs.indexManager.rebuildIndexesBlocking(Collections.singleton(indexName));
-        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
-
-        // recreating the index should mark the index as built
-        dropIndex("DROP INDEX %s." + indexName);
-        createIndex(String.format("CREATE INDEX %s ON %%s(c)", indexName));
-        assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
+        // check that there are no other rows in the built indexes table
+        assertRows(execute(String.format("SELECT * FROM %s.\"%s\"", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.BUILT_INDEXES)),
+                   row(KEYSPACE, indexName));
     }
 
 
