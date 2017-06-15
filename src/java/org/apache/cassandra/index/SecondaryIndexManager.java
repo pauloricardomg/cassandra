@@ -306,38 +306,31 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     }
 
     /**
-     * Does a blocking rebuild of the indexes specified by columns from the sstables.
-     * Caller must acquire and release references to the sstables used here.
+     * Does a blocking full rebuild of the specifed indexes from all the sstables in the base table.
      * Note also that this method of (re)building indexes:
      * a) takes a set of index *names* rather than Indexers
      * b) marks existing indexes removed prior to rebuilding
      * c) fails if such marking operation conflicts with any ongoing index builds, as full rebuilds cannot be run
      * concurrently
      *
-     * @param sstables   the data to build from
      * @param indexNames the list of indexes to be rebuilt
      */
-    public void rebuildFromSSTablesBlocking(Collection<SSTableReader> sstables, Set<String> indexNames, boolean isFullRebuild)
-    {
-        Set<Index> toRebuild = indexes.values().stream()
-                                      .filter(index -> indexNames.contains(index.getIndexMetadata().name))
-                                      .filter(Index::shouldBuildBlocking)
-                                      .collect(Collectors.toSet());
-        if (toRebuild.isEmpty())
-        {
-            logger.info("No defined indexes with the supplied names: {}", Joiner.on(',').join(indexNames));
-            return;
-        }
-
-        buildIndexesBlocking(sstables, toRebuild, isFullRebuild);
-    }
-
     public void rebuildIndexesBlocking(Set<String> indexNames)
     {
         try (ColumnFamilyStore.RefViewFragment viewFragment = baseCfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
              Refs<SSTableReader> allSSTables = viewFragment.refs)
         {
-            rebuildFromSSTablesBlocking(allSSTables, indexNames, true);
+            Set<Index> toRebuild = indexes.values().stream()
+                                          .filter(index -> indexNames.contains(index.getIndexMetadata().name))
+                                          .filter(Index::shouldBuildBlocking)
+                                          .collect(Collectors.toSet());
+            if (toRebuild.isEmpty())
+            {
+                logger.info("No defined indexes with the supplied names: {}", Joiner.on(',').join(indexNames));
+                return;
+            }
+
+            buildIndexesBlocking(allSSTables, toRebuild, true);
         }
     }
 

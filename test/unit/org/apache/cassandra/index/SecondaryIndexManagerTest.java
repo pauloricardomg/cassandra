@@ -373,7 +373,7 @@ public class SecondaryIndexManagerTest extends CQLTester
         try
         {
             ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
-            cfs.indexManager.rebuildFromSSTablesBlocking(cfs.getLiveSSTables(), Collections.singleton(indexName), true);
+            cfs.indexManager.rebuildIndexesBlocking(Collections.singleton(indexName));
             fail("Should have failed!");
         }
         catch (Throwable ex)
