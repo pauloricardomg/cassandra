@@ -424,6 +424,9 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         final Set<Index> builtIndexes = new HashSet<>();
         final Set<Index> unbuiltIndexes = new HashSet<>();
 
+        // Any exception thrown during index building that could be suppressed by the finally block
+        Exception accumulatedFail = null;
+
         try
         {
             logger.info("Submitting index build of {} for data in {}",
@@ -477,30 +480,49 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             // Finally wait for the index builds to finish and flush the indexes that built successfully
             FBUtilities.waitOnFutures(futures);
         }
+        catch (Exception e)
+        {
+            accumulatedFail = e;
+            throw e;
+        }
         finally
         {
-            // Fail any indexes that couldn't be marked
-            Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes)).forEach(SecondaryIndexManager.this::markIndexFailed);
-
-            // Flush all built indexes with an aynchronous callback to log the success or failure of the flush
-            flushIndexesBlocking(builtIndexes, new FutureCallback()
+            try
             {
-                String indexNames = StringUtils.join(builtIndexes.stream()
-                                                                 .map(i -> i.getIndexMetadata().name)
-                                                                 .collect(Collectors.toList()), ',');
+                // Fail any indexes that couldn't be marked
+                Sets.difference(indexes, Sets.union(builtIndexes, unbuiltIndexes)).forEach(SecondaryIndexManager.this::markIndexFailed);
 
-                @Override
-                public void onFailure(Throwable ignored)
+                // Flush all built indexes with an aynchronous callback to log the success or failure of the flush
+                flushIndexesBlocking(builtIndexes, new FutureCallback()
                 {
-                    logger.info("Index flush of {} failed", indexNames);
-                }
+                    String indexNames = StringUtils.join(builtIndexes.stream()
+                                                                     .map(i -> i.getIndexMetadata().name)
+                                                                     .collect(Collectors.toList()), ',');
 
-                @Override
-                public void onSuccess(Object ignored)
+                    @Override
+                    public void onFailure(Throwable ignored)
+                    {
+                        logger.info("Index flush of {} failed", indexNames);
+                    }
+
+                    @Override
+                    public void onSuccess(Object ignored)
+                    {
+                        logger.info("Index flush of {} completed", indexNames);
+                    }
+                });
+            }
+            catch (Exception e)
+            {
+                if (accumulatedFail != null)
                 {
-                    logger.info("Index flush of {} completed", indexNames);
+                    accumulatedFail.addSuppressed(e);
                 }
-            });
+                else
+                {
+                    throw e;
+                }
+            }
         }
     }
 
