@@ -554,14 +554,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                             String indexName = index.getIndexMetadata().name;
                             AtomicInteger counter = inProgressBuilds.computeIfAbsent(indexName, ignored -> new AtomicInteger(0));
 
-                            if (DatabaseDescriptor.isDaemonInitialized())
-                            {
-                                if (isFullRebuild)
-                                    failedIndexes.remove(indexName);
+                            if (isFullRebuild)
+                                failedIndexes.remove(indexName);
 
-                                if (counter.getAndIncrement() == 0)
-                                    SystemKeyspace.setIndexRemoved(keyspaceName, indexName);
-                            }
+                            if (counter.getAndIncrement() == 0 && DatabaseDescriptor.isDaemonInitialized())
+                                SystemKeyspace.setIndexRemoved(keyspaceName, indexName);
                         });
     }
 
