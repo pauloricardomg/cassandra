@@ -134,7 +134,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     /**
      * The indexes that had a build failure.
      */
-    private final Set<String> failedIndexes = Sets.newConcurrentHashSet();
+    private final Set<String> needsFullRebuild = Sets.newConcurrentHashSet();
 
     /**
      * The indexes that are available for querying.
@@ -206,7 +206,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
         // mark the index as failed if not built as the two conditions are equivalent
         if (!SystemKeyspace.isIndexBuilt(keyspaceName, indexName))
-            failedIndexes.add(indexName);
+            needsFullRebuild.add(indexName);
 
         // if the index didn't register itself, we can probably assume that no initialization needs to happen
         Callable<?> initialBuildTask = indexes.containsKey(indexDef.name)
@@ -572,7 +572,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                             AtomicInteger counter = inProgressBuilds.computeIfAbsent(indexName, ignored -> new AtomicInteger(0));
 
                             if (isFullRebuild)
-                                failedIndexes.remove(indexName);
+                                needsFullRebuild.remove(indexName);
 
                             if (counter.getAndIncrement() == 0 && DatabaseDescriptor.isDaemonInitialized())
                                 SystemKeyspace.setIndexRemoved(keyspaceName, indexName);
@@ -594,7 +594,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             assert counter.get() > 0;
             if (counter.decrementAndGet() == 0)
             {
-                if (!failedIndexes.contains(indexName) && DatabaseDescriptor.isDaemonInitialized())
+                if (!needsFullRebuild.contains(indexName) && DatabaseDescriptor.isDaemonInitialized())
                     SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
 
                 inProgressBuilds.remove(indexName);
@@ -621,7 +621,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             if (DatabaseDescriptor.isDaemonInitialized())
                 SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
 
-            failedIndexes.add(indexName);
+            needsFullRebuild.add(indexName);
         }
     }
 
@@ -633,7 +633,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     private synchronized void markIndexRemoved(String indexName)
     {
         SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
-        failedIndexes.remove(indexName);
+        needsFullRebuild.remove(indexName);
         inProgressBuilds.remove(indexName);
     }
 
