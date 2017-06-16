@@ -639,7 +639,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     private void logAndMarkIndexesFailed(Set<Index> indexes, Throwable indexBuildFailure)
     {
         if (indexBuildFailure != null)
-            logger.warn(String.format("Index build of %s failed. Please run full index rebuild to fix it.", getIndexNames(indexes)), indexBuildFailure);
+            logger.warn("Index build of {} failed. Please run full index rebuild to fix it.", getIndexNames(indexes), indexBuildFailure);
         else
             logger.warn("Index build of {} failed. Please run full index rebuild to fix it.", getIndexNames(indexes));
         indexes.forEach(SecondaryIndexManager.this::markIndexFailed);
