@@ -567,7 +567,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         data.dropSSTables();
         LifecycleTransaction.waitForDeletions();
-        indexManager.invalidateAllIndexesBlocking();
+        indexManager.dropAllIndexes();
 
         invalidateCaches();
     }

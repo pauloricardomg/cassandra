@@ -25,6 +25,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -224,7 +225,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         // if there's no initialization, just mark as built and return:
         if (initialBuildTask == null)
         {
-            queryableIndexes.add(indexName);
             markIndexBuilt(index);
             return Futures.immediateFuture(null);
         }
@@ -243,7 +243,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             @Override
             public void onSuccess(Object o)
             {
-                queryableIndexes.add(indexName);
                 markIndexBuilt(index);
                 initialization.set(o);
             }
@@ -465,8 +464,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                    @Override
                                    public void onSuccess(Object o)
                                    {
-                                       if (isFullRebuild)
-                                           groupedIndexes.forEach(i -> queryableIndexes.add(i.getIndexMetadata().name));
                                        groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
                                        logger.info("Index build of {} completed", getIndexNames(groupedIndexes));
                                        builtIndexes.addAll(groupedIndexes);
@@ -605,10 +602,10 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             assert counter.get() > 0;
             if (counter.decrementAndGet() == 0)
             {
+                queryableIndexes.add(indexName);
+                inProgressBuilds.remove(indexName);
                 if (!needsFullRebuild.contains(indexName) && DatabaseDescriptor.isDaemonInitialized())
                     SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
-
-                inProgressBuilds.remove(indexName);
             }
         }
     }
@@ -653,6 +650,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     private synchronized void markIndexRemoved(String indexName)
     {
         SystemKeyspace.setIndexRemoved(baseCfs.keyspace.getName(), indexName);
+        queryableIndexes.remove(indexName);
         needsFullRebuild.remove(indexName);
         inProgressBuilds.remove(indexName);
     }
@@ -699,9 +697,15 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     /**
      * Remove all indexes
      */
-    public void invalidateAllIndexesBlocking()
+    public void dropAllIndexes()
     {
         markAllIndexesRemoved();
+        invalidateAllIndexesBlocking();
+    }
+
+    @VisibleForTesting
+    public void invalidateAllIndexesBlocking()
+    {
         executeAllBlocking(indexes.values().stream(), Index::getInvalidateTask, null);
     }
 
@@ -1065,7 +1069,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     private Index unregisterIndex(String name)
     {
-        queryableIndexes.remove(name);
         Index removed = indexes.remove(name);
         logger.trace(removed == null ? "Index {} was not registered" : "Removed index {} from registry", name);
         return removed;
