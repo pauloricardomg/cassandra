@@ -200,21 +200,26 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
     private synchronized Future<?> createIndex(IndexMetadata indexDef)
     {
         final Index index = createInstance(indexDef);
-        String keyspaceName = baseCfs.keyspace.getName();
         String indexName = index.getIndexMetadata().name;
         index.register(this);
 
-        // mark the index as failed if not built as the two conditions are equivalent
-        if (!SystemKeyspace.isIndexBuilt(keyspaceName, indexName))
-            needsFullRebuild.add(indexName);
-
-        // if the index didn't register itself, we can probably assume that no initialization needs to happen
-        Callable<?> initialBuildTask = indexes.containsKey(indexDef.name)
-                                       ? index.getInitializationTask()
-                                       : null;
-
         // now mark as building prior to initializing
         markIndexesBuilding(ImmutableSet.of(index), true);
+
+        Callable<?> initialBuildTask = null;
+        // if the index didn't register itself, we can probably assume that no initialization needs to happen
+        if (indexes.containsKey(indexDef.name))
+        {
+            try
+            {
+                initialBuildTask = index.getInitializationTask();
+            }
+            catch (Throwable t)
+            {
+                logAndMarkIndexesFailed(Collections.singleton(index), t);
+                throw t;
+            }
+        }
 
         // if there's no initialization, just mark as built and return:
         if (initialBuildTask == null)
