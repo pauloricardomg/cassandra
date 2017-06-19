@@ -225,7 +225,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         // if there's no initialization, just mark as built and return:
         if (initialBuildTask == null)
         {
-            markIndexBuilt(index);
+            markIndexBuilt(index, true);
             return Futures.immediateFuture(null);
         }
 
@@ -243,7 +243,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             @Override
             public void onSuccess(Object o)
             {
-                markIndexBuilt(index);
+                markIndexBuilt(index, true);
                 initialization.set(o);
             }
         }, MoreExecutors.directExecutor());
@@ -464,7 +464,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                    @Override
                                    public void onSuccess(Object o)
                                    {
-                                       groupedIndexes.forEach(SecondaryIndexManager.this::markIndexBuilt);
+                                       groupedIndexes.forEach(i -> markIndexBuilt(i, isFullRebuild));
                                        logger.info("Index build of {} completed", getIndexNames(groupedIndexes));
                                        builtIndexes.addAll(groupedIndexes);
                                        build.set(o);
@@ -551,11 +551,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * the SecondaryIndexManager instance, it means all invocations for all different indexes will go through the same
      * lock, but this is fine as the work done while holding such lock is trivial.
      * <p>
-     * {@link #markIndexBuilt(Index)} or {@link #markIndexFailed(Index)} should be always called after the
+     * {@link #markIndexBuilt(Index, boolean)} or {@link #markIndexFailed(Index)} should be always called after the
      * rebuilding has finished, so that the index build state can be correctly managed and the index rebuilt.
      *
      * @param indexes       the index to be marked as building
-     * @param isFullRebuild True if this method is invoked as a full index rebuild, false otherwise
+     * @param isFullRebuild {@code true} if this method is invoked as a full index rebuild, {@code false} otherwise
      */
     private synchronized void markIndexesBuilding(Set<Index> indexes, boolean isFullRebuild)
     {
@@ -592,8 +592,9 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * {@link #markIndexesBuilding(Set, boolean)} should always be invoked before this method.
      *
      * @param index the index to be marked as built
+     * @param isFullRebuild {@code true} if this method is invoked as a full index rebuild, {@code false} otherwise
      */
-    private synchronized void markIndexBuilt(Index index)
+    private synchronized void markIndexBuilt(Index index, boolean isFullRebuild)
     {
         String indexName = index.getIndexMetadata().name;
         AtomicInteger counter = inProgressBuilds.get(indexName);
@@ -602,7 +603,8 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             assert counter.get() > 0;
             if (counter.decrementAndGet() == 0)
             {
-                queryableIndexes.add(indexName);
+                if (isFullRebuild)
+                    queryableIndexes.add(indexName);
                 inProgressBuilds.remove(indexName);
                 if (!needsFullRebuild.contains(indexName) && DatabaseDescriptor.isDaemonInitialized())
                     SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);

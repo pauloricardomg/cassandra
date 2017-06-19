@@ -455,6 +455,24 @@ public class SecondaryIndexManagerTest extends CQLTester
         assertTrue(cfs.indexManager.isIndexQueryable(index));
     }
 
+    @Test
+    public void indexWithfailedInitializationIsNotQueryableAfterPartialRebuild() throws Throwable
+    {
+        TestingIndex.shouldFailCreate = true;
+        createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+        String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+        TestingIndex.shouldFailCreate = false;
+
+        // the index shouldn't be queryable after the failed initialization
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        Index index = cfs.indexManager.getIndexByName(indexName);
+        assertFalse(cfs.indexManager.isIndexQueryable(index));
+
+        // a successful partial build doesn't set the index as queryable
+        cfs.indexManager.handleNotification(new SSTableAddedNotification(cfs.getLiveSSTables(), null), this);
+        assertFalse(cfs.indexManager.isIndexQueryable(index));
+    }
+
     private void assertMarkedAsBuilt(String indexName) throws Throwable
     {
         assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
