@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.index;
 
+import java.io.FileNotFoundException;
+import java.net.SocketException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
@@ -36,8 +38,11 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.SchemaConstants;
+import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.utils.KillerForTests;
 import org.apache.cassandra.utils.concurrent.Refs;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -167,7 +172,6 @@ public class SecondaryIndexManagerTest extends CQLTester
                     error.set(true);
                 }
             }
-
         };
         asyncBuild.start();
 
@@ -220,7 +224,6 @@ public class SecondaryIndexManagerTest extends CQLTester
                     error.set(true);
                 }
             }
-
         };
         asyncBuild.start();
 
@@ -272,7 +275,6 @@ public class SecondaryIndexManagerTest extends CQLTester
                     error.set(true);
                 }
             }
-
         };
         asyncBuild.start();
 
@@ -327,7 +329,6 @@ public class SecondaryIndexManagerTest extends CQLTester
                     error.set(true);
                 }
             }
-
         };
         asyncBuild.start();
 
@@ -473,6 +474,80 @@ public class SecondaryIndexManagerTest extends CQLTester
         assertFalse(cfs.indexManager.isIndexQueryable(index));
     }
 
+    @Test
+    public void handleJVMStablityOnFailedCreate() throws Throwable
+    {
+        handleJVMStablityOnFailedCreate(new SocketException("Should not fail"), false);
+        handleJVMStablityOnFailedCreate(new FileNotFoundException("Should not fail"), false);
+        handleJVMStablityOnFailedCreate(new SocketException("Too many open files"), true);
+        handleJVMStablityOnFailedCreate(new FileNotFoundException("Too many open files"), true);
+        handleJVMStablityOnFailedCreate(new RuntimeException("Should not fail"), false);
+    }
+
+    private void handleJVMStablityOnFailedCreate(Throwable throwable, boolean shouldKillJVM) throws Throwable
+    {
+        KillerForTests killerForTests = new KillerForTests();
+        JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
+
+        TestingIndex.shouldBlockCreate = true;
+        TestingIndex.shouldFailCreate = true;
+        TestingIndex.failedCreateThrowable = throwable;
+        try
+        {
+            createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+            createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+            TestingIndex.waitBlockedOnCreate();
+            fail("Should have failed!");
+        }
+        catch (Throwable t)
+        {
+            assertEquals(shouldKillJVM, killerForTests.wasKilled());
+        }
+        finally
+        {
+            TestingIndex.shouldBlockCreate = false;
+            TestingIndex.shouldFailCreate = false;
+            TestingIndex.failedCreateThrowable = null;
+            JVMStabilityInspector.replaceKiller(originalKiller);
+        }
+    }
+
+    @Test
+    public void handleJVMStablityOnFailedRebuild() throws Throwable
+    {
+        handleJVMStablityOnFailedRebuild(new SocketException("Should not fail"), false);
+        handleJVMStablityOnFailedRebuild(new FileNotFoundException("Should not fail"), false);
+        handleJVMStablityOnFailedRebuild(new SocketException("Too many open files"), true);
+        handleJVMStablityOnFailedRebuild(new FileNotFoundException("Too many open files"), true);
+        handleJVMStablityOnFailedRebuild(new RuntimeException("Should not fail"), false);
+    }
+
+    private void handleJVMStablityOnFailedRebuild(Throwable throwable, boolean shouldKillJVM) throws Throwable
+    {
+        KillerForTests killerForTests = new KillerForTests();
+        JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
+
+        TestingIndex.shouldFailBuild = true;
+        TestingIndex.failedBuildTrowable = throwable;
+        try
+        {
+            createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+            String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+            getCurrentColumnFamilyStore().indexManager.rebuildIndexesBlocking(Collections.singleton(indexName));
+            fail("Should have failed!");
+        }
+        catch (Throwable t)
+        {
+            assertEquals(shouldKillJVM, killerForTests.wasKilled());
+        }
+        finally
+        {
+            TestingIndex.shouldFailBuild = false;
+            TestingIndex.failedBuildTrowable = null;
+            JVMStabilityInspector.replaceKiller(originalKiller);
+        }
+    }
+
     private void assertMarkedAsBuilt(String indexName) throws Throwable
     {
         assertRows(execute(builtIndexesQuery), row(KEYSPACE, indexName));
@@ -515,6 +590,8 @@ public class SecondaryIndexManagerTest extends CQLTester
         public static volatile boolean shouldBlockBuild = false;
         public static volatile boolean shouldFailCreate = false;
         public static volatile boolean shouldFailBuild = false;
+        public static volatile Throwable failedCreateThrowable;
+        public static volatile Throwable failedBuildTrowable;
 
         public TestingIndex(ColumnFamilyStore baseCfs, IndexMetadata metadata)
         {
@@ -578,7 +655,9 @@ public class SecondaryIndexManagerTest extends CQLTester
 
                 if (shouldFailCreate)
                 {
-                    throw new IllegalStateException("Index is configured to fail.");
+                    throw failedCreateThrowable == null
+                          ? new IllegalStateException("Index is configured to fail.")
+                          : new RuntimeException(failedCreateThrowable);
                 }
 
                 return null;
@@ -607,7 +686,9 @@ public class SecondaryIndexManagerTest extends CQLTester
                             {
                                 if (shouldFailBuild)
                                 {
-                                    throw new IllegalStateException("Index is configured to fail.");
+                                    throw failedBuildTrowable == null
+                                          ? new IllegalStateException("Index is configured to fail.")
+                                          : new RuntimeException(failedBuildTrowable);
                                 }
                                 builder.build();
                             }

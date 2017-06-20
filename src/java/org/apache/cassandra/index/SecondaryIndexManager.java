@@ -72,6 +72,7 @@ import org.apache.cassandra.service.pager.SinglePartitionPager;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.Refs;
 
@@ -637,6 +638,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
     private void logAndMarkIndexesFailed(Set<Index> indexes, Throwable indexBuildFailure)
     {
+        JVMStabilityInspector.inspectThrowable(indexBuildFailure);
         if (indexBuildFailure != null)
             logger.warn("Index build of {} failed. Please run full index rebuild to fix it.", getIndexNames(indexes), indexBuildFailure);
         else
