@@ -489,14 +489,14 @@ public class SecondaryIndexManagerTest extends CQLTester
         KillerForTests killerForTests = new KillerForTests();
         JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
 
-        TestingIndex.shouldBlockCreate = true;
-        TestingIndex.shouldFailCreate = true;
-        TestingIndex.failedCreateThrowable = throwable;
         try
         {
+            TestingIndex.shouldFailCreate = true;
+            TestingIndex.failedCreateThrowable = throwable;
+
             createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
-            createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
-            TestingIndex.waitBlockedOnCreate();
+            String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+            tryRebuild(indexName, true);
             fail("Should have failed!");
         }
         catch (Throwable t)
@@ -505,10 +505,9 @@ public class SecondaryIndexManagerTest extends CQLTester
         }
         finally
         {
-            TestingIndex.shouldBlockCreate = false;
+            JVMStabilityInspector.replaceKiller(originalKiller);
             TestingIndex.shouldFailCreate = false;
             TestingIndex.failedCreateThrowable = null;
-            JVMStabilityInspector.replaceKiller(originalKiller);
         }
     }
 
@@ -524,15 +523,18 @@ public class SecondaryIndexManagerTest extends CQLTester
 
     private void handleJVMStablityOnFailedRebuild(Throwable throwable, boolean shouldKillJVM) throws Throwable
     {
+        String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
+        String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+        waitForIndex(KEYSPACE, tableName, indexName);
+
         KillerForTests killerForTests = new KillerForTests();
         JVMStabilityInspector.Killer originalKiller = JVMStabilityInspector.replaceKiller(killerForTests);
 
-        TestingIndex.shouldFailBuild = true;
-        TestingIndex.failedBuildTrowable = throwable;
         try
         {
-            createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
-            String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+            TestingIndex.shouldFailBuild = true;
+            TestingIndex.failedBuildTrowable = throwable;
+
             getCurrentColumnFamilyStore().indexManager.rebuildIndexesBlocking(Collections.singleton(indexName));
             fail("Should have failed!");
         }
@@ -542,9 +544,9 @@ public class SecondaryIndexManagerTest extends CQLTester
         }
         finally
         {
+            JVMStabilityInspector.replaceKiller(originalKiller);
             TestingIndex.shouldFailBuild = false;
             TestingIndex.failedBuildTrowable = null;
-            JVMStabilityInspector.replaceKiller(originalKiller);
         }
     }
 
