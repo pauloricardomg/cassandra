@@ -496,8 +496,7 @@ public class SecondaryIndexManagerTest extends CQLTester
             TestingIndex.failedCreateThrowable = throwable;
 
             createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
-            String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
-            tryRebuild(indexName, true);
+            createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
             fail("Should have failed!");
         }
         catch (Throwable t)
