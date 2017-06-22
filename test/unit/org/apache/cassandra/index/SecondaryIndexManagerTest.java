@@ -643,6 +643,8 @@ public class SecondaryIndexManagerTest extends CQLTester
             shouldBlockCreate = false;
             shouldBlockBuild = false;
             shouldFailBuild = false;
+            failedCreateThrowable = null;
+            failedBuildTrowable = null;
         }
 
         public Callable<?> getInitializationTask()
