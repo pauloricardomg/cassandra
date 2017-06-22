@@ -368,6 +368,7 @@ public class SecondaryIndexManagerTest extends CQLTester
     {
         final String tableName = createTable("CREATE TABLE %s (a int, b int, c int, PRIMARY KEY (a, b))");
         final String indexName = createIndex(String.format("CREATE CUSTOM INDEX ON %%s(c) USING '%s'", TestingIndex.class.getName()));
+        waitForIndex(KEYSPACE, tableName, indexName);
 
         // Rebuild the index with failure and verify it is not marked as built
         TestingIndex.shouldFailBuild = true;
