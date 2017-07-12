@@ -180,6 +180,7 @@ public class ViewUpdateGenerator
         }
 
         assert view.baseNonPKColumnsInViewPK.size() <= 1 : "We currently only support one base non-PK column in the view PK";
+
         if (view.baseNonPKColumnsInViewPK.isEmpty())
         {
             // The view entry is necessarily the same pre and post update.
@@ -233,7 +234,8 @@ public class ViewUpdateGenerator
             return;
 
         startNewUpdate(baseRow);
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow));
+        boolean hasViewLiveData = hasViewLiveData(baseRow);
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow, hasViewLiveData));
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
 
         for (ColumnData data : baseRow)
@@ -278,7 +280,8 @@ public class ViewUpdateGenerator
         // In theory, it may be the PK liveness and row deletion hasn't been change by the update
         // and we could condition the 2 additions below. In practice though, it's as fast (if not
         // faster) to compute those info than to check if they have changed so we keep it simple.
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow));
+        boolean hasViewLiveData = hasViewLiveData(mergedBaseRow);
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow, hasViewLiveData));
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
 
         // We only add to the view update the cells from mergedBaseRow that differs from
@@ -383,7 +386,9 @@ public class ViewUpdateGenerator
     private void deleteOldEntryInternal(Row existingBaseRow)
     {
         startNewUpdate(existingBaseRow);
-        DeletionTime dt = new DeletionTime(computeTimestampForEntryDeletion(existingBaseRow), nowInSec);
+        boolean hasViewLiveData = hasViewLiveData(existingBaseRow);
+        DeletionTime dt = new DeletionTime(computeTimestampForEntryDeletion(existingBaseRow, hasViewLiveData),
+                                           nowInSec);
         currentViewEntryBuilder.addRowDeletion(Row.Deletion.shadowable(dt));
         submitUpdate();
     }
@@ -411,7 +416,25 @@ public class ViewUpdateGenerator
         currentViewEntryBuilder.newRow(Clustering.make(clusteringValues));
     }
 
-    private LivenessInfo computeLivenessInfoForEntry(Row baseRow)
+    private boolean hasViewLiveData(Row mergedRow)
+    {
+        if (mergedRow == null)
+            return false;
+        if (view.baseNonPKColumnsInViewPK.isEmpty())
+        {
+            return mergedRow.hasLiveData(nowInSec);
+        }
+
+        ColumnMetadata baseColumn = view.baseNonPKColumnsInViewPK.get(0);
+        Cell cell = mergedRow.getCell(baseColumn);
+        if (isLive(cell))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private LivenessInfo computeLivenessInfoForEntry(Row baseRow, boolean hasViewLiveData)
     {
         /*
          * We need to compute both the timestamp and expiration.
@@ -441,10 +464,12 @@ public class ViewUpdateGenerator
 
         LivenessInfo baseLiveness = baseRow.primaryKeyLivenessInfo();
 
+
         if (view.baseNonPKColumnsInViewPK.isEmpty())
         {
             int ttl = baseLiveness.ttl();
             int expirationTime = baseLiveness.localExpirationTime();
+            long timestamp = baseLiveness.timestamp();
             for (Cell cell : baseRow.cells())
             {
                 if (cell.ttl() > ttl)
@@ -452,10 +477,13 @@ public class ViewUpdateGenerator
                     ttl = cell.ttl();
                     expirationTime = cell.localDeletionTime();
                 }
+                if (baseLiveness.isEmpty() && hasViewLiveData)
+                {
+                    if (isLive(cell))
+                        timestamp = Math.max(timestamp, cell.maxTimestamp());
+                }
             }
-            return ttl == baseLiveness.ttl()
-                 ? baseLiveness
-                 : LivenessInfo.withExpirationTime(baseLiveness.timestamp(), ttl, expirationTime);
+            return LivenessInfo.withExpirationTime(timestamp, ttl, expirationTime);
         }
 
         ColumnMetadata baseColumn = view.baseNonPKColumnsInViewPK.get(0);
@@ -466,7 +494,7 @@ public class ViewUpdateGenerator
         return LivenessInfo.withExpirationTime(timestamp, cell.ttl(), cell.localDeletionTime());
     }
 
-    private long computeTimestampForEntryDeletion(Row baseRow)
+    private long computeTimestampForEntryDeletion(Row baseRow, boolean hasViewLiveData)
     {
         // We delete the old row with it's row entry timestamp using a shadowable deletion.
         // We must make sure that the deletion deletes everything in the entry (or the entry will
@@ -477,11 +505,18 @@ public class ViewUpdateGenerator
         // we're just inserting, which is not currently guaranteed.
         // This is a bug for a separate ticket though.
         long timestamp = baseRow.primaryKeyLivenessInfo().timestamp();
+        for (Cell cell : baseRow.cells())
+        {
+            if (baseRow.primaryKeyLivenessInfo().isEmpty() && hasViewLiveData)
+            {
+                if (isLive(cell))
+                    timestamp = Math.max(timestamp, cell.maxTimestamp());
+            }
+        }
         for (ColumnData data : baseRow)
         {
             if (!view.getDefinition().includes(data.column().name))
                 continue;
-
             timestamp = Math.max(timestamp, data.maxTimestamp());
         }
         return timestamp;
