@@ -56,7 +56,6 @@ public class View
 
     public volatile List<ColumnMetadata> baseNonPKColumnsInViewPK;
 
-    private final boolean includeAllColumns;
     private ViewBuilder builder;
 
     // Only the raw statement can be final, because the statement cannot always be prepared when the MV is initialized.
@@ -71,7 +70,6 @@ public class View
     {
         this.baseCfs = baseCfs;
         this.name = definition.name;
-        this.includeAllColumns = definition.includeAllColumns;
         this.rawSelect = definition.select;
 
         updateDefinition(definition);
@@ -140,21 +138,7 @@ public class View
         //    neither included in the view, nor used by the view filter).
         if (!getReadQuery().selectsClustering(partitionKey, update.clustering()))
             return false;
-
-        // We want to find if the update modify any of the columns that are part of the view (in which case the view is affected).
-        // But if the view include all the base table columns, or the update has either a row deletion or a row liveness (note
-        // that for the liveness, it would be more "precise" to check if it's live, but pushing an update that is already expired
-        // is dump so it's ok not to optimize for it and it saves us from having to pass nowInSec to the method), we know the view
-        // is affected right away.
-        if (includeAllColumns || !update.deletion().isLive() || !update.primaryKeyLivenessInfo().isEmpty())
-            return true;
-
-        for (ColumnData data : update)
-        {
-            if (definition.metadata.getColumn(data.column().name) != null)
-                return true;
-        }
-        return false;
+        return true;
     }
 
     /**

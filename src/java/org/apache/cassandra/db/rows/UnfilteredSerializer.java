@@ -564,6 +564,7 @@ public class UnfilteredSerializer
     {
         try
         {
+            boolean hasStrictLiveness = helper.hasStrictLiveness();
             boolean isStatic = isStatic(extendedFlags);
             boolean hasTimestamp = (flags & HAS_TIMESTAMP) != 0;
             boolean hasTTL = (flags & HAS_TTL) != 0;
@@ -588,6 +589,7 @@ public class UnfilteredSerializer
                 rowLiveness = LivenessInfo.withExpirationTime(timestamp, ttl, localDeletionTime);
             }
 
+            builder.setStrictLiveness(hasStrictLiveness);
             builder.addPrimaryKeyLivenessInfo(rowLiveness);
             builder.addRowDeletion(hasDeletion ? new Row.Deletion(header.readDeletionTime(in), deletionIsShadowable) : Row.Deletion.LIVE);
 

@@ -144,7 +144,7 @@ public class RowsTest
         }
 
         List<MergedPair<LivenessInfo>> liveness = new LinkedList<>();
-        public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
+        public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original, boolean hasStrictLiveness)
         {
             updateClustering(clustering);
             liveness.add(MergedPair.create(i, merged, original));
