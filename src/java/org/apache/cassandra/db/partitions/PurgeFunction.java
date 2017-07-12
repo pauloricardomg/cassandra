@@ -27,15 +27,26 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
 {
     private final DeletionPurger purger;
     private final int nowInSec;
+    /**
+     * When enforceStrictLiveness is set, rows with empty PK liveness info
+     * and no row deletion are purged.
+     *
+     * Currently this is only used by views with normal base column as PK column
+     * so updates to other base columns do not make the row live when the PK column
+     * is not live. See CASSANDRA-11500.
+     */
+    private final boolean enforceStrictLiveness;
     private boolean isReverseOrder;
 
-    public PurgeFunction(int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones)
+    public PurgeFunction(int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones,
+                         boolean enforceStrictLiveness)
     {
         this.nowInSec = nowInSec;
         this.purger = (timestamp, localDeletionTime) ->
                       !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
                       && localDeletionTime < gcBefore
                       && getPurgeEvaluator().test(timestamp);
+        this.enforceStrictLiveness = enforceStrictLiveness;
     }
 
     protected abstract Predicate<Long> getPurgeEvaluator();
@@ -89,7 +100,21 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
     protected Row applyToRow(Row row)
     {
         updateProgress();
-        return row.purge(purger, nowInSec);
+        Row filteredRow = row.purge(purger, nowInSec);
+        /**
+         * When enforceStrictLiveness is set, rows with empty PK liveness info
+         * and no row deletion are purged.
+         *
+         * Currently this is only used by views with normal base column as PK column
+         * so updates to other base columns do not make the row live when the PK column
+         * is not live. See CASSANDRA-11500.
+         */
+        if (enforceStrictLiveness && filteredRow.primaryKeyLivenessInfo().isEmpty()
+            && filteredRow.deletion().isLive())
+        {
+            return null;
+        }
+        return filteredRow;
     }
 
     @Override

@@ -362,6 +362,9 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
         try
         {
             resultIterator = withStateTracking(resultIterator);
+            // Filter any strict rows without live PK
+            if (cfs.enforceStrictLiveness())
+                resultIterator = withStrictLiveness(resultIterator, nowInSec());
             resultIterator = withMetricsRecording(withoutPurgeableTombstones(resultIterator, cfs), cfs.metric, startTimeNanos);
 
             // If we've used a 2ndary index, we know the result already satisfy the primary expression used, so
@@ -481,6 +484,36 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
         return Transformation.apply(iter, new MetricRecording());
     }
 
+    /**
+     * A strict liveness filter skips any row where its PK liveness info is not live, tying the
+     * row liveness to the PK liveness.
+     *
+     * Currently this is only used by views with normal base column as PK column so
+     * updates to other base columns do not make the view row live when the PK column
+     * is not live. See CASSANDRA-11500.
+     */
+    private UnfilteredPartitionIterator withStrictLiveness(UnfilteredPartitionIterator iter, int nowInSec)
+    {
+        class StrictLivenessFilter extends Transformation<UnfilteredRowIterator>
+        {
+            protected UnfilteredRowIterator applyToPartition(UnfilteredRowIterator partition)
+            {
+                return Transformation.apply(partition, this);
+            }
+
+            protected Row applyToRow(Row row)
+            {
+                if (!row.primaryKeyLivenessInfo().isLive(nowInSec))
+                {
+                    return null;
+                }
+                return row;
+            }
+        };
+
+        return Transformation.apply(iter, new StrictLivenessFilter());
+    }
+
     protected class CheckForAbort extends StoppingTransformation<UnfilteredRowIterator>
     {
         long lastChecked = 0;
@@ -553,7 +586,9 @@ public abstract class ReadCommand extends MonitorableImpl implements ReadQuery
         {
             public WithoutPurgeableTombstones()
             {
-                super(nowInSec(), cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(), cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones());
+                super(nowInSec(), cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(),
+                      cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones(),
+                      cfs.enforceStrictLiveness());
             }
 
             protected Predicate<Long> getPurgeEvaluator()
