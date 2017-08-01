@@ -76,7 +76,7 @@ public class ViewTest extends CQLTester
             executeNet(protocolVersion, "DROP MATERIALIZED VIEW " + viewName);
     }
 
-    // unselected column is not supported, see CASSANDRA-11500
+    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
     @Ignore
     @Test
     public void testPartialDeleteUnselectedColumn() throws Throwable
@@ -302,13 +302,17 @@ public class ViewTest extends CQLTester
 //        assertRowsIgnoringOrder(execute("SELECT * from %s"));
 //        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
-
+    
+    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
+    @Ignore
     @Test
     public void testPartialUpdateWithUnselectedCollectionsWithFlush() throws Throwable
     {
         testPartialUpdateWithUnselectedCollections(true);
     }
 
+    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
+    @Ignore
     @Test
     public void testPartialUpdateWithUnselectedCollectionsWithoutFlush() throws Throwable
     {
@@ -799,7 +803,7 @@ public class ViewTest extends CQLTester
         updateView("Insert into %s (p, v1) values (3, 1) using timestamp 3;");
 
         if (flush)
-            FBUtilities.waitOnFutures(ks    .flush());
+            FBUtilities.waitOnFutures(ks.flush());
         // deleted column in MV remained dead
         assertRowsIgnoringOrder(execute("SELECT * from mv"), row(1, 3, null));
 
