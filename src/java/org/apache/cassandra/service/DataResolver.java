@@ -199,10 +199,13 @@ public class DataResolver extends ResponseResolver
 
                 this.diffListener = new RowDiffListener()
                 {
-                    public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
+                    public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original, boolean hasStrictLiveness)
                     {
                         if (merged != null && !merged.equals(original))
+                        {
                             currentRow(i, clustering).addPrimaryKeyLivenessInfo(merged);
+                            currentRow(i, clustering).setStrictLiveness(hasStrictLiveness);
+                        }
                     }
 
                     public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)

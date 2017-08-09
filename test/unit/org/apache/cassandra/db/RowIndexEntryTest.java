@@ -232,7 +232,7 @@ public class RowIndexEntryTest extends CQLTester
             builder.add(BufferCell.live(metadata.regularAndStaticColumns().iterator().next(),
                                         1L,
                                         ByteBuffer.allocate(0)));
-            return BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, builder.build());
+            return BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, builder.build(), false);
         }
     }
 
@@ -793,11 +793,11 @@ public class RowIndexEntryTest extends CQLTester
                 return indexes.size();
             }
         };
-        
+
         AbstractSSTableIterator.IndexState indexState = new AbstractSSTableIterator.IndexState(
-            null, comp, rie, false, null                                                                                              
+            null, comp, rie, false, null
         );
-        
+
         assertEquals(0, indexState.indexFor(cn(-1L), -1));
         assertEquals(0, indexState.indexFor(cn(5L), -1));
         assertEquals(1, indexState.indexFor(cn(12L), -1));
