@@ -121,14 +121,14 @@ public class ViewUpdateGenerator
                 createEntry(mergedBaseRow);
                 return;
             case DELETE_OLD:
-                deleteOldEntry(existingBaseRow);
+                deleteOldEntry(existingBaseRow, false);
                 return;
             case UPDATE_EXISTING:
                 updateEntry(existingBaseRow, mergedBaseRow);
                 return;
             case SWITCH_ENTRY:
                 createEntry(mergedBaseRow);
-                deleteOldEntry(existingBaseRow);
+                deleteOldEntry(existingBaseRow, true);
                 return;
         }
     }
