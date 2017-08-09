@@ -254,7 +254,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      * Adds and builds a index
      *
      * @param indexDef the IndexMetadata describing the index
-     * @param isNewCF true if the index is added as part of a new table/columnfamily (i.e. loading a CF at startup), 
+     * @param isNewCF true if the index is added as part of a new table/columnfamily (i.e. loading a CF at startup),
      * false for all other cases (i.e. newly added index)
      */
     public synchronized Future<?> addIndex(IndexMetadata indexDef, boolean isNewCF)
@@ -559,7 +559,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
      *
      * @param indexes the index to be marked as building
      * @param isFullRebuild {@code true} if this method is invoked as a full index rebuild, {@code false} otherwise
-     * @param isNewCF {@code true} if this method is invoked when initializing a new table/columnfamily (i.e. loading a CF at startup), 
+     * @param isNewCF {@code true} if this method is invoked when initializing a new table/columnfamily (i.e. loading a CF at startup),
      * {@code false} for all other cases (i.e. newly added index)
      */
     private synchronized void markIndexesBuilding(Set<Index> indexes, boolean isFullRebuild, boolean isNewCF)
@@ -604,7 +604,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         String indexName = index.getIndexMetadata().name;
         if (isFullRebuild)
             queryableIndexes.add(indexName);
-        
+
         AtomicInteger counter = inProgressBuilds.get(indexName);
         if (counter != null)
         {
@@ -1187,6 +1187,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             final Row.Builder toRemove = BTreeRow.sortedBuilder();
             toRemove.newRow(existing.clustering());
             toRemove.addPrimaryKeyLivenessInfo(existing.primaryKeyLivenessInfo());
+            toRemove.setStrictLiveness(existing.hasStrictLiveness() || updated.hasStrictLiveness());
             toRemove.addRowDeletion(existing.deletion());
             final Row.Builder toInsert = BTreeRow.sortedBuilder();
             toInsert.newRow(updated.clustering());
@@ -1195,7 +1196,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             // diff listener collates the columns to be added & removed from the indexes
             RowDiffListener diffListener = new RowDiffListener()
             {
-                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
+                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original, boolean b)
                 {
                 }
 
@@ -1286,10 +1287,13 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             final Row.Builder[] builders = new Row.Builder[versions.length];
             RowDiffListener diffListener = new RowDiffListener()
             {
-                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
+                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original, boolean strictLiveness)
                 {
                     if (original != null && (merged == null || !merged.isLive(nowInSec)))
+                    {
                         getBuilder(i, clustering).addPrimaryKeyLivenessInfo(original);
+                        getBuilder(i, clustering).setStrictLiveness(strictLiveness);
+                    }
                 }
 
                 public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)

@@ -27,6 +27,7 @@ import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 
+import com.sun.org.apache.xpath.internal.operations.Bool;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.db.*;
@@ -61,6 +62,7 @@ public class BTreeRow extends AbstractRow
     // Integer.MIN_VALUE, but if we don't and have expiring cells, this will the time at which the first expiring cell expires. If we have no tombstones and
     // no expiring cells, this will be Integer.MAX_VALUE;
     private final int minLocalDeletionTime;
+    private final boolean hasStrictLiveness; //TODO(paulo) probably makes sense to move this to liveness info
 
     private BTreeRow(Clustering clustering,
                      LivenessInfo primaryKeyLivenessInfo,
@@ -68,12 +70,23 @@ public class BTreeRow extends AbstractRow
                      Object[] btree,
                      int minLocalDeletionTime)
     {
+        this(clustering, primaryKeyLivenessInfo, deletion, btree, minLocalDeletionTime, false);
+    }
+
+    private BTreeRow(Clustering clustering,
+                     LivenessInfo primaryKeyLivenessInfo,
+                     Deletion deletion,
+                     Object[] btree,
+                     int minLocalDeletionTime,
+                     boolean hasStrictLiveness)
+    {
         assert !deletion.isShadowedBy(primaryKeyLivenessInfo);
         this.clustering = clustering;
         this.primaryKeyLivenessInfo = primaryKeyLivenessInfo;
         this.deletion = deletion;
         this.btree = btree;
         this.minLocalDeletionTime = minLocalDeletionTime;
+        this.hasStrictLiveness = hasStrictLiveness;
     }
 
     private BTreeRow(Clustering clustering, Object[] btree, int minLocalDeletionTime)
@@ -85,7 +98,8 @@ public class BTreeRow extends AbstractRow
     public static BTreeRow create(Clustering clustering,
                                   LivenessInfo primaryKeyLivenessInfo,
                                   Deletion deletion,
-                                  Object[] btree)
+                                  Object[] btree,
+                                  boolean strictLiveness)
     {
         int minDeletionTime = Math.min(minDeletionTime(primaryKeyLivenessInfo), minDeletionTime(deletion.time()));
         if (minDeletionTime != Integer.MIN_VALUE)
@@ -94,16 +108,17 @@ public class BTreeRow extends AbstractRow
                 minDeletionTime = Math.min(minDeletionTime, minDeletionTime(cd));
         }
 
-        return create(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime);
+        return create(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime, strictLiveness);
     }
 
     public static BTreeRow create(Clustering clustering,
                                   LivenessInfo primaryKeyLivenessInfo,
                                   Deletion deletion,
                                   Object[] btree,
-                                  int minDeletionTime)
+                                  int minDeletionTime,
+                                  boolean strictLiveness)
     {
-        return new BTreeRow(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime);
+        return new BTreeRow(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime, strictLiveness);
     }
 
     public static BTreeRow emptyRow(Clustering clustering)
@@ -122,8 +137,13 @@ public class BTreeRow extends AbstractRow
 
     public static BTreeRow emptyDeletedRow(Clustering clustering, Deletion deletion)
     {
+        return emptyDeletedRow(clustering, deletion, false);
+    }
+
+    public static BTreeRow emptyDeletedRow(Clustering clustering, Deletion deletion, boolean hasStrictLiveness)
+    {
         assert !deletion.isLive();
-        return new BTreeRow(clustering, LivenessInfo.EMPTY, deletion, BTree.empty(), Integer.MIN_VALUE);
+        return new BTreeRow(clustering, LivenessInfo.EMPTY, deletion, BTree.empty(), Integer.MIN_VALUE, hasStrictLiveness);
     }
 
     public static BTreeRow noCellLiveRow(Clustering clustering, LivenessInfo primaryKeyLivenessInfo)
@@ -176,6 +196,11 @@ public class BTreeRow extends AbstractRow
     public void apply(Consumer<ColumnData> funtion, com.google.common.base.Predicate<ColumnData> stopCondition, boolean reversed)
     {
         BTree.apply(btree, funtion, stopCondition, reversed);
+    }
+
+    public boolean hasStrictLiveness()
+    {
+        return hasStrictLiveness;
     }
 
     private static int minDeletionTime(Object[] btree, LivenessInfo info, DeletionTime rowDeletion)
@@ -417,7 +442,7 @@ public class BTreeRow extends AbstractRow
             return null;
 
         int minDeletionTime = minDeletionTime(transformed, info, deletion.time());
-        return BTreeRow.create(clustering, info, deletion, transformed, minDeletionTime);
+        return BTreeRow.create(clustering, info, deletion, transformed, minDeletionTime, hasStrictLiveness);
     }
 
     public int dataSize()
@@ -667,6 +692,7 @@ public class BTreeRow extends AbstractRow
         protected Clustering clustering;
         protected LivenessInfo primaryKeyLivenessInfo = LivenessInfo.EMPTY;
         protected Deletion deletion = Deletion.LIVE;
+        private boolean strictLiveness = false;
 
         private final boolean isSorted;
         private BTree.Builder<Cell> cells_;
@@ -706,6 +732,7 @@ public class BTreeRow extends AbstractRow
             resolver = builder.resolver;
             isSorted = builder.isSorted;
             hasComplex = builder.hasComplex;
+            strictLiveness = builder.strictLiveness;
         }
 
         @Override
@@ -737,6 +764,7 @@ public class BTreeRow extends AbstractRow
             this.deletion = Deletion.LIVE;
             this.cells_ = null;
             this.hasComplex = false;
+            this.strictLiveness = false;
         }
 
         public void addPrimaryKeyLivenessInfo(LivenessInfo info)
@@ -780,15 +808,22 @@ public class BTreeRow extends AbstractRow
             // (because we'll only have unique simple cells, which are already in their final condition)
             if (!isSorted | hasComplex)
                 getCells().resolve(resolver);
-            Object[] btree = getCells().build();
 
             if (deletion.isShadowedBy(primaryKeyLivenessInfo))
                 deletion = Deletion.LIVE;
 
+            //TODO(paulo) use nowInSecs from constructor - right now it's MIN_VALUE when it's not passed, I wonder why?
+            Object[] btree = strictLiveness && !primaryKeyLivenessInfo.isLive(FBUtilities.nowInSeconds())? BTree.empty() : getCells().build();
+
             int minDeletionTime = minDeletionTime(btree, primaryKeyLivenessInfo, deletion.time());
-            Row row = BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime);
+            Row row = BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime, strictLiveness);
             reset();
             return row;
+        }
+
+        public void setStrictLiveness(boolean hasStrictLiveness)
+        {
+            this.strictLiveness = hasStrictLiveness;
         }
     }
 }

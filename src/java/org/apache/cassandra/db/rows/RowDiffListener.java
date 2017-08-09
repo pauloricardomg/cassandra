@@ -31,15 +31,15 @@ public interface RowDiffListener
 {
     /**
      * Called for the row primary key liveness info of input {@code i}.
-     *
-     * @param i the input row from which {@code original} is from.
+     *  @param i the input row from which {@code original} is from.
      * @param clustering the clustering for the row that is merged.
      * @param merged the primary key liveness info of the merged row. Will be {@code null} if input {@code i} had
-     * a {@code LivenessInfo}, but the merged result don't (i.e. the original info has been shadowed/deleted).
+ * a {@code LivenessInfo}, but the merged result don't (i.e. the original info has been shadowed/deleted).
      * @param original the primary key liveness info of input {@code i}. May be {@code null} if input {@code i}
-     * has not primary key liveness info (i.e. it has {@code LivenessInfo.NONE}) but the merged result has.
+* has not primary key liveness info (i.e. it has {@code LivenessInfo.NONE}) but the merged result has.
+     * @param b
      */
-    public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original);
+    public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original, boolean hasStrictLiveness);
 
     /**
      * Called for the row deletion of input {@code i}.

@@ -261,6 +261,8 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      */
     public void apply(Consumer<ColumnData> function, Predicate<ColumnData> stopCondition, boolean reverse);
 
+    boolean hasStrictLiveness();
+
     /**
      * A row deletion/tombstone.
      * <p>
@@ -489,6 +491,8 @@ public interface Row extends Unfiltered, Collection<ColumnData>
          * @return the last row built by this builder.
          */
         public Row build();
+
+        void setStrictLiveness(boolean hasStrictLiveness);
     }
 
     /**
@@ -597,6 +601,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
     {
         private final Row[] rows;
         private final List<Iterator<ColumnData>> columnDataIterators;
+        private final int nowInSec;
 
         private Clustering clustering;
         private int rowsToMerge;
@@ -610,6 +615,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             this.rows = new Row[size];
             this.columnDataIterators = new ArrayList<>(size);
             this.columnDataReducer = new ColumnDataReducer(size, nowInSec, hasComplex);
+            this.nowInSec = nowInSec;
         }
 
         public void clear()
@@ -640,13 +646,15 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                 return row;
             }
 
+            boolean hasStrictLiveness = false;
+
             LivenessInfo rowInfo = LivenessInfo.EMPTY;
             Deletion rowDeletion = Deletion.LIVE;
             for (Row row : rows)
             {
                 if (row == null)
                     continue;
-
+                hasStrictLiveness |= row.hasStrictLiveness();
                 if (row.primaryKeyLivenessInfo().supersedes(rowInfo))
                     rowInfo = row.primaryKeyLivenessInfo();
                 if (row.deletion().supersedes(rowDeletion))
@@ -668,18 +676,22 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                 columnDataIterators.add(row == null ? Collections.emptyIterator() : row.iterator());
 
             columnDataReducer.setActiveDeletion(activeDeletion);
-            Iterator<ColumnData> merged = MergeIterator.get(columnDataIterators, ColumnData.comparator, columnDataReducer);
-            while (merged.hasNext())
+
+            if (!hasStrictLiveness || rowInfo.isLive(nowInSec))
             {
-                ColumnData data = merged.next();
-                if (data != null)
-                    dataBuffer.add(data);
+                Iterator<ColumnData> merged = MergeIterator.get(columnDataIterators, ColumnData.comparator, columnDataReducer);
+                while (merged.hasNext())
+                {
+                    ColumnData data = merged.next();
+                    if (data != null)
+                        dataBuffer.add(data);
+                }
             }
 
             // Because some data might have been shadowed by the 'activeDeletion', we could have an empty row
             return rowInfo.isEmpty() && rowDeletion.isLive() && dataBuffer.isEmpty()
                  ? null
-                 : BTreeRow.create(clustering, rowInfo, rowDeletion, BTree.build(dataBuffer, UpdateFunction.<ColumnData>noOp()));
+                 : BTreeRow.create(clustering, rowInfo, rowDeletion, BTree.build(dataBuffer, UpdateFunction.<ColumnData>noOp()), hasStrictLiveness);
         }
 
         public Clustering mergedClustering()

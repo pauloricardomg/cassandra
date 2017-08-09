@@ -237,6 +237,7 @@ public class ViewUpdateGenerator
         boolean hasViewLiveData = hasViewLiveData(baseRow);
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow, hasViewLiveData));
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
+        currentViewEntryBuilder.setStrictLiveness(true);
 
         for (ColumnData data : baseRow)
         {
@@ -271,7 +272,7 @@ public class ViewUpdateGenerator
         }
         if (!matchesViewFilter(mergedBaseRow))
         {
-            deleteOldEntryInternal(existingBaseRow);
+            deleteOldEntryInternal(existingBaseRow, true);
             return;
         }
 
@@ -283,12 +284,13 @@ public class ViewUpdateGenerator
         boolean hasViewLiveData = hasViewLiveData(mergedBaseRow);
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow, hasViewLiveData));
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
+        currentViewEntryBuilder.setStrictLiveness(true);
 
         // We only add to the view update the cells from mergedBaseRow that differs from
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
         // hasn't touched a cell, we know it will be the same object in existingBaseRow and
         // mergedBaseRow (note that including more cells than we strictly should isn't a problem
-        // for correction, so even if the code change and pointer equality don't work anymore, it'll
+        // f<or correction, so even if the code change and pointer equality don't work anymore, it'll
         // only a slightly inefficiency which we can fix then).
         // Note: we could alternatively use Rows.diff() for this, but because it is a bit more generic
         // than what we need here, it's also a bit less efficient (it allocates more in particular),
@@ -374,22 +376,22 @@ public class ViewUpdateGenerator
      * <p>
      * This method checks that the base row does match the view filter before bothering.
      */
-    private void deleteOldEntry(Row existingBaseRow)
+    private void deleteOldEntry(Row existingBaseRow, boolean shadowable)
     {
         // Before deleting an old entry, make sure it was matching the view filter (otherwise there is nothing to delete)
         if (!matchesViewFilter(existingBaseRow))
             return;
 
-        deleteOldEntryInternal(existingBaseRow);
+        deleteOldEntryInternal(existingBaseRow, shadowable);
     }
 
-    private void deleteOldEntryInternal(Row existingBaseRow)
+    private void deleteOldEntryInternal(Row existingBaseRow, boolean shadowable)
     {
         startNewUpdate(existingBaseRow);
         boolean hasViewLiveData = hasViewLiveData(existingBaseRow);
         DeletionTime dt = new DeletionTime(computeTimestampForEntryDeletion(existingBaseRow, hasViewLiveData),
                                            nowInSec);
-        currentViewEntryBuilder.addRowDeletion(Row.Deletion.shadowable(dt));
+        currentViewEntryBuilder.addRowDeletion(shadowable ? Row.Deletion.shadowable(dt) : Row.Deletion.regular(dt));
         submitUpdate();
     }
 
@@ -515,7 +517,7 @@ public class ViewUpdateGenerator
         }
         for (ColumnData data : baseRow)
         {
-            if (!view.getDefinition().includes(data.column().name))
+            if (!view.baseNonPKColumnsInViewPK.contains(data.column()))
                 continue;
             timestamp = Math.max(timestamp, data.maxTimestamp());
         }
