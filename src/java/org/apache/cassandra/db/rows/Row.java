@@ -642,9 +642,6 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             if (rowsToMerge == 1 && activeDeletion.isLive())
             {
                 Row row = rows[lastRowSet];
-
-                if (row.hasStrictLiveness() && !row.primaryKeyLivenessInfo().isLive(nowInSec))
-                    return null;
                 assert row != null;
                 return row;
             }
@@ -680,15 +677,13 @@ public interface Row extends Unfiltered, Collection<ColumnData>
 
             columnDataReducer.setActiveDeletion(activeDeletion);
 
-            if (!hasStrictLiveness || rowInfo.isLive(nowInSec))
+            Iterator<ColumnData> merged = MergeIterator.get(columnDataIterators, ColumnData.comparator, columnDataReducer);
+            while (merged.hasNext())
             {
-                Iterator<ColumnData> merged = MergeIterator.get(columnDataIterators, ColumnData.comparator, columnDataReducer);
-                while (merged.hasNext())
-                {
-                    ColumnData data = merged.next();
-                    if (data != null)
-                        dataBuffer.add(data);
-                }
+                ColumnData data = merged.next();
+
+                if (data != null)
+                    dataBuffer.add(data);
             }
 
             // Because some data might have been shadowed by the 'activeDeletion', we could have an empty row

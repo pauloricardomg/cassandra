@@ -291,11 +291,6 @@ public abstract class Rows
 
         DeletionTime deletion = rowDeletion.time();
 
-        if (existing.hasStrictLiveness() && !mergedInfo.isLive(nowInSec))
-        {
-            return timeDelta;
-        }
-
         Iterator<ColumnData> a = existing.iterator();
         Iterator<ColumnData> b = update.iterator();
         ColumnData nexta = a.hasNext() ? a.next() : null, nextb = b.hasNext() ? b.next() : null;
@@ -363,6 +358,7 @@ public abstract class Rows
         Row.Deletion rowDeletion = existing.deletion();
         if (!deletion.supersedes(rowDeletion.time()))
             builder.addRowDeletion(rowDeletion);
+        builder.setStrictLiveness(existing.hasStrictLiveness());
 
         Iterator<ColumnData> a = existing.iterator();
         Iterator<ColumnData> b = update.iterator();

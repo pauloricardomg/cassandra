@@ -209,7 +209,11 @@ public class ViewUpdateGenerator
         if (!isLive(before))
             return isLive(after) ? UpdateAction.NEW_ENTRY : UpdateAction.NONE;
         if (!isLive(after))
+        {
+            if (after == null || mergedBaseRow.deletion().time().deletes(after))
+                return UpdateAction.DELETE_OLD;
             return UpdateAction.SHADOW_OLD;
+        }
 
         return baseColumn.cellValueType().compare(before.value(), after.value()) == 0
              ? UpdateAction.UPDATE_EXISTING
@@ -241,7 +245,7 @@ public class ViewUpdateGenerator
         boolean hasViewLiveData = hasViewLiveData(baseRow);
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow, hasViewLiveData));
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
-        currentViewEntryBuilder.setStrictLiveness(true);
+        currentViewEntryBuilder.setStrictLiveness(!view.baseNonPKColumnsInViewPK.isEmpty());
 
         for (ColumnData data : baseRow)
         {
@@ -255,34 +259,6 @@ public class ViewUpdateGenerator
         }
 
         submitUpdate();
-    }
-
-    private void addAllColumnTombstones(Row mergedBaseRow)
-    {
-        for (ColumnData mergedData : mergedBaseRow)
-        {
-            ColumnMetadata baseColumn = mergedData.column();
-            ColumnMetadata viewColumn = view.getViewColumn(baseColumn);
-
-            if (viewColumn == null || viewColumn.isPrimaryKeyColumn())
-                continue;
-
-            if (baseColumn.isComplex())
-            {
-                ComplexColumnData mergedComplexData = (ComplexColumnData) mergedData;
-                if (!mergedComplexData.complexDeletion().isLive())
-                    currentViewEntryBuilder.addComplexDeletion(viewColumn, mergedComplexData.complexDeletion());
-
-                for (Cell mergedCell : mergedComplexData)
-                {
-                    if (!isLive(mergedCell))
-                        addCell(viewColumn, mergedCell);
-                }
-            }
-            else if (!isLive((Cell) mergedData))
-                addCell(viewColumn, (Cell) mergedData);
-        }
-
     }
 
     /**
@@ -316,7 +292,7 @@ public class ViewUpdateGenerator
         boolean hasViewLiveData = hasViewLiveData(mergedBaseRow);
         currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow, hasViewLiveData));
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
-        currentViewEntryBuilder.setStrictLiveness(true);
+        currentViewEntryBuilder.setStrictLiveness(!view.baseNonPKColumnsInViewPK.isEmpty());
 
         // We only add to the view update the cells from mergedBaseRow that differs from
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
@@ -420,14 +396,9 @@ public class ViewUpdateGenerator
     private void deleteOldEntryInternal(Row existingBaseRow, Row mergedBaseRow, boolean shadowable)
     {
         startNewUpdate(existingBaseRow);
-        boolean hasViewLiveData = hasViewLiveData(existingBaseRow);
         DeletionTime dt = new DeletionTime(computeTimestampForEntryDeletion(existingBaseRow, mergedBaseRow), nowInSec);
         currentViewEntryBuilder.addRowDeletion(shadowable ? Row.Deletion.shadowable(dt) : Row.Deletion.regular(dt));
-        if (shadowable)
-        {
-            // some columns could be actually removed as row tombstone
-            addAllColumnTombstones(mergedBaseRow);
-        }
+
         submitUpdate();
     }
 
@@ -523,17 +494,17 @@ public class ViewUpdateGenerator
         // we're just inserting, which is not currently guaranteed.
         // This is a bug for a separate ticket though.
 
+        DeletionTime mergedDeletion = mergedBaseRow.deletion().time();
         if (view.baseNonPKColumnsInViewPK.isEmpty())
         {
             // don't care about unselected columns for now, see CASSANDRA-11500
             long timestamp = existingBaseRow.primaryKeyLivenessInfo().timestamp();
-            DeletionTime mergedDeletion = mergedBaseRow.deletion().time();
             return mergedDeletion.deletes(timestamp) ? mergedDeletion.markedForDeleteAt() : timestamp;
         }
         // has base non-pk column in view pk
         Cell before = existingBaseRow.getCell(view.baseNonPKColumnsInViewPK.get(0));
         assert isLive(before) : "We shouldn't have got there if the base row had no associated entry";
-        return before.timestamp();
+        return mergedDeletion.deletes(before) ? mergedDeletion.markedForDeleteAt() : before.timestamp();
     }
 
     private void addColumnData(ColumnMetadata viewColumn, ColumnData baseTableData)

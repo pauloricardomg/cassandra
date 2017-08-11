@@ -198,6 +198,8 @@ public class ViewTest extends CQLTester
         assertEmpty(execute("SELECT * from mv"));
     }
 
+    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
+    @Ignore
     @Test
     public void testUpdateColumnNotInViewWithFlush() throws Throwable
     {
@@ -205,6 +207,8 @@ public class ViewTest extends CQLTester
         testUpdateColumnNotInView(true);
     }
 
+    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
+    @Ignore
     @Test
     public void testUpdateColumnNotInViewWithoutFlush() throws Throwable
     {
@@ -422,7 +426,7 @@ public class ViewTest extends CQLTester
     @Test
     public void testBaseTTLWithSameTimestampTest() throws Throwable
     {
-        // CASSANDRA-13127 when liveness timestamp tie, greate localDeletionTime should win if both are expiring.
+        // CASSANDRA-13127 when liveness timestamp tie, greater localDeletionTime should win if both are expiring.
         createTable("create table %s (p int, c int, v int, primary key(p, c))");
 
         execute("USE " + keyspace());
@@ -458,6 +462,8 @@ public class ViewTest extends CQLTester
 
     }
 
+    // For now, shadowable is not commutative, SEE CASSANDRA-11500
+    @Ignore
     @Test
     public void testCommutativeRowDeletionFlush() throws Throwable
     {
@@ -771,6 +777,28 @@ public class ViewTest extends CQLTester
 
         ks.getColumnFamilyStore("mv2").forceMajorCompaction();
         assertRowsIgnoringOrder(execute("SELECT * from mv2"), row(2, 1, null, null));
+
+        // reset values
+        updateView("Insert into %s (p1, p2, v1, v2) values (1, 2, 3, 4) using timestamp 10;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT v1, v2, WRITETIME(v2) from mv2 WHERE p1 = ? AND p2 = ?", 1, 2),
+                                row(3, 4, 10L));
+
+        updateView("UPDATE %s using timestamp 20 SET v2 = 5 WHERE p1 = 1 and p2 = 2");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT v1, v2, WRITETIME(v2) from mv2 WHERE p1 = ? AND p2 = ?", 1, 2),
+                                row(3, 5, 20L));
+
+        updateView("DELETE FROM %s using timestamp 10 WHERE p1 = 1 and p2 = 2");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT v1, v2, WRITETIME(v2) from mv2 WHERE p1 = ? AND p2 = ?", 1, 2),
+                                row(null, 5, 20L));
     }
 
     public void complexTimestampWithbaseNonPKColumnsInViewPKDeletionTest(boolean flush) throws Throwable

@@ -432,6 +432,11 @@ public class BTreeRow extends AbstractRow
         LivenessInfo newInfo = purger.shouldPurge(primaryKeyLivenessInfo, nowInSec) ? LivenessInfo.EMPTY : primaryKeyLivenessInfo;
         Deletion newDeletion = purger.shouldPurge(deletion.time()) ? Deletion.LIVE : deletion;
 
+        // strict-liveness with expired ttl or deletion has to survive until coordinator reconcile or after
+        // gc_grace_second.
+        if (hasStrictLiveness && !newInfo.isLive(nowInSec) && newDeletion.isLive() && newInfo.isEmpty())
+            return null;
+
         return transformAndFilter(newInfo, newDeletion, (cd) -> cd.purge(purger, nowInSec));
     }
 
@@ -815,12 +820,6 @@ public class BTreeRow extends AbstractRow
 
             if (deletion.isShadowedBy(primaryKeyLivenessInfo))
                 deletion = Deletion.LIVE;
-
-            // // TODO(paulo) use nowInSecs from constructor - right now it's MIN_VALUE when it's not passed, I wonder
-            // why?
-            // Object[] btree = strictLiveness && !primaryKeyLivenessInfo.isLive(FBUtilities.nowInSeconds())
-            // ? BTree.empty()
-            // : getCells().build();
 
             Object[] btree = getCells().build();
             

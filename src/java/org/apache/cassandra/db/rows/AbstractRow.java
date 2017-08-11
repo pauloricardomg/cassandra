@@ -67,7 +67,7 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
 
         deletion().digest(digest);
         primaryKeyLivenessInfo().digest(digest);
-
+        // not need to digest hasStrictLiveness. it's the same for the same table
         for (ColumnData cd : this)
             cd.digest(digest);
     }
