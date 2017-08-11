@@ -142,9 +142,10 @@ public abstract class Rows
             Row input = inputs[i];
             LivenessInfo inputInfo = input == null || input.primaryKeyLivenessInfo().isEmpty() ? null : input.primaryKeyLivenessInfo();
             Row.Deletion inputDeletion = input == null || input.deletion().isLive() ? null : input.deletion();
+            boolean strictLiveness = input == null || input.hasStrictLiveness();
 
             if (mergedInfo != null || inputInfo != null)
-                diffListener.onPrimaryKeyLivenessInfo(i, clustering, mergedInfo, inputInfo, input.hasStrictLiveness());
+                diffListener.onPrimaryKeyLivenessInfo(i, clustering, mergedInfo, inputInfo, strictLiveness);
             if (mergedDeletion != null || inputDeletion != null)
                 diffListener.onDeletion(i, clustering, mergedDeletion, inputDeletion);
         }
