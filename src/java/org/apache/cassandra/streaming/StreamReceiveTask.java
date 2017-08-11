@@ -28,7 +28,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -37,6 +36,7 @@ import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.rows.ThrottledUnfilteredIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.dht.Bounds;
@@ -57,6 +57,8 @@ public class StreamReceiveTask extends StreamTask
     private static final Logger logger = LoggerFactory.getLogger(StreamReceiveTask.class);
 
     private static final ExecutorService executor = Executors.newCachedThreadPool(new NamedThreadFactory("StreamReceiveTask"));
+
+    private static final int ROW_COUNT = Integer.getInteger("cassandra.repair.mutation_repair_rows_per_batch", 100);
 
     // number of files to receive
     private final int totalFiles;
@@ -174,13 +176,9 @@ public class StreamReceiveTask extends StreamTask
             return cfs.metadata().params.cdc;
         }
 
-        Mutation createMutation(ColumnFamilyStore cfs, UnfilteredRowIterator rowIterator)
-        {
-            return new Mutation(PartitionUpdate.fromIterator(rowIterator, ColumnFilter.all(cfs.metadata())));
-        }
-
         private void sendThroughWritePath(ColumnFamilyStore cfs, Collection<SSTableReader> readers) {
             boolean hasCdc = hasCDC(cfs);
+            ColumnFilter filter = ColumnFilter.all(cfs.metadata());
             for (SSTableReader reader : readers)
             {
                 Keyspace ks = Keyspace.open(reader.getKeyspaceName());
@@ -188,14 +186,21 @@ public class StreamReceiveTask extends StreamTask
                 {
                     while (scanner.hasNext())
                     {
-                        try (UnfilteredRowIterator rowIterator = scanner.next())
+                        try (UnfilteredRowIterator rowIterator = scanner.next();)
                         {
-                            // MV *can* be applied unsafe if there's no CDC on the CFS as we flush
-                            // before transaction is done.
-                            //
-                            // If the CFS has CDC, however, these updates need to be written to the CommitLog
-                            // so they get archived into the cdc_raw folder
-                            ks.apply(createMutation(cfs, rowIterator), hasCdc, true, false);
+                            ThrottledUnfilteredIterator throttled = new ThrottledUnfilteredIterator(rowIterator, ROW_COUNT);
+                            while (throttled.hasNext())
+                            {
+                                // MV *can* be applied unsafe if there's no CDC on the CFS as we flush
+                                // before transaction is done.
+                                //
+                                // If the CFS has CDC, however, these updates need to be written to the CommitLog
+                                // so they get archived into the cdc_raw folder
+                                ks.apply(new Mutation(PartitionUpdate.fromIterator(throttled.next(), filter)),
+                                         hasCdc,
+                                         true,
+                                         false);
+                            }
                         }
                     }
                 }
