@@ -642,6 +642,9 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             if (rowsToMerge == 1 && activeDeletion.isLive())
             {
                 Row row = rows[lastRowSet];
+
+                if (row.hasStrictLiveness() && !row.primaryKeyLivenessInfo().isLive(nowInSec))
+                    return null;
                 assert row != null;
                 return row;
             }

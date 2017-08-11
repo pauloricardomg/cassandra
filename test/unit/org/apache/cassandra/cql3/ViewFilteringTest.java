@@ -23,6 +23,7 @@ import java.util.*;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.datastax.driver.core.exceptions.InvalidQueryException;
@@ -83,12 +84,16 @@ public class ViewFilteringTest extends CQLTester
         views.remove(name);
     }
 
+    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-11500
+    @Ignore
     @Test
     public void testViewFilteringWithFlush() throws Throwable
     {
         testViewFiltering(true);
     }
 
+    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-11500
+    @Ignore
     @Test
     public void testViewFilteringWithoutFlush() throws Throwable
     {
@@ -303,6 +308,8 @@ public class ViewFilteringTest extends CQLTester
         dropTable("DROP TABLE %s");
     }
 
+    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-11500
+    @Ignore
     @Test
     public void testMVFilteringWithComplexColumn() throws Throwable
     {
@@ -2023,6 +2030,7 @@ public class ViewFilteringTest extends CQLTester
 
         //Tombstone c
         executeNet(protocolVersion, "DELETE FROM %s WHERE a = ? and b = ?", 0, 0);
+        assertRowsIgnoringOrder(execute("SELECT d from mv"));
         assertRows(execute("SELECT d from mv"));
 
         //Add back without D

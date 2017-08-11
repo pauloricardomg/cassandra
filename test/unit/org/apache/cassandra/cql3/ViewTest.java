@@ -76,9 +76,10 @@ public class ViewTest extends CQLTester
             executeNet(protocolVersion, "DROP MATERIALIZED VIEW " + viewName);
     }
 
-
+    // unselected column is not supported, see CASSANDRA-11500
+    @Ignore
     @Test
-    public void testPartialDelete() throws Throwable
+    public void testPartialDeleteUnselectedColumn() throws Throwable
     {
         boolean flush = true;
         execute("USE " + keyspace());
@@ -362,21 +363,25 @@ public class ViewTest extends CQLTester
 //        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
 
+    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
+    @Ignore
     @Test
-    public void testViewTTLWithFlush() throws Throwable
+    public void testUnselectedColumnsTTLWithFlush() throws Throwable
     {
         // CASSANDRA-13127
-        viewTTLTest(true);
+        testUnselectedColumnsTTL(true);
     }
 
+    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
+    @Ignore
     @Test
-    public void testViewTTLWithoutFlush() throws Throwable
+    public void testUnselectedColumnsTTLWithoutFlush() throws Throwable
     {
         // CASSANDRA-13127
-        viewTTLTest(false);
+        testUnselectedColumnsTTL(false);
     }
 
-    private void viewTTLTest(boolean flush) throws Throwable
+    private void testUnselectedColumnsTTL(boolean flush) throws Throwable
     {
         // CASSANDRA-13127 not ttled unselected column in base should keep view row alive
         createTable("create table %s (p int, c int, v int, primary key(p, c))");
@@ -530,6 +535,52 @@ public class ViewTest extends CQLTester
     }
 
     @Test
+    public void testUpdateWithColumnTimestampSmallerThanPkWithFlush() throws Throwable
+    {
+        testUpdateWithColumnTimestampSmallerThanPk(true);
+    }
+
+    @Test
+    public void testUpdateWithColumnTimestampSmallerThanPkWithoutFlush() throws Throwable
+    {
+        testUpdateWithColumnTimestampSmallerThanPk(false);
+    }
+
+    public void testUpdateWithColumnTimestampSmallerThanPk(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p int primary key, v1 int, v2 int)");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "create materialized view %s as select * from %%s where p is not null and v1 is not null primary key (v1, p);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        // reset value
+        updateView("Insert into %s (p, v1, v2) values (3, 1, 3) using timestamp 6;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, 3, 6L));
+        // increase pk's timestamp to 20
+        updateView("Insert into %s (p) values (3) using timestamp 20;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, 3, 6L));
+        // change v1's to 2 and remove existing view row with ts7
+        updateView("UPdate %s using timestamp 7 set v1 = 2 where p = 3;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(2, 3, 3, 6L));
+        // change v1's to 1 and remove existing view row with ts8
+        updateView("UPdate %s using timestamp 8 set v1 = 1 where p = 3;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT v1, p, v2, WRITETIME(v2) from mv"), row(1, 3, 3, 6L));
+    }
+
+    @Test
     public void testUpdateWithColumnTimestampBiggerThanPkWithFlush() throws Throwable
     {
         // CASSANDRA-11500
@@ -574,7 +625,21 @@ public class ViewTest extends CQLTester
             FBUtilities.waitOnFutures(ks.flush());
         ks.getColumnFamilyStore("mv").forceMajorCompaction();
         assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 2, 2));
-        updateView("UPDATE %s USING TIMESTAMP 3 SET a = 1 WHERE k = 1;");
+        updateView("UPDATE %s USING TIMESTAMP 11 SET a = 1 WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 2));
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from %s"), row(1, 1, 2));
+
+        // set non-key base column as tombstone, view row is removed with shadowable
+        updateView("UPDATE %s USING TIMESTAMP 12 SET a = null WHERE k = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"));
+        assertRowsIgnoringOrder(execute("SELECT k,a,b from %s"), row(1, null, 2));
+
+        // column b should be alive
+        updateView("UPDATE %s USING TIMESTAMP 13 SET a = 1 WHERE k = 1;");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
         assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 2));
@@ -1578,12 +1643,12 @@ public class ViewTest extends CQLTester
         String table = KEYSPACE + "." + currentTable();
         updateView("BEGIN BATCH " +
                    "INSERT INTO " + table + " (a, b, c, d) VALUES (?, ?, ?, ?); " + // should be accepted
-                   "UPDATE " + table + " SET d = ? WHERE a = ? AND b = ?; " + // should be accepted
+                   "UPDATE " + table + " SET d = ? WHERE a = ? AND b = ?; " + // should be ignored
                    "APPLY BATCH",
                    0, 0, 0, 0,
                    1, 0, 1);
         assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 0), row(0, 0, 0));
-        assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 1), row(0, 1, null));
+        assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 1));
 
         ColumnFamilyStore cfs = Keyspace.open(keyspace()).getColumnFamilyStore("mv");
         cfs.forceBlockingFlush();

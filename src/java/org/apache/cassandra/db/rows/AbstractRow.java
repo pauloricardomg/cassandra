@@ -50,7 +50,8 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
     {
         if (primaryKeyLivenessInfo().isLive(nowInSec))
             return true;
-
+        else if (hasStrictLiveness())
+            return false;
         return Iterables.any(cells(), cell -> cell.isLive(nowInSec));
     }
 

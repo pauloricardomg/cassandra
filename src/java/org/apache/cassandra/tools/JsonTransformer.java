@@ -44,6 +44,7 @@ import org.apache.cassandra.db.rows.RangeTombstoneBoundMarker;
 import org.apache.cassandra.db.rows.RangeTombstoneBoundaryMarker;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.db.rows.Row.Deletion;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
@@ -268,7 +269,7 @@ public final class JsonTransformer
             // If this is a deletion, indicate that, otherwise write cells.
             if (!row.deletion().isLive())
             {
-                serializeDeletion(row.deletion().time());
+                serializeDeletion(row.deletion().time(), row.deletion().isShadowable());
             }
             json.writeFieldName("cells");
             json.writeStartArray();
@@ -355,9 +356,19 @@ public final class JsonTransformer
 
     private void serializeDeletion(DeletionTime deletion) throws IOException
     {
+        serializeDeletion(deletion, false);
+    }
+
+    private void serializeDeletion(DeletionTime deletion, boolean isShadwable) throws IOException
+    {
         json.writeFieldName("deletion_info");
         objectIndenter.setCompact(true);
         json.writeStartObject();
+        if (isShadwable)
+        {
+            json.writeFieldName("shadowable");
+            json.writeString("true");
+        }
         json.writeFieldName("marked_deleted");
         json.writeString(dateString(TimeUnit.MICROSECONDS, deletion.markedForDeleteAt()));
         json.writeFieldName("local_delete_time");

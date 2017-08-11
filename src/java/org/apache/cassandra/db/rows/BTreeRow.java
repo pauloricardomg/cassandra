@@ -30,11 +30,15 @@ import com.google.common.collect.Iterators;
 import com.sun.org.apache.xpath.internal.operations.Bool;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.ViewMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.view.TableViews;
+import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.schema.DroppedColumn;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSearchIterator;
@@ -62,7 +66,7 @@ public class BTreeRow extends AbstractRow
     // Integer.MIN_VALUE, but if we don't and have expiring cells, this will the time at which the first expiring cell expires. If we have no tombstones and
     // no expiring cells, this will be Integer.MAX_VALUE;
     private final int minLocalDeletionTime;
-    private final boolean hasStrictLiveness; //TODO(paulo) probably makes sense to move this to liveness info
+    private final boolean hasStrictLiveness;
 
     private BTreeRow(Clustering clustering,
                      LivenessInfo primaryKeyLivenessInfo,
@@ -812,9 +816,14 @@ public class BTreeRow extends AbstractRow
             if (deletion.isShadowedBy(primaryKeyLivenessInfo))
                 deletion = Deletion.LIVE;
 
-            //TODO(paulo) use nowInSecs from constructor - right now it's MIN_VALUE when it's not passed, I wonder why?
-            Object[] btree = strictLiveness && !primaryKeyLivenessInfo.isLive(FBUtilities.nowInSeconds())? BTree.empty() : getCells().build();
+            // // TODO(paulo) use nowInSecs from constructor - right now it's MIN_VALUE when it's not passed, I wonder
+            // why?
+            // Object[] btree = strictLiveness && !primaryKeyLivenessInfo.isLive(FBUtilities.nowInSeconds())
+            // ? BTree.empty()
+            // : getCells().build();
 
+            Object[] btree = getCells().build();
+            
             int minDeletionTime = minDeletionTime(btree, primaryKeyLivenessInfo, deletion.time());
             Row row = BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, btree, minDeletionTime, strictLiveness);
             reset();
