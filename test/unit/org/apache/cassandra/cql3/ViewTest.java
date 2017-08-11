@@ -424,6 +424,59 @@ public class ViewTest extends CQLTester
     }
 
     @Test
+    public void testRangeDeletionWithFlush() throws Throwable
+    {
+        testRangeDeletion(true);
+    }
+
+    @Test
+    public void testRangeDeletionWithoutFlush() throws Throwable
+    {
+        testRangeDeletion(false);
+    }
+
+    public void testRangeDeletion(boolean flush) throws Throwable
+    {
+        // for partition range deletion, need to know that existing row is shadowed instead of not existed.
+        createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY (a))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+
+        createView("mv_test1",
+                   "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE a IS NOT NULL AND b IS NOT NULL PRIMARY KEY (a, b)");
+
+        Keyspace ks = Keyspace.open(keyspace());
+        ks.getColumnFamilyStore("mv_test1").disableAutoCompaction();
+
+        execute("INSERT INTO %s (a, b, c, d) VALUES (?, ?, ?, ?) using timestamp 0", 1, 1, 1, 1);
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"), row(1, 1, 1, 1));
+
+        // remove view row
+        updateView("UPDATE %s using timestamp 1 set b = null WHERE a=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"));
+        // remove base row, no view updated generated.
+        updateView("DELETE FROM %s using timestamp 2 where a=1");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"));
+
+        // restor view row with b,c column. d is still tombstone
+        updateView("UPDATE %s using timestamp 3 set b = 1,c = 1 where a=1"); // upsert
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+
+        assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"), row(1, 1, 1, null));
+    }
+
+    @Test
     public void testBaseTTLWithSameTimestampTest() throws Throwable
     {
         // CASSANDRA-13127 when liveness timestamp tie, greater localDeletionTime should win if both are expiring.
