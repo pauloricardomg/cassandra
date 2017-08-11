@@ -242,8 +242,7 @@ public class ViewUpdateGenerator
             return;
 
         startNewUpdate(baseRow);
-        boolean hasViewLiveData = hasViewLiveData(baseRow);
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow, hasViewLiveData));
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(baseRow));
         currentViewEntryBuilder.addRowDeletion(baseRow.deletion());
         currentViewEntryBuilder.setStrictLiveness(!view.baseNonPKColumnsInViewPK.isEmpty());
 
@@ -289,8 +288,7 @@ public class ViewUpdateGenerator
         // In theory, it may be the PK liveness and row deletion hasn't been change by the update
         // and we could condition the 2 additions below. In practice though, it's as fast (if not
         // faster) to compute those info than to check if they have changed so we keep it simple.
-        boolean hasViewLiveData = hasViewLiveData(mergedBaseRow);
-        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow, hasViewLiveData));
+        currentViewEntryBuilder.addPrimaryKeyLivenessInfo(computeLivenessInfoForEntry(mergedBaseRow));
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
         currentViewEntryBuilder.setStrictLiveness(!view.baseNonPKColumnsInViewPK.isEmpty());
 
@@ -298,7 +296,7 @@ public class ViewUpdateGenerator
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
         // hasn't touched a cell, we know it will be the same object in existingBaseRow and
         // mergedBaseRow (note that including more cells than we strictly should isn't a problem
-        // f<or correction, so even if the code change and pointer equality don't work anymore, it'll
+        // for correction, so even if the code change and pointer equality don't work anymore, it'll
         // only a slightly inefficiency which we can fix then).
         // Note: we could alternatively use Rows.diff() for this, but because it is a bit more generic
         // than what we need here, it's also a bit less efficient (it allocates more in particular),
@@ -425,25 +423,7 @@ public class ViewUpdateGenerator
         currentViewEntryBuilder.newRow(Clustering.make(clusteringValues));
     }
 
-    private boolean hasViewLiveData(Row mergedRow)
-    {
-        if (mergedRow == null)
-            return false;
-        if (view.baseNonPKColumnsInViewPK.isEmpty())
-        {
-            return mergedRow.hasLiveData(nowInSec);
-        }
-
-        ColumnMetadata baseColumn = view.baseNonPKColumnsInViewPK.get(0);
-        Cell cell = mergedRow.getCell(baseColumn);
-        if (isLive(cell))
-        {
-            return true;
-        }
-        return false;
-    }
-
-    private LivenessInfo computeLivenessInfoForEntry(Row baseRow, boolean hasViewLiveData)
+    private LivenessInfo computeLivenessInfoForEntry(Row baseRow)
     {
         /*
          * We need to compute both the timestamp and expiration.
