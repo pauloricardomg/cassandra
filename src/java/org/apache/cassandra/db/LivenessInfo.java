@@ -168,10 +168,11 @@ public class LivenessInfo
     }
 
     /**
-     * Whether this liveness information supersedes another one (that is whether is has a greater timestamp than the
-     * other or not).
+     * Whether this liveness information supersedes another one (that is
+     * whether is has a greater timestamp than the other or not).
      *
      * @param other the {@code LivenessInfo} to compare this info to.
+     *
      * @return whether this {@code LivenessInfo} supersedes {@code other}.
      */
     public boolean supersedes(LivenessInfo other)
