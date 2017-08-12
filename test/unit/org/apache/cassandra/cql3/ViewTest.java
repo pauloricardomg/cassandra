@@ -476,45 +476,6 @@ public class ViewTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"), row(1, 1, 1, null));
     }
 
-    @Test
-    public void testBaseTTLWithSameTimestampTest() throws Throwable
-    {
-        // CASSANDRA-13127 when liveness timestamp tie, greater localDeletionTime should win if both are expiring.
-        createTable("create table %s (p int, c int, v int, primary key(p, c))");
-
-        execute("USE " + keyspace());
-        executeNet(protocolVersion, "USE " + keyspace());
-        Keyspace ks = Keyspace.open(keyspace());
-
-        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) using timestamp 1;");
-
-        FBUtilities.waitOnFutures(ks.flush());
-
-        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
-
-        FBUtilities.waitOnFutures(ks.flush());
-
-        Thread.sleep(4000);
-
-        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
-
-        // reversed order
-        execute("truncate %s;");
-
-        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
-
-        FBUtilities.waitOnFutures(ks.flush());
-
-        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING timestamp 1;");
-
-        FBUtilities.waitOnFutures(ks.flush());
-
-        Thread.sleep(4000);
-
-        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
-
-    }
-
     // For now, shadowable is not commutative, SEE CASSANDRA-11500
     @Ignore
     @Test
