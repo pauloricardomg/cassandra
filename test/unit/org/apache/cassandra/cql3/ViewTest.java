@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.cql3;
 
+import static org.junit.Assert.*;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -50,8 +52,6 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
-
-import static org.junit.Assert.assertTrue;
 
 public class ViewTest extends CQLTester
 {
@@ -668,6 +668,57 @@ public class ViewTest extends CQLTester
             FBUtilities.waitOnFutures(ks.flush());
         assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 2));
         assertRowsIgnoringOrder(execute("SELECT k,a,b from %s"), row(1, 1, 2));
+    }
+
+    @Test
+    public void testStrictLivenessTombstone() throws Throwable
+    {
+        createTable("create table %s (p int primary key, v1 int, v2 int)");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "create materialized view %s as select * from %%s where p is not null and v1 is not null primary key (v1, p)"
+                           + " with gc_grace_seconds=5;");
+        ColumnFamilyStore cfs = ks.getColumnFamilyStore("mv");
+        cfs.disableAutoCompaction();
+
+        updateView("Insert into %s (p, v1, v2) values (1, 1, 1) ;");
+        assertRowsIgnoringOrder(execute("SELECT p, v1, v2 from mv"), row(1, 1, 1));
+
+        updateView("Update %s set v1 = null WHERE p = 1");
+        FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p, v1, v2 from mv"));
+
+        cfs.forceMajorCompaction(); // before gc grace second, strict-liveness tombstoned dead row remains
+        assertEquals(1, cfs.getLiveSSTables().size());
+
+        Thread.sleep(6000);
+        assertEquals(1, cfs.getLiveSSTables().size()); // no auto compaction.
+
+        cfs.forceMajorCompaction(); // after gc grace second, no data left
+        assertEquals(0, cfs.getLiveSSTables().size());
+
+        updateView("Update %s using ttl 5 set v1 = 1 WHERE p = 1");
+        FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p, v1, v2 from mv"), row(1, 1, 1));
+
+        cfs.forceMajorCompaction(); // before ttl+gc_grace_second, strict-liveness ttled dead row remains
+        assertEquals(1, cfs.getLiveSSTables().size());
+        assertRowsIgnoringOrder(execute("SELECT p, v1, v2 from mv"), row(1, 1, 1));
+
+        Thread.sleep(5500); // after expired, before gc_grace_second
+        cfs.forceMajorCompaction();// before ttl+gc_grace_second, strict-liveness ttled dead row remains
+        assertEquals(1, cfs.getLiveSSTables().size());
+        assertRowsIgnoringOrder(execute("SELECT p, v1, v2 from mv"));
+
+        Thread.sleep(5500); // after expired + gc_grace_second
+        assertEquals(1, cfs.getLiveSSTables().size()); // no auto compaction.
+
+        cfs.forceMajorCompaction(); // after gc grace second, no data left
+        assertEquals(0, cfs.getLiveSSTables().size());
     }
 
     @Test
