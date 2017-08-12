@@ -671,6 +671,68 @@ public class ViewTest extends CQLTester
     }
 
     @Test
+    public void testNonBaseColumnInViewPkWithFlush() throws Throwable
+    {
+        testNonBaseColumnInViewPk(true);
+    }
+
+    @Test
+    public void testNonBaseColumnInViewPkWithoutFlush() throws Throwable
+    {
+        testNonBaseColumnInViewPk(true);
+    }
+
+    public void testNonBaseColumnInViewPk(boolean flush) throws Throwable
+    {
+        createTable("create table %s (p1 int, p2 int, v1 int, v2 int, primary key (p1,p2))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "create materialized view %s as select * from %%s where p1 is not null and p2 is not null primary key (p2, p1)"
+                           + " with gc_grace_seconds=5;");
+        ColumnFamilyStore cfs = ks.getColumnFamilyStore("mv");
+        cfs.disableAutoCompaction();
+
+        updateView("UPDATE %s USING TIMESTAMP 1 set v1 =1 where p1 = 1 AND p2 = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"), row(1, 1, 1, null));
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"), row(1, 1, 1, null));
+
+        updateView("UPDATE %s USING TIMESTAMP 2 set v1 = null, v2 = 1 where p1 = 1 AND p2 = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"), row(1, 1, null, 1));
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"), row(1, 1, null, 1));
+
+        updateView("UPDATE %s USING TIMESTAMP 2 set v2 = null where p1 = 1 AND p2 = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"));
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"));
+
+        updateView("INSERT INTO %s (p1,p2) VALUES(1,1) USING TIMESTAMP 0;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"), row(1, 1, null, null));
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"), row(1, 1, null, null));
+
+        updateView("DELETE FROM %s USING TIMESTAMP 3 WHERE p1 =1 AND p2 = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"));
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"));
+
+        updateView("UPDATE %s USING TIMESTAMP 4 set v2 = 1 where p1 = 1 AND p2 = 1;");
+        if (flush)
+            FBUtilities.waitOnFutures(ks.flush());
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"), row(1, 1, null, 1));
+        assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"), row(1, 1, null, 1));
+    }
+    @Test
     public void testStrictLivenessTombstone() throws Throwable
     {
         createTable("create table %s (p int primary key, v1 int, v2 int)");

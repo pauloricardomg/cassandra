@@ -292,6 +292,12 @@ public class ViewUpdateGenerator
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
         currentViewEntryBuilder.setStrictLiveness(!view.baseNonPKColumnsInViewPK.isEmpty());
 
+        addDifferentCells(existingBaseRow, mergedBaseRow);
+        submitUpdate();
+    }
+
+    private void addDifferentCells(Row existingBaseRow, Row mergedBaseRow)
+    {
         // We only add to the view update the cells from mergedBaseRow that differs from
         // existingBaseRow. For that and for speed we can just cell pointer equality: if the update
         // hasn't touched a cell, we know it will be the same object in existingBaseRow and
@@ -374,7 +380,6 @@ public class ViewUpdateGenerator
             }
         }
 
-        submitUpdate();
     }
 
     /**
@@ -396,7 +401,7 @@ public class ViewUpdateGenerator
         startNewUpdate(existingBaseRow);
         DeletionTime dt = new DeletionTime(computeTimestampForEntryDeletion(existingBaseRow, mergedBaseRow), nowInSec);
         currentViewEntryBuilder.addRowDeletion(shadowable ? Row.Deletion.shadowable(dt) : Row.Deletion.regular(dt));
-
+        addDifferentCells(existingBaseRow, mergedBaseRow);
         submitUpdate();
     }
 
