@@ -198,17 +198,12 @@ public class ViewTest extends CQLTester
         assertEmpty(execute("SELECT * from mv"));
     }
 
-    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
-    @Ignore
     @Test
     public void testUpdateColumnNotInViewWithFlush() throws Throwable
     {
-        // CASSANDRA-13127
         testUpdateColumnNotInView(true);
     }
 
-    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
-    @Ignore
     @Test
     public void testUpdateColumnNotInViewWithoutFlush() throws Throwable
     {
@@ -306,9 +301,8 @@ public class ViewTest extends CQLTester
 //        assertRowsIgnoringOrder(execute("SELECT * from %s"));
 //        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
-    
+
     // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
-    @Ignore
     @Test
     public void testPartialUpdateWithUnselectedCollectionsWithFlush() throws Throwable
     {
@@ -316,7 +310,6 @@ public class ViewTest extends CQLTester
     }
 
     // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
-    @Ignore
     @Test
     public void testPartialUpdateWithUnselectedCollectionsWithoutFlush() throws Throwable
     {
@@ -371,8 +364,6 @@ public class ViewTest extends CQLTester
 //        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
 
-    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
-    @Ignore
     @Test
     public void testUnselectedColumnsTTLWithFlush() throws Throwable
     {
@@ -380,8 +371,6 @@ public class ViewTest extends CQLTester
         testUnselectedColumnsTTL(true);
     }
 
-    // for now, unselected column has no effect on MV, SEE CASSANDRA-11500
-    @Ignore
     @Test
     public void testUnselectedColumnsTTLWithoutFlush() throws Throwable
     {
@@ -474,6 +463,45 @@ public class ViewTest extends CQLTester
             FBUtilities.waitOnFutures(ks.flush());
 
         assertRowsIgnoringOrder(execute("SELECT * FROM mv_test1"), row(1, 1, 1, null));
+    }
+
+    @Test
+    public void testBaseTTLWithSameTimestampTest() throws Throwable
+    {
+        // CASSANDRA-13127 when liveness timestamp tie, greater localDeletionTime should win if both are expiring.
+        createTable("create table %s (p int, c int, v int, primary key(p, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) using timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        Thread.sleep(4000);
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+
+        // reversed order
+        execute("truncate %s;");
+
+        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING TTL 3 and timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        updateView("INSERT INTO %s (p, c, v) VALUES (0, 0, 0) USING timestamp 1;");
+
+        FBUtilities.waitOnFutures(ks.flush());
+
+        Thread.sleep(4000);
+
+        assertEmpty(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+
     }
 
     // For now, shadowable is not commutative, SEE CASSANDRA-11500
@@ -714,19 +742,19 @@ public class ViewTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"));
         assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"));
 
-        updateView("INSERT INTO %s (p1,p2) VALUES(1,1) USING TIMESTAMP 0;");
+        updateView("INSERT INTO %s (p1,p2) VALUES(1,1) USING TIMESTAMP 3;");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
         assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"), row(1, 1, null, null));
         assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"), row(1, 1, null, null));
 
-        updateView("DELETE FROM %s USING TIMESTAMP 3 WHERE p1 =1 AND p2 = 1;");
+        updateView("DELETE FROM %s USING TIMESTAMP 4 WHERE p1 =1 AND p2 = 1;");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
         assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"));
         assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from mv"));
 
-        updateView("UPDATE %s USING TIMESTAMP 4 set v2 = 1 where p1 = 1 AND p2 = 1;");
+        updateView("UPDATE %s USING TIMESTAMP 5 set v2 = 1 where p1 = 1 AND p2 = 1;");
         if (flush)
             FBUtilities.waitOnFutures(ks.flush());
         assertRowsIgnoringOrder(execute("SELECT p1, p2, v1, v2 from %s"), row(1, 1, null, 1));
@@ -1771,47 +1799,6 @@ public class ViewTest extends CQLTester
         updateView("INSERT INTO %s (k, intval) VALUES (?, ?)", 0, 1);
         assertRows(execute("SELECT k, intval FROM %s WHERE k = ?", 0), row(0, 1));
         assertRows(execute("SELECT k, intval from mv WHERE intval = ?", 1), row(0, 1));
-    }
-
-    @Test
-    public void testIgnoreUpdate() throws Throwable
-    {
-        // regression test for CASSANDRA-10614
-
-        createTable("CREATE TABLE %s (" +
-                    "a int, " +
-                    "b int, " +
-                    "c int, " +
-                    "d int, " +
-                    "PRIMARY KEY (a, b))");
-
-        execute("USE " + keyspace());
-        executeNet(protocolVersion, "USE " + keyspace());
-
-        createView("mv", "CREATE MATERIALIZED VIEW %s AS SELECT a, b, c FROM %%s WHERE a IS NOT NULL AND b IS NOT NULL PRIMARY KEY (b, a)");
-
-        updateView("INSERT INTO %s (a, b, c) VALUES (?, ?, ?)", 0, 0, 0);
-        assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 0), row(0, 0, 0));
-
-        updateView("UPDATE %s SET d = ? WHERE a = ? AND b = ?", 0, 0, 0);
-        assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 0), row(0, 0, 0));
-
-        // Note: errors here may result in the test hanging when the memtables are flushed as part of the table drop,
-        // because empty rows in the memtable will cause the flush to fail.  This will result in a test timeout that
-        // should not be ignored.
-        String table = KEYSPACE + "." + currentTable();
-        updateView("BEGIN BATCH " +
-                   "INSERT INTO " + table + " (a, b, c, d) VALUES (?, ?, ?, ?); " + // should be accepted
-                   "UPDATE " + table + " SET d = ? WHERE a = ? AND b = ?; " + // should be ignored
-                   "APPLY BATCH",
-                   0, 0, 0, 0,
-                   1, 0, 1);
-        assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 0), row(0, 0, 0));
-        assertRows(execute("SELECT a, b, c from mv WHERE b = ?", 1));
-
-        ColumnFamilyStore cfs = Keyspace.open(keyspace()).getColumnFamilyStore("mv");
-        cfs.forceBlockingFlush();
-        Assert.assertEquals(1, cfs.getLiveSSTables().size());
     }
 
     @Test
