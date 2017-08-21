@@ -18,17 +18,11 @@
 
 package org.apache.cassandra.db.view;
 
-import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import javax.annotation.Nullable;
 
 import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,12 +84,11 @@ public class ViewBuilder extends CompactionInfo.Holder
         try (ReadExecutionController orderGroup = command.executionController();
              UnfilteredRowIterator data = UnfilteredPartitionIterators.getOnlyElement(command.executeLocally(orderGroup), command))
         {
-            Iterator<Collection<Mutation>> mutations = baseCfs.keyspace.viewManager
-                                                      .forTable(baseCfs.metadata.id)
-                                                      .generateViewUpdates(Collections.singleton(view), data, empty, nowInSec, true);
-
-            AtomicLong noBase = new AtomicLong(Long.MAX_VALUE);
-            mutations.forEachRemaining(m -> StorageProxy.mutateMV(key.getKey(), m, true, noBase, System.nanoTime()));
+            Token baseToken = StorageService.instance.getTokenMetadata().partitioner.getToken(key.getKey());
+            baseCfs.keyspace.viewManager.forTable(baseCfs.metadata.id)
+                                        .generateViewUpdates(Collections.singleton(view), data, empty, nowInSec, true)
+                                        .forEachRemaining(mGroup -> mGroup.stream().forEach(m -> StorageProxy.instance.mutateView(baseToken, m,
+                                                                                                                              System.nanoTime()).get()));
         }
     }
 

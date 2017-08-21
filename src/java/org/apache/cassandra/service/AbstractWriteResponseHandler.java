@@ -20,6 +20,7 @@ package org.apache.cassandra.service;
 import java.net.InetAddress;
 import java.util.Collection;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,6 +31,8 @@ import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
@@ -115,10 +118,15 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
             throw new WriteTimeoutException(writeType, consistencyLevel, acks, blockedFor);
         }
 
-        if (totalBlockFor() + failures > totalEndpoints())
+        if (isFailed())
         {
             throw new WriteFailureException(consistencyLevel, ackCount(), totalBlockFor(), writeType, failureReasonByEndpoint);
         }
+    }
+
+    private boolean isFailed()
+    {
+        return totalBlockFor() + failures > totalEndpoints();
     }
 
     public final long currentTimeout()

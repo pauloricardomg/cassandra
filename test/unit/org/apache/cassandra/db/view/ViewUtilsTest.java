@@ -20,6 +20,7 @@ package org.apache.cassandra.db.view;
 
 import java.net.InetAddress;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -76,12 +77,12 @@ public class ViewUtilsTest
         KeyspaceMetadata meta = KeyspaceMetadata.create("Keyspace1", KeyspaceParams.create(false, replicationMap));
         Schema.instance.load(meta);
 
-        Optional<InetAddress> naturalEndpoint = ViewUtils.getViewNaturalEndpoint("Keyspace1",
+        List<InetAddress> naturalEndpoint = ViewUtils.getViewNaturalEndpoint("Keyspace1",
                                                                        new StringToken("CA"),
                                                                        new StringToken("BB"));
 
-        Assert.assertTrue(naturalEndpoint.isPresent());
-        Assert.assertEquals(InetAddress.getByName("127.0.0.2"), naturalEndpoint.get());
+        Assert.assertEquals(1, naturalEndpoint.size());
+        Assert.assertEquals(InetAddress.getByName("127.0.0.2"), naturalEndpoint.get(0));
     }
 
 
@@ -109,16 +110,16 @@ public class ViewUtilsTest
         KeyspaceMetadata meta = KeyspaceMetadata.create("Keyspace1", KeyspaceParams.create(false, replicationMap));
         Schema.instance.load(meta);
 
-        Optional<InetAddress> naturalEndpoint = ViewUtils.getViewNaturalEndpoint("Keyspace1",
+        List<InetAddress> naturalEndpoint = ViewUtils.getViewNaturalEndpoint("Keyspace1",
                                                                        new StringToken("CA"),
                                                                        new StringToken("BB"));
 
-        Assert.assertTrue(naturalEndpoint.isPresent());
-        Assert.assertEquals(InetAddress.getByName("127.0.0.1"), naturalEndpoint.get());
+        Assert.assertEquals(1, naturalEndpoint.size());
+        Assert.assertEquals(InetAddress.getByName("127.0.0.1"), naturalEndpoint.get(0));
     }
 
-    @Test
-    public void testBaseTokenDoesNotBelongToLocalReplicaShouldReturnEmpty() throws Exception
+    @Test(expected = RuntimeException.class)
+    public void testBaseTokenDoesNotBelongToLocalReplicaShouldThrowException() throws Exception
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
@@ -141,10 +142,9 @@ public class ViewUtilsTest
         KeyspaceMetadata meta = KeyspaceMetadata.create("Keyspace1", KeyspaceParams.create(false, replicationMap));
         Schema.instance.load(meta);
 
-        Optional<InetAddress> naturalEndpoint = ViewUtils.getViewNaturalEndpoint("Keyspace1",
-                                                                       new StringToken("AB"),
-                                                                       new StringToken("BB"));
+        List<InetAddress> naturalEndpoint = ViewUtils.getViewNaturalEndpoint("Keyspace1",
+                                                                             new StringToken("AB"),
+                                                                             new StringToken("BB"));
 
-        Assert.assertFalse(naturalEndpoint.isPresent());
     }
 }
