@@ -19,8 +19,12 @@
 package org.apache.cassandra.service;
 
 import java.net.InetAddress;
+import java.util.Collection;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
+import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.exceptions.WriteFailureException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
@@ -28,18 +32,24 @@ import org.apache.cassandra.net.MessageIn;
 
 public class BatchlogResponseHandler<T> extends AbstractWriteResponseHandler<T>
 {
+    private final AtomicBatchWriter.BatchlogCleanup cleanup;
     AbstractWriteResponseHandler<T> wrapped;
-    BatchlogCleanup cleanup;
-    protected volatile int requiredBeforeFinish;
-    private static final AtomicIntegerFieldUpdater<BatchlogResponseHandler> requiredBeforeFinishUpdater
-            = AtomicIntegerFieldUpdater.newUpdater(BatchlogResponseHandler.class, "requiredBeforeFinish");
+    protected volatile int responsesBeforeAck;
+    private static final AtomicIntegerFieldUpdater<BatchlogResponseHandler> requiredBeforeFinishUpdater = AtomicIntegerFieldUpdater.newUpdater(BatchlogResponseHandler.class, "responsesBeforeAck");
 
-    public BatchlogResponseHandler(AbstractWriteResponseHandler<T> wrapped, int requiredBeforeFinish, BatchlogCleanup cleanup, long queryStartNanoTime)
+    public BatchlogResponseHandler(Keyspace keyspace,
+                                   Collection<InetAddress> naturalEndpoints,
+                                   Collection<InetAddress> pendingEndpoints,
+                                   ConsistencyLevel writeCL,
+                                   ConsistencyLevel batchCL,
+                                   WriteType writeType,
+                                   long queryStartNanoTime,
+                                   AtomicBatchWriter.BatchlogCleanup batchlogCleanup)
     {
-        super(wrapped.keyspace, wrapped.naturalEndpoints, wrapped.pendingEndpoints, wrapped.consistencyLevel, wrapped.callback, wrapped.writeType, queryStartNanoTime);
-        this.wrapped = wrapped;
-        this.requiredBeforeFinish = requiredBeforeFinish;
-        this.cleanup = cleanup;
+        super(keyspace, naturalEndpoints, pendingEndpoints, writeCL, null, writeType, queryStartNanoTime);
+        this.wrapped = keyspace.getReplicationStrategy().getWriteResponseHandler(naturalEndpoints, pendingEndpoints, writeCL, null, writeType, queryStartNanoTime);
+        this.responsesBeforeAck = batchCL.blockFor(keyspace);
+        this.cleanup = batchlogCleanup;
     }
 
     protected int ackCount()
@@ -51,7 +61,7 @@ public class BatchlogResponseHandler<T> extends AbstractWriteResponseHandler<T>
     {
         wrapped.response(msg);
         if (requiredBeforeFinishUpdater.decrementAndGet(this) == 0)
-            cleanup.run();
+            cleanup.ackMutation();
     }
 
     public boolean isLatencyForSnitch()
@@ -92,31 +102,5 @@ public class BatchlogResponseHandler<T> extends AbstractWriteResponseHandler<T>
     protected void signal()
     {
         wrapped.signal();
-    }
-
-    public static class BatchlogCleanup
-    {
-        private final BatchlogCleanupCallback callback;
-
-        protected volatile int mutationsWaitingFor;
-        private static final AtomicIntegerFieldUpdater<BatchlogCleanup> mutationsWaitingForUpdater
-            = AtomicIntegerFieldUpdater.newUpdater(BatchlogCleanup.class, "mutationsWaitingFor");
-
-        public BatchlogCleanup(int mutationsWaitingFor, BatchlogCleanupCallback callback)
-        {
-            this.mutationsWaitingFor = mutationsWaitingFor;
-            this.callback = callback;
-        }
-
-        public void run()
-        {
-            if (mutationsWaitingForUpdater.decrementAndGet(this) == 0)
-                callback.invoke();
-        }
-    }
-
-    public interface BatchlogCleanupCallback
-    {
-        void invoke();
     }
 }

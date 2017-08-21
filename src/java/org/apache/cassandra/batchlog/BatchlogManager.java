@@ -146,6 +146,7 @@ public class BatchlogManager implements BatchlogManagerMBean
         builder.row()
                .timestamp(batch.creationTime)
                .add("version", MessagingService.current_version)
+               .add("is_view_batch", batch.isViewBatch)
                .appendAll("mutations", mutations);
 
         builder.buildAsMutation().apply(durableWrites);
@@ -204,7 +205,7 @@ public class BatchlogManager implements BatchlogManagerMBean
         // There cannot be any live content where token(id) <= token(lastReplayedUuid) as every processed batch is
         // deleted, but the tombstoned content may still be present in the tables. To avoid walking over it we specify
         // token(id) > token(lastReplayedUuid) as part of the query.
-        String query = String.format("SELECT id, mutations, version FROM %s.%s WHERE token(id) > token(?) AND token(id) <= token(?)",
+        String query = String.format("SELECT id, mutations, version, is_view_batch FROM %s.%s WHERE token(id) > token(?) AND token(id) <= token(?)",
                                      SchemaConstants.SYSTEM_KEYSPACE_NAME,
                                      SystemKeyspace.BATCHES);
         UntypedResultSet batches = executeInternalWithPaging(query, pageSize, lastReplayedUuid, limitUuid);
@@ -257,9 +258,10 @@ public class BatchlogManager implements BatchlogManagerMBean
         {
             UUID id = row.getUUID("id");
             int version = row.getInt("version");
+            boolean isViewBatch = row.has("is_view_batch") && row.getBoolean("is_view_batch");
             try
             {
-                ReplayingBatch batch = new ReplayingBatch(id, version, row.getList("mutations", BytesType.instance));
+                ReplayingBatch batch = new ReplayingBatch(id, version, row.getList("mutations", BytesType.instance), isViewBatch);
                 if (batch.replay(rateLimiter, hintedNodes) > 0)
                 {
                     unfinishedBatches.add(batch);
@@ -318,15 +320,17 @@ public class BatchlogManager implements BatchlogManagerMBean
         private final long writtenAt;
         private final List<Mutation> mutations;
         private final int replayedBytes;
+        private final boolean isViewBatch;
 
         private List<ReplayWriteResponseHandler<Mutation>> replayHandlers;
 
-        ReplayingBatch(UUID id, int version, List<ByteBuffer> serializedMutations) throws IOException
+        ReplayingBatch(UUID id, int version, List<ByteBuffer> serializedMutations, boolean isViewBatch) throws IOException
         {
             this.id = id;
             this.writtenAt = UUIDGen.unixTimestamp(id);
             this.mutations = new ArrayList<>(serializedMutations.size());
             this.replayedBytes = addMutations(version, serializedMutations);
+            this.isViewBatch = isViewBatch;
         }
 
         public int replay(RateLimiter rateLimiter, Set<InetAddress> hintedNodes) throws IOException
@@ -340,7 +344,7 @@ public class BatchlogManager implements BatchlogManagerMBean
             if (TimeUnit.MILLISECONDS.toSeconds(writtenAt) + gcgs <= FBUtilities.nowInSeconds())
                 return 0;
 
-            replayHandlers = sendReplays(mutations, writtenAt, hintedNodes);
+            replayHandlers = sendReplays(mutations, writtenAt, hintedNodes, isViewBatch);
 
             rateLimiter.acquire(replayedBytes); // acquire afterwards, to not mess up ttl calculation.
 
@@ -419,12 +423,13 @@ public class BatchlogManager implements BatchlogManagerMBean
 
         private static List<ReplayWriteResponseHandler<Mutation>> sendReplays(List<Mutation> mutations,
                                                                               long writtenAt,
-                                                                              Set<InetAddress> hintedNodes)
+                                                                              Set<InetAddress> hintedNodes,
+                                                                              boolean isViewBatch)
         {
             List<ReplayWriteResponseHandler<Mutation>> handlers = new ArrayList<>(mutations.size());
             for (Mutation mutation : mutations)
             {
-                ReplayWriteResponseHandler<Mutation> handler = sendSingleReplayMutation(mutation, writtenAt, hintedNodes);
+                ReplayWriteResponseHandler<Mutation> handler = sendSingleReplayMutation(mutation, writtenAt, hintedNodes, isViewBatch);
                 if (handler != null)
                     handlers.add(handler);
             }
@@ -439,7 +444,8 @@ public class BatchlogManager implements BatchlogManagerMBean
          */
         private static ReplayWriteResponseHandler<Mutation> sendSingleReplayMutation(final Mutation mutation,
                                                                                      long writtenAt,
-                                                                                     Set<InetAddress> hintedNodes)
+                                                                                     Set<InetAddress> hintedNodes,
+                                                                                     boolean isViewBatch)
         {
             Set<InetAddress> liveEndpoints = new HashSet<>();
             String ks = mutation.getKeyspaceName();
@@ -449,7 +455,10 @@ public class BatchlogManager implements BatchlogManagerMBean
             {
                 if (endpoint.equals(FBUtilities.getBroadcastAddress()))
                 {
-                    mutation.apply();
+                    if (isViewBatch)
+                        mutation.applyFromViewBatch();
+                    else
+                        mutation.apply();
                 }
                 else if (FailureDetector.instance.isAlive(endpoint))
                 {

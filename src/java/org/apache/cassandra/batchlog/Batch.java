@@ -38,26 +38,34 @@ public final class Batch
 
     public final UUID id;
     public final long creationTime; // time of batch creation (in microseconds)
+    public final boolean isViewBatch;
 
     // one of these will always be empty
     final Collection<Mutation> decodedMutations;
     final Collection<ByteBuffer> encodedMutations;
 
-    private Batch(UUID id, long creationTime, Collection<Mutation> decodedMutations, Collection<ByteBuffer> encodedMutations)
+    private Batch(UUID id, long creationTime, Collection<Mutation> decodedMutations, Collection<ByteBuffer> encodedMutations,
+                  boolean isViewBatch)
     {
         this.id = id;
         this.creationTime = creationTime;
 
         this.decodedMutations = decodedMutations;
         this.encodedMutations = encodedMutations;
+        this.isViewBatch = isViewBatch;
     }
 
     /**
      * Creates a 'local' batch - with all enclosed mutations in decoded form (as Mutation instances)
      */
+    public static Batch createLocal(UUID id, long creationTime, Collection<Mutation> mutations, boolean isViewBatch)
+    {
+        return new Batch(id, creationTime, mutations, Collections.emptyList(), isViewBatch);
+    }
+
     public static Batch createLocal(UUID id, long creationTime, Collection<Mutation> mutations)
     {
-        return new Batch(id, creationTime, mutations, Collections.emptyList());
+        return createLocal(id, creationTime, mutations, false);
     }
 
     /**
@@ -67,7 +75,7 @@ public final class Batch
      */
     public static Batch createRemote(UUID id, long creationTime, Collection<ByteBuffer> mutations)
     {
-        return new Batch(id, creationTime, Collections.<Mutation>emptyList(), mutations);
+        return new Batch(id, creationTime, Collections.emptyList(), mutations, false);
     }
 
     /**

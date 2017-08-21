@@ -252,7 +252,10 @@ public class ViewTest extends CQLTester
         createView("mv_static", "CREATE MATERIALIZED VIEW %s AS SELECT val,k,c FROM %%s WHERE val IS NOT NULL AND k IS NOT NULL AND c IS NOT NULL PRIMARY KEY (val,k,c)");
 
         for (int i = 0; i < 100; i++)
+        {
+            logger.info("hoho: " + i);
             updateView("INSERT into %s (k,c,sval,val)VALUES(?,?,?,?)", 0, i % 2, "bar" + i, "baz");
+        }
 
         Assert.assertEquals(2, execute("select * from %s").size());
 
@@ -586,7 +589,6 @@ public class ViewTest extends CQLTester
 
         Assert.assertEquals(1, execute("select * from %s where k = 0 and asciival = 'foo' and bigintval = 0").size());
         Assert.assertEquals(1, execute("select * from %s where k = 0 and asciival = 'foo' and bigintval = 1").size());
-
 
         Assert.assertEquals(2, execute("select * from %s").size());
         Assert.assertEquals(2, execute("select * from mv").size());

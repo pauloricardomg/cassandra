@@ -222,7 +222,7 @@ public class CommitLogReplayer implements CommitLogReadHandler
                     {
                         assert !newMutation.isEmpty();
 
-                        Keyspace.open(newMutation.getKeyspaceName()).apply(newMutation, false, true, false);
+                        Keyspace.open(newMutation.getKeyspaceName()).apply(newMutation, false, true, false, true);
                         commitLogReplayer.keyspacesReplayed.add(keyspace);
                     }
                 }
