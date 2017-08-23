@@ -555,7 +555,7 @@ public class Keyspace
                 viewWriteFutures.ifPresent(futures -> futures.get(futures.size() - 1).baseComplete());
             }
 
-            viewWriteFutures.ifPresent(futures -> futures.stream().forEach(viewWrite -> viewWrite.waitForLocalWrites()));
+            //viewWriteFutures.ifPresent(futures -> futures.stream().forEach(viewWrite -> viewWrite.waitForLocalWrites()));
 
             if (future != null)
                 future.complete(null);
