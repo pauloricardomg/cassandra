@@ -27,15 +27,18 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
 {
     private final DeletionPurger purger;
     private final int nowInSec;
+    private final boolean purgeRowsWithEmptyPkLivenessInfo;
     private boolean isReverseOrder;
 
-    public PurgeFunction(int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones)
+    public PurgeFunction(int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones,
+                         boolean purgeRowsWithEmptyPkLivenessInfo)
     {
         this.nowInSec = nowInSec;
         this.purger = (timestamp, localDeletionTime) ->
                       !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
                       && localDeletionTime < gcBefore
                       && getPurgeEvaluator().test(timestamp);
+        this.purgeRowsWithEmptyPkLivenessInfo = purgeRowsWithEmptyPkLivenessInfo;
     }
 
     protected abstract Predicate<Long> getPurgeEvaluator();
@@ -89,7 +92,10 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
     protected Row applyToRow(Row row)
     {
         updateProgress();
-        return row.purge(purger, nowInSec);
+        Row filteredRow = row.purge(purger, nowInSec);
+        if (purgeRowsWithEmptyPkLivenessInfo && filteredRow.primaryKeyLivenessInfo().isEmpty())
+            return null;
+        return filteredRow;
     }
 
     @Override

@@ -2649,4 +2649,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         return keyspace.getColumnFamilyStore(table.id);
     }
+
+    /**
+     * A table with strict liveness ignore rows without PK liveness info,
+     * effectively tying the row liveness to its primary key liveness.
+     *
+     * Currently this is only be used by views.
+     */
+    public boolean enforceStrictLiveness()
+    {
+        TableMetadata tableMeta = metadata();
+        return tableMeta.isView() && Schema.instance.getView(tableMeta.keyspace, tableMeta.name).enforceStrictLiveness();
+    }
 }

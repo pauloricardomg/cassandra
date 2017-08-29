@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db;
 
+import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.security.MessageDigest;
 
@@ -171,13 +172,26 @@ public class LivenessInfo
      * Whether this liveness information supersedes another one (that is
      * whether is has a greater timestamp than the other or not).
      *
-     * @param other the {@code LivenessInfo} to compare this info to.
+     * </br>
+     *
+     * If timestamps are the same, livenessInfo with greater TTL supersedes another.
+     *
+     * It also means, if timestamps are the same, ttl superseders no-ttl.
+     *
+     * This is the same rule as {@link Conflicts#resolveRegular}
+     *
+     * @param other
+     *            the {@code LivenessInfo} to compare this info to.
      *
      * @return whether this {@code LivenessInfo} supersedes {@code other}.
      */
     public boolean supersedes(LivenessInfo other)
     {
-        return timestamp > other.timestamp;
+        if (timestamp != other.timestamp)
+            return timestamp > other.timestamp;
+        if (isExpiring() == other.isExpiring())
+            return localExpirationTime() > other.localExpirationTime();
+        return isExpiring();
     }
 
     /**
