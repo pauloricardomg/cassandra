@@ -387,12 +387,7 @@ public class ViewTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0), row(0, 0, null, 1));
         assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
 
-//        // drop unselected base column, unselected metadata should be removed, thus view row is dead
-//        updateView("ALTER TABLE %s DROP v2");
-//        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
-//        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
-//        assertRowsIgnoringOrder(execute("SELECT * from %s"));
-//        assertRowsIgnoringOrder(execute("SELECT * from mv"));
+        assertInvalidMessage("Cannot drop column v2 on base table with materialized views", "ALTER TABLE %s DROP v2");
     }
 
     @Test
@@ -447,12 +442,8 @@ public class ViewTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s"), row(1, 1, null, null));
         assertRowsIgnoringOrder(execute("SELECT * from mv"), row(1, 1, null, null));
 
-//        executeNet(protocolVersion, "ALTER TABLE %s DROP m");
-//        ks.getColumnFamilyStore("mv").forceMajorCompaction();
-//        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s WHERE k = 1 AND c = 1"));
-//        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE k = 1 AND c = 1"));
-//        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s"));
-//        assertRowsIgnoringOrder(execute("SELECT * from mv"));
+        assertInvalidMessage("Cannot drop column m on base table with materialized views", "ALTER TABLE %s DROP m");
+
     }
 
     @Test
@@ -801,6 +792,8 @@ public class ViewTest extends CQLTester
             FBUtilities.waitOnFutures(ks.flush());
         assertRowsIgnoringOrder(execute("SELECT k,a,b from mv"), row(1, 1, 2));
         assertRowsIgnoringOrder(execute("SELECT k,a,b from %s"), row(1, 1, 2));
+
+        assertInvalidMessage("Cannot drop column a on base table with materialized views", "ALTER TABLE %s DROP a");
     }
 
     @Test
@@ -1170,7 +1163,6 @@ public class ViewTest extends CQLTester
         Assert.assertEquals(0, execute("select * from %s").size());
         Assert.assertEquals(0, execute("select * from view1").size());
     }
-
 
     @Test
     public void createMvWithUnrestrictedPKParts() throws Throwable
@@ -2495,7 +2487,7 @@ public class ViewTest extends CQLTester
 
         UntypedResultSet.Row row = baseData.get(0);
         UntypedResultSet.Row viewRow = viewData.get(0);
- 
+
 
         Map<String, ByteBuffer> baseValues = new HashMap<>();
         for (int j = 0; j < baseMeta.size(); j++)
