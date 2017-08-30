@@ -405,13 +405,60 @@ public class ViewUpdateGenerator
         }
         else
         {
-            // void using Shadowable tb, use expired liveness instead
-            LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, Integer.MAX_VALUE, nowInSec);
-            currentViewEntryBuilder.addPrimaryKeyLivenessInfo(info);
-            currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
+            if (shouldUseExpiredLivenessForShadowingView(mergedBaseRow))
+            {
+                LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, Integer.MAX_VALUE, nowInSec);
+                currentViewEntryBuilder.addPrimaryKeyLivenessInfo(info);
+                currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
+            }
+            else
+            {
+                DeletionTime dt = new DeletionTime(timestamp, nowInSec);
+                currentViewEntryBuilder.addRowDeletion(Row.Deletion.shadowable(dt));
+            }
         }
         addDifferentCells(existingBaseRow, mergedBaseRow);
         submitUpdate();
+    }
+
+
+    /**
+     * There are two scenarios where we cannot use a shadowable deletion to shadow
+     * a view row since it could potentially causes issues, described below
+     *
+     * TODO: This is a hack and overload of LivenessInfo and we should probably modify
+     * the storage engine to properly support this, but on the meantime this
+     * should be fine because it only happens in some specific scenarios.
+     */
+    private boolean shouldUseExpiredLivenessForShadowingView(Row mergedBaseRow)
+    {
+        /**
+         * When the view has the same pk components as the view, but there is an unselected column in the view,
+         * we may have used the timestamp of this unselected column as view PK liveness
+         * (case 3 of {@link this#computeLivenessInfoForEntry}), but if we emit a shadowable deletion with that
+         * timestamp, it may shadow an update to a selected column with a smaller timestamp. This case is
+         * shown on ViewTest#testPartialDeleteSelectedColumn
+         *
+         * Please note that this will not protect against an update to another unselected column or to the view
+         * PK with a smaller update (this is represented by ViewTest#testPartialDeleteUnselectedColumn).
+         */
+        if (view.getDefinition().hasSamePrimaryKeyColumnsAsBaseTable() &&
+            mergedBaseRow.primaryKeyLivenessInfo().isEmpty() &&
+            !view.getDefinition().includeAllColumns)
+        {
+            return true;
+        }
+
+        /**
+         * A shadowable tombstone cannot replace a previous row deletion otherwise it could ressurrect a
+         * previously deleted cell not updated by a subsequent update.
+         *
+         * These cases are shown by ViewTest#testCommutativeRowDeletion and ViewTest#complexTimestampDeletionTest.
+         *
+         */
+        return !mergedBaseRow.deletion().isLive();
+
+
     }
 
     /**
