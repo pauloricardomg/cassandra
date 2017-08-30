@@ -67,7 +67,6 @@ public class ViewUpdateGenerator
         NONE,            // There was no view entry and none should be added
         NEW_ENTRY,       // There was no entry but there is one post-update
         DELETE_OLD,      // There was an entry but there is nothing after update
-        SHADOW_OLD,      // There was an entry but non-pk base column in view key is removed after update
         UPDATE_EXISTING, // There was an entry and the update modifies it
         SWITCH_ENTRY     // There was an entry and there is still one after update,
                          // but they are not the same one.
@@ -122,17 +121,14 @@ public class ViewUpdateGenerator
                 createEntry(mergedBaseRow);
                 return;
             case DELETE_OLD:
-                deleteOldEntry(existingBaseRow, mergedBaseRow, false);
-                return;
-            case SHADOW_OLD:
-                deleteOldEntry(existingBaseRow, mergedBaseRow, true);
+                deleteOldEntry(existingBaseRow, mergedBaseRow);
                 return;
             case UPDATE_EXISTING:
                 updateEntry(existingBaseRow, mergedBaseRow);
                 return;
             case SWITCH_ENTRY:
                 createEntry(mergedBaseRow);
-                deleteOldEntry(existingBaseRow, mergedBaseRow, true);
+                deleteOldEntry(existingBaseRow, mergedBaseRow);
                 return;
         }
     }
@@ -193,7 +189,7 @@ public class ViewUpdateGenerator
             boolean existingHasLiveData = existingBaseRow != null && existingBaseRow.hasLiveData(nowInSec);
             boolean mergedHasLiveData = mergedBaseRow.hasLiveData(nowInSec);
             return existingHasLiveData
-                 ? (mergedHasLiveData ? UpdateAction.UPDATE_EXISTING : UpdateAction.SHADOW_OLD)
+                 ? (mergedHasLiveData ? UpdateAction.UPDATE_EXISTING : UpdateAction.DELETE_OLD)
                  : (mergedHasLiveData ? UpdateAction.NEW_ENTRY : UpdateAction.NONE);
         }
 
@@ -210,9 +206,7 @@ public class ViewUpdateGenerator
             return isLive(after) ? UpdateAction.NEW_ENTRY : UpdateAction.NONE;
         if (!isLive(after))
         {
-            if (after == null || mergedBaseRow.deletion().time().deletes(after))
-                return UpdateAction.DELETE_OLD;
-            return UpdateAction.SHADOW_OLD;
+            return UpdateAction.DELETE_OLD;
         }
 
         return baseColumn.cellValueType().compare(before.value(), after.value()) == 0
@@ -278,7 +272,7 @@ public class ViewUpdateGenerator
         }
         if (!matchesViewFilter(mergedBaseRow))
         {
-            deleteOldEntryInternal(existingBaseRow, mergedBaseRow, true);
+            deleteOldEntryInternal(existingBaseRow, mergedBaseRow);
             return;
         }
 
@@ -384,38 +378,30 @@ public class ViewUpdateGenerator
      * <p>
      * This method checks that the base row does match the view filter before bothering.
      */
-    private void deleteOldEntry(Row existingBaseRow, Row mergedBaseRow, boolean shadowable)
+    private void deleteOldEntry(Row existingBaseRow, Row mergedBaseRow)
     {
         // Before deleting an old entry, make sure it was matching the view filter (otherwise there is nothing to delete)
         if (!matchesViewFilter(existingBaseRow))
             return;
 
-        deleteOldEntryInternal(existingBaseRow, mergedBaseRow, shadowable);
+        deleteOldEntryInternal(existingBaseRow, mergedBaseRow);
     }
 
-    private void deleteOldEntryInternal(Row existingBaseRow, Row mergedBaseRow, boolean shadowable)
+    private void deleteOldEntryInternal(Row existingBaseRow, Row mergedBaseRow)
     {
         startNewUpdate(existingBaseRow);
         long timestamp = computeTimestampForEntryDeletion(existingBaseRow, mergedBaseRow);
 
-        if (!shadowable)
+        if (shouldUseExpiredLivenessForShadowingView(mergedBaseRow))
         {
-            DeletionTime dt = new DeletionTime(timestamp, nowInSec);
-            currentViewEntryBuilder.addRowDeletion(Row.Deletion.regular(dt));
+            LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, Integer.MAX_VALUE, nowInSec);
+            currentViewEntryBuilder.addPrimaryKeyLivenessInfo(info);
+            currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
         }
         else
         {
-            if (shouldUseExpiredLivenessForShadowingView(mergedBaseRow))
-            {
-                LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, Integer.MAX_VALUE, nowInSec);
-                currentViewEntryBuilder.addPrimaryKeyLivenessInfo(info);
-                currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
-            }
-            else
-            {
-                DeletionTime dt = new DeletionTime(timestamp, nowInSec);
-                currentViewEntryBuilder.addRowDeletion(Row.Deletion.shadowable(dt));
-            }
+            DeletionTime dt = new DeletionTime(timestamp, nowInSec);
+            currentViewEntryBuilder.addRowDeletion(Row.Deletion.shadowable(dt));
         }
         addDifferentCells(existingBaseRow, mergedBaseRow);
         submitUpdate();
