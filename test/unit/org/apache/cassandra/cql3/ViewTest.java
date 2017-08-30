@@ -403,6 +403,12 @@ public class ViewTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0), row(0, 0));
 
         assertInvalidMessage("Cannot drop column v2 on base table with materialized views", "ALTER TABLE %s DROP v2");
+//        // drop unselected base column, unselected metadata should be removed, thus view row is dead
+//        updateView("ALTER TABLE %s DROP v2");
+//        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE c = ? AND p = ?", 0, 0));
+//        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE c = ? AND p = ?", 0, 0));
+//        assertRowsIgnoringOrder(execute("SELECT * from %s"));
+//        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
 
     @Test
@@ -458,7 +464,12 @@ public class ViewTest extends CQLTester
         assertRowsIgnoringOrder(execute("SELECT * from mv"), row(1, 1, null, null));
 
         assertInvalidMessage("Cannot drop column m on base table with materialized views", "ALTER TABLE %s DROP m");
-
+//        executeNet(protocolVersion, "ALTER TABLE %s DROP m");
+//        ks.getColumnFamilyStore("mv").forceMajorCompaction();
+//        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s WHERE k = 1 AND c = 1"));
+//        assertRowsIgnoringOrder(execute("SELECT * from mv WHERE k = 1 AND c = 1"));
+//        assertRowsIgnoringOrder(execute("SELECT k,c,a,b from %s"));
+//        assertRowsIgnoringOrder(execute("SELECT * from mv"));
     }
 
     @Test
