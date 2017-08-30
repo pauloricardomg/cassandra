@@ -232,7 +232,7 @@ public class RowIndexEntryTest extends CQLTester
             builder.add(BufferCell.live(metadata.regularAndStaticColumns().iterator().next(),
                                         1L,
                                         ByteBuffer.allocate(0)));
-            return BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, builder.build(), false);
+            return BTreeRow.create(clustering, primaryKeyLivenessInfo, deletion, builder.build());
         }
     }
 

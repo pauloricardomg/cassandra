@@ -1187,7 +1187,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             final Row.Builder toRemove = BTreeRow.sortedBuilder();
             toRemove.newRow(existing.clustering());
             toRemove.addPrimaryKeyLivenessInfo(existing.primaryKeyLivenessInfo());
-            toRemove.setStrictLiveness(existing.hasStrictLiveness() || updated.hasStrictLiveness());
             toRemove.addRowDeletion(existing.deletion());
             final Row.Builder toInsert = BTreeRow.sortedBuilder();
             toInsert.newRow(updated.clustering());
@@ -1196,7 +1195,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             // diff listener collates the columns to be added & removed from the indexes
             RowDiffListener diffListener = new RowDiffListener()
             {
-                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original, boolean strictLiveness)
+                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
                 {
                 }
 
@@ -1287,13 +1286,10 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
             final Row.Builder[] builders = new Row.Builder[versions.length];
             RowDiffListener diffListener = new RowDiffListener()
             {
-                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original, boolean strictLiveness)
+                public void onPrimaryKeyLivenessInfo(int i, Clustering clustering, LivenessInfo merged, LivenessInfo original)
                 {
                     if (original != null && (merged == null || !merged.isLive(nowInSec)))
-                    {
                         getBuilder(i, clustering).addPrimaryKeyLivenessInfo(original);
-                        getBuilder(i, clustering).setStrictLiveness(strictLiveness);
-                    }
                 }
 
                 public void onDeletion(int i, Clustering clustering, Row.Deletion merged, Row.Deletion original)

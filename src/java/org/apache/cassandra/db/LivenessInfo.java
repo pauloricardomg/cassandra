@@ -177,6 +177,8 @@ public class LivenessInfo
      *
      * It also means, if timestamps are the same, ttl superseders no-ttl.
      *
+     * This is the same rule as {@link Conflicts#resolveRegular}
+     *
      * @param other
      *            the {@code LivenessInfo} to compare this info to.
      *

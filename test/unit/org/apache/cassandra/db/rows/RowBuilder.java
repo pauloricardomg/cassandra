@@ -88,9 +88,4 @@ public class RowBuilder implements Row.Builder
     {
         throw new UnsupportedOperationException();
     }
-
-    public void setStrictLiveness(boolean hasStrictLiveness)
-    {
-
-    }
 }

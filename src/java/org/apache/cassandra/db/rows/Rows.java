@@ -43,7 +43,6 @@ public abstract class Rows
         builder.newRow(row.clustering());
         builder.addPrimaryKeyLivenessInfo(row.primaryKeyLivenessInfo());
         builder.addRowDeletion(row.deletion());
-        builder.setStrictLiveness(row.hasStrictLiveness());
         for (ColumnData cd : row)
         {
             if (cd.column().isSimple())
@@ -142,10 +141,9 @@ public abstract class Rows
             Row input = inputs[i];
             LivenessInfo inputInfo = input == null || input.primaryKeyLivenessInfo().isEmpty() ? null : input.primaryKeyLivenessInfo();
             Row.Deletion inputDeletion = input == null || input.deletion().isLive() ? null : input.deletion();
-            boolean strictLiveness = input == null || input.hasStrictLiveness();
 
             if (mergedInfo != null || inputInfo != null)
-                diffListener.onPrimaryKeyLivenessInfo(i, clustering, mergedInfo, inputInfo, strictLiveness);
+                diffListener.onPrimaryKeyLivenessInfo(i, clustering, mergedInfo, inputInfo);
             if (mergedDeletion != null || inputDeletion != null)
                 diffListener.onDeletion(i, clustering, mergedDeletion, inputDeletion);
         }
@@ -288,7 +286,6 @@ public abstract class Rows
 
         builder.addPrimaryKeyLivenessInfo(mergedInfo);
         builder.addRowDeletion(rowDeletion);
-        builder.setStrictLiveness(existing.hasStrictLiveness());
 
         DeletionTime deletion = rowDeletion.time();
 
@@ -359,7 +356,6 @@ public abstract class Rows
         Row.Deletion rowDeletion = existing.deletion();
         if (!deletion.supersedes(rowDeletion.time()))
             builder.addRowDeletion(rowDeletion);
-        builder.setStrictLiveness(existing.hasStrictLiveness());
 
         Iterator<ColumnData> a = existing.iterator();
         Iterator<ColumnData> b = update.iterator();

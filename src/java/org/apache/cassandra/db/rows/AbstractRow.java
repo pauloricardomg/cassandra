@@ -50,8 +50,7 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
     {
         if (primaryKeyLivenessInfo().isLive(nowInSec))
             return true;
-        else if (hasStrictLiveness())
-            return false;
+
         return Iterables.any(cells(), cell -> cell.isLive(nowInSec));
     }
 
@@ -67,7 +66,7 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
 
         deletion().digest(digest);
         primaryKeyLivenessInfo().digest(digest);
-        // not need to digest hasStrictLiveness. it's the same for the same table
+
         for (ColumnData cd : this)
             cd.digest(digest);
     }

@@ -53,8 +53,6 @@ public class SerializationHelper
 
     private final Map<ByteBuffer, DroppedColumn> droppedColumns;
     private DroppedColumn currentDroppedComplex;
-    private TableMetadata metadata;
-    private final boolean hasStrictLiveness;
 
 
     public SerializationHelper(TableMetadata metadata, int version, Flag flag, ColumnFilter columnsToFetch)
@@ -62,10 +60,7 @@ public class SerializationHelper
         this.flag = flag;
         this.version = version;
         this.columnsToFetch = columnsToFetch;
-        this.metadata = metadata;
         this.droppedColumns = metadata.droppedColumns;
-        this.hasStrictLiveness = metadata.isView()
-                && !Keyspace.open(metadata.keyspace).viewManager.getByName(metadata.name).baseNonPKColumnsInViewPK.isEmpty();
     }
 
     public SerializationHelper(TableMetadata metadata, int version, Flag flag)
@@ -145,10 +140,5 @@ public class SerializationHelper
         return flag == Flag.FROM_REMOTE || (flag == Flag.LOCAL && CounterContext.instance().shouldClearLocal(value))
              ? CounterContext.instance().clearAllLocal(value)
              : value;
-    }
-
-    public boolean hasStrictLiveness()
-    {
-        return hasStrictLiveness;
     }
 }

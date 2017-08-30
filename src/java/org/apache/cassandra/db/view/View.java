@@ -54,7 +54,6 @@ public class View
 
     private final ColumnFamilyStore baseCfs;
 
-    public volatile List<ColumnMetadata> baseNonPKColumnsInViewPK;
 
     private ViewBuilder builder;
 
@@ -86,15 +85,6 @@ public class View
     public void updateDefinition(ViewMetadata definition)
     {
         this.definition = definition;
-
-        List<ColumnMetadata> nonPKDefPartOfViewPK = new ArrayList<>();
-        for (ColumnMetadata baseColumn : baseCfs.metadata().columns())
-        {
-            ColumnMetadata viewColumn = getViewColumn(baseColumn);
-            if (viewColumn != null && !baseColumn.isPrimaryKeyColumn() && viewColumn.isPrimaryKeyColumn())
-                nonPKDefPartOfViewPK.add(baseColumn);
-        }
-        this.baseNonPKColumnsInViewPK = nonPKDefPartOfViewPK;
     }
 
     /**
@@ -267,5 +257,10 @@ public class View
         }
 
         return expressions.stream().collect(Collectors.joining(" AND "));
+    }
+
+    public List<ColumnMetadata> getNonBasePKColumns()
+    {
+        return definition.baseNonPKColumnsInViewPK;
     }
 }
