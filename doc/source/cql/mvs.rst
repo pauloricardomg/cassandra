@@ -171,4 +171,4 @@ MV Limitations
 .. Note:: Removal of columns not selected in the Materialized View (via ``UPDATE base SET unselected_column = null`` or
           ``DELETE unselected_column FROM base``) may shadow missed updates to other columns received by hints or repair.
           For this reason, we advise against doing deletions on base columns not selected in views until this is
-          fixed on CASSANDRA-X.
+          fixed on CASSANDRA-13826.

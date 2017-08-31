@@ -85,7 +85,7 @@ Materialized Views
     - Removal of columns not selected in the Materialized View (via UPDATE base SET unselected_column
       = null or DELETE unselected_column FROM base) may not be properly reflected in the view in some
       situations so we advise against doing deletions on base columns not selected in views
-      until this is fixed on CASSANDRA-X.
+      until this is fixed on CASSANDRA-13826.
 
 3.11.0
 ======
