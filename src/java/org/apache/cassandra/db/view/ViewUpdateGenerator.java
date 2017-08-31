@@ -394,8 +394,12 @@ public class ViewUpdateGenerator
 
         if (shouldUseExpiredLivenessForShadowingView(mergedBaseRow))
         {
-            LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, Integer.MAX_VALUE, nowInSec);
-            currentViewEntryBuilder.addPrimaryKeyLivenessInfo(info);
+            if (timestamp != LivenessInfo.NO_TIMESTAMP
+                    && timestamp != mergedBaseRow.deletion().time().markedForDeleteAt())
+            {
+                LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, Integer.MAX_VALUE, nowInSec);
+                currentViewEntryBuilder.addPrimaryKeyLivenessInfo(info);
+            }
             currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
         }
         else
@@ -428,9 +432,7 @@ public class ViewUpdateGenerator
          * Please note that this will not protect against an update to another unselected column or to the view
          * PK with a smaller update (this is represented by ViewTest#testPartialDeleteUnselectedColumn).
          */
-        if (view.getDefinition().hasSamePrimaryKeyColumnsAsBaseTable() &&
-            mergedBaseRow.primaryKeyLivenessInfo().isEmpty() &&
-            !view.getDefinition().includeAllColumns)
+        if (view.getDefinition().hasSamePrimaryKeyColumnsAsBaseTable())
         {
             return true;
         }

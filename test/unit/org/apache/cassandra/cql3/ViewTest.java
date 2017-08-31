@@ -709,6 +709,60 @@ public class ViewTest extends CQLTester
     }
 
     @Test
+    public void testShouldUseExpiredLivenessForShadowingView() throws Throwable
+    {
+        boolean flush = true;
+        createTable("create table %s (k int, c int, a int, b int, PRIMARY KEY(k, c))");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+        Keyspace ks = Keyspace.open(keyspace());
+
+        createView("mv",
+                   "create materialized view %s as select k,c,b from %%s where c is not null and k is not null primary key (c, k);");
+        ks.getColumnFamilyStore("mv").disableAutoCompaction();
+
+        // sstable-1, Set initial values TS=1
+        updateViewWithFlush("UPDATE %s SET a = 1 WHERE k = 1 AND c = 1;", flush);
+
+        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE k = 1 AND c = 1;"),
+                                row(1, 1, 1, null));
+        assertRowsIgnoringOrder(execute("SELECT k,c,b from mv WHERE k = 1 AND c = 1;"),
+                                row(1, 1, null));
+
+        // sstable-2
+        updateViewWithFlush("INSERT INTO %s(k,c) VALUES(1,1) USING TTL 5", flush);
+
+        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE k = 1 AND c = 1;"),
+                                row(1, 1, 1, null));
+        assertRowsIgnoringOrder(execute("SELECT k,c,b from mv WHERE k = 1 AND c = 1;"),
+                                row(1, 1, null));
+
+        Thread.sleep(5001);
+
+        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE k = 1 AND c = 1;"),
+                                row(1, 1, 1, null));
+        assertRowsIgnoringOrder(execute("SELECT k,c,b from mv WHERE k = 1 AND c = 1;"),
+                                row(1, 1, null));
+
+        // sstable-3
+        // A shadowable tombstone is generated.. it will shadow future updates on selected columns with smaller
+        // timestamp.
+        updateViewWithFlush("Update %s set a = null where k = 1 AND c = 1;", flush);
+
+        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE k = 1 AND c = 1;"));
+        assertRowsIgnoringOrder(execute("SELECT k,c,b from mv WHERE k = 1 AND c = 1;"));
+
+        // sstable-4
+        updateViewWithFlush("Update %s USING TIMESTAMP 1 set b = 1 where k = 1 AND c = 1;", flush);
+
+        assertRowsIgnoringOrder(execute("SELECT * from %s WHERE k = 1 AND c = 1;"),
+                                row(1, 1, null, 1));
+        assertRowsIgnoringOrder(execute("SELECT k,c,b from mv WHERE k = 1 AND c = 1;"),
+                                row(1, 1, 1));
+    }
+
+    @Test
     public void testUpdateWithColumnTimestampSmallerThanPkWithFlush() throws Throwable
     {
         testUpdateWithColumnTimestampSmallerThanPk(true);
