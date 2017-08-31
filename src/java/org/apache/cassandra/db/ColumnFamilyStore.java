@@ -2672,6 +2672,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public boolean enforceStrictLiveness()
     {
         TableMetadata tableMeta = metadata();
-        return tableMeta.isView() && Schema.instance.getView(tableMeta.keyspace, tableMeta.name).enforceStrictLiveness();
+        return tableMeta.isView() && keyspace.viewManager.getByName(name).enforceStrictLiveness();
     }
 }

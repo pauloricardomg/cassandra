@@ -43,7 +43,6 @@ public final class ViewMetadata
 
     public final SelectStatement.RawStatement select;
     public final String whereClause;
-    public final List<ColumnMetadata> baseNonPKColumnsInViewPK;
 
     /**
      * @param name              Name of the view
@@ -67,14 +66,6 @@ public final class ViewMetadata
         this.select = select;
         this.whereClause = whereClause;
         this.metadata = metadata;
-        List<ColumnMetadata> nonPKDefPartOfViewPK = new ArrayList<>();
-        for (ColumnMetadata baseColumn : baseTableMetadata().columns())
-        {
-            ColumnMetadata viewColumn = metadata.getColumn(baseColumn.name);
-            if (viewColumn != null && !baseColumn.isPrimaryKeyColumn() && viewColumn.isPrimaryKeyColumn())
-                nonPKDefPartOfViewPK.add(baseColumn);
-        }
-        this.baseNonPKColumnsInViewPK = nonPKDefPartOfViewPK;
     }
 
     /**
@@ -203,28 +194,5 @@ public final class ViewMetadata
         {
             throw new RuntimeException("Unexpected error parsing materialized view's where clause while handling column rename: ", exc);
         }
-    }
-
-    public boolean hasSamePrimaryKeyColumnsAsBaseTable()
-    {
-        return baseNonPKColumnsInViewPK.isEmpty();
-    }
-
-    /**
-     * When views contains a primary key column that is not part
-     * of the base table primary key, we use that column liveness
-     * info as the view PK, to ensure that whenever that column
-     * is not live in the base, the row is not live in the view.
-     *
-     * This is done to prevent cells other than the view PK from
-     * making the view row alive when the view PK column is not
-     * live in the base. So in this case we tie the row liveness,
-     * to the primary key liveness.
-     *
-     * See CASSANDRA-11500 for context.
-     */
-    public boolean enforceStrictLiveness()
-    {
-        return !baseNonPKColumnsInViewPK.isEmpty();
     }
 }

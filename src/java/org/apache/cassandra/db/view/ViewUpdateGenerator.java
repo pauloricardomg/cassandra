@@ -179,9 +179,9 @@ public class ViewUpdateGenerator
             }
         }
 
-        assert view.getNonBasePKColumns().size() <= 1 : "We currently only support one base non-PK column in the view PK";
+        assert view.baseNonPKColumnsInViewPK.size() <= 1 : "We currently only support one base non-PK column in the view PK";
 
-        if (view.getNonBasePKColumns().isEmpty())
+        if (view.baseNonPKColumnsInViewPK.isEmpty())
         {
             // The view entry is necessarily the same pre and post update.
 
@@ -193,7 +193,7 @@ public class ViewUpdateGenerator
                  : (mergedHasLiveData ? UpdateAction.NEW_ENTRY : UpdateAction.NONE);
         }
 
-        ColumnMetadata baseColumn = view.getNonBasePKColumns().get(0);
+        ColumnMetadata baseColumn = view.baseNonPKColumnsInViewPK.get(0);
         assert !baseColumn.isComplex() : "A complex column couldn't be part of the view PK";
         Cell before = existingBaseRow == null ? null : existingBaseRow.getCell(baseColumn);
         Cell after = mergedBaseRow.getCell(baseColumn);
@@ -393,8 +393,8 @@ public class ViewUpdateGenerator
         long timestamp = computeTimestampForEntryDeletion(existingBaseRow, mergedBaseRow);
         long rowDeletion = mergedBaseRow.deletion().time().markedForDeleteAt();
         assert timestamp >= rowDeletion;
-        
-        // If computed deletion timestamp greater than row deletion, it must be coming from 
+
+        // If computed deletion timestamp greater than row deletion, it must be coming from
         //  1. non-pk base column used in view pk, or
         //  2. unselected base column
         //  any case, we need to use it as expired livenessInfo
@@ -454,11 +454,11 @@ public class ViewUpdateGenerator
          *     row alive with a smaller or equal timestamp than the max unselected column timestamp.
          *
          */
-        assert view.getNonBasePKColumns().size() <= 1; // This may change, but is currently an enforced limitation
+        assert view.baseNonPKColumnsInViewPK.size() <= 1; // This may change, but is currently an enforced limitation
 
         LivenessInfo baseLiveness = baseRow.primaryKeyLivenessInfo();
 
-        if (view.getDefinition().hasSamePrimaryKeyColumnsAsBaseTable())
+        if (view.hasSamePrimaryKeyColumnsAsBaseTable())
         {
             if (view.getDefinition().includeAllColumns)
                 return baseLiveness;
@@ -497,7 +497,7 @@ public class ViewUpdateGenerator
             return baseLiveness;
         }
 
-        Cell cell = baseRow.getCell(view.getNonBasePKColumns().get(0));
+        Cell cell = baseRow.getCell(view.baseNonPKColumnsInViewPK.get(0));
         assert isLive(cell) : "We shouldn't have got there if the base row had no associated entry";
 
         return LivenessInfo.withExpirationTime(cell.timestamp(), cell.ttl(), cell.localDeletionTime());
@@ -506,7 +506,7 @@ public class ViewUpdateGenerator
     private long computeTimestampForEntryDeletion(Row existingBaseRow, Row mergedBaseRow)
     {
         DeletionTime deletion = mergedBaseRow.deletion().time();
-        if (view.getDefinition().hasSamePrimaryKeyColumnsAsBaseTable())
+        if (view.hasSamePrimaryKeyColumnsAsBaseTable())
         {
             long timestamp = Math.max(deletion.markedForDeleteAt(), existingBaseRow.primaryKeyLivenessInfo().timestamp());
             if (view.getDefinition().includeAllColumns)
@@ -523,7 +523,7 @@ public class ViewUpdateGenerator
             return timestamp;
         }
         // has base non-pk column in view pk
-        Cell before = existingBaseRow.getCell(view.getNonBasePKColumns().get(0));
+        Cell before = existingBaseRow.getCell(view.baseNonPKColumnsInViewPK.get(0));
         assert isLive(before) : "We shouldn't have got there if the base row had no associated entry";
         return deletion.deletes(before) ? deletion.markedForDeleteAt() : before.timestamp();
     }

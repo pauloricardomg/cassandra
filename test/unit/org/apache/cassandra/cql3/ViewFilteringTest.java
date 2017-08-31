@@ -84,7 +84,7 @@ public class ViewFilteringTest extends CQLTester
         views.remove(name);
     }
 
-    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-11500
+    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-13826
     @Ignore
     @Test
     public void testViewFilteringWithFlush() throws Throwable
@@ -92,7 +92,7 @@ public class ViewFilteringTest extends CQLTester
         testViewFiltering(true);
     }
 
-    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-11500
+    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-13826
     @Ignore
     @Test
     public void testViewFilteringWithoutFlush() throws Throwable
@@ -308,7 +308,7 @@ public class ViewFilteringTest extends CQLTester
         dropTable("DROP TABLE %s");
     }
 
-    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-11500
+    // TODO will revise the non-pk filter condition in MV, see CASSANDRA-13826
     @Ignore
     @Test
     public void testMVFilteringWithComplexColumn() throws Throwable

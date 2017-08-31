@@ -54,6 +54,7 @@ public class View
 
     private final ColumnFamilyStore baseCfs;
 
+    public volatile List<ColumnMetadata> baseNonPKColumnsInViewPK;
 
     private ViewBuilder builder;
 
@@ -85,6 +86,14 @@ public class View
     public void updateDefinition(ViewMetadata definition)
     {
         this.definition = definition;
+        List<ColumnMetadata> nonPKDefPartOfViewPK = new ArrayList<>();
+        for (ColumnMetadata baseColumn : baseCfs.metadata().columns())
+        {
+            ColumnMetadata viewColumn = getViewColumn(baseColumn);
+            if (viewColumn != null && !baseColumn.isPrimaryKeyColumn() && viewColumn.isPrimaryKeyColumn())
+                nonPKDefPartOfViewPK.add(baseColumn);
+        }
+        this.baseNonPKColumnsInViewPK = nonPKDefPartOfViewPK;
     }
 
     /**
@@ -259,8 +268,26 @@ public class View
         return expressions.stream().collect(Collectors.joining(" AND "));
     }
 
-    public List<ColumnMetadata> getNonBasePKColumns()
+    public boolean hasSamePrimaryKeyColumnsAsBaseTable()
     {
-        return definition.baseNonPKColumnsInViewPK;
+        return baseNonPKColumnsInViewPK.isEmpty();
+    }
+
+    /**
+     * When views contains a primary key column that is not part
+     * of the base table primary key, we use that column liveness
+     * info as the view PK, to ensure that whenever that column
+     * is not live in the base, the row is not live in the view.
+     *
+     * This is done to prevent cells other than the view PK from
+     * making the view row alive when the view PK column is not
+     * live in the base. So in this case we tie the row liveness,
+     * to the primary key liveness.
+     *
+     * See CASSANDRA-11500 for context.
+     */
+    public boolean enforceStrictLiveness()
+    {
+        return !baseNonPKColumnsInViewPK.isEmpty();
     }
 }

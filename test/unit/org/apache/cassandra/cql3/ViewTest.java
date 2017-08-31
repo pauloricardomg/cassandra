@@ -81,7 +81,7 @@ public class ViewTest extends CQLTester
             executeNet(protocolVersion, "DROP MATERIALIZED VIEW " + viewName);
     }
 
-    // for now, unselected column cannot be fully supported, SEE CASSANDRA-11500
+    // for now, unselected column cannot be fully supported, SEE CASSANDRA-13826
     @Ignore
     @Test
     public void testPartialDeleteUnselectedColumn() throws Throwable
@@ -2402,8 +2402,8 @@ public class ViewTest extends CQLTester
             Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
 
         assertRows(execute("SELECT count(*) FROM mv_test"), row(1024L));
-    } 
-    
+    }
+
     @Test
     public void testMVWithDifferentColumnsWithFlush() throws Throwable
     {
