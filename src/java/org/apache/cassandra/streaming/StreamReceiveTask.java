@@ -186,9 +186,8 @@ public class StreamReceiveTask extends StreamTask
                 {
                     while (scanner.hasNext())
                     {
-                        try (UnfilteredRowIterator rowIterator = scanner.next();)
+                        try (ThrottledUnfilteredIterator throttled = new ThrottledUnfilteredIterator(scanner.next(), ROW_COUNT))
                         {
-                            ThrottledUnfilteredIterator throttled = new ThrottledUnfilteredIterator(rowIterator, ROW_COUNT);
                             while (throttled.hasNext())
                             {
                                 // MV *can* be applied unsafe if there's no CDC on the CFS as we flush

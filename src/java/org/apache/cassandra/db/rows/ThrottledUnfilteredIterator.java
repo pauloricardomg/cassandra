@@ -27,17 +27,17 @@ import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.utils.AbstractIterator;
 
 /**
- * A utility class to split the given {@link#UnfilteredRowIterator} into smaller chunks each 
- * having at most {@link #throttle} + 1 unfiltereds. Only the first output contains partition 
+ * A utility class to split the given {@link#UnfilteredRowIterator} into smaller chunks each
+ * having at most {@link #throttle} + 1 unfiltereds. Only the first output contains partition
  * level info: {@link UnfilteredRowIterator#partitionLevelDeletion} and {@link UnfilteredRowIterator#staticRow}
- * 
+ *
  * The lifecycle of outputed {{@link UnfilteredRowIterator} only last till next call to {@link #next()},
  * It must be exhausted before calling another {@link #next()}
- * 
+ *
  * The given iterator should be closed by caller.
- * 
+ *
  */
-public class ThrottledUnfilteredIterator extends AbstractIterator<UnfilteredRowIterator>
+public class ThrottledUnfilteredIterator extends AbstractIterator<UnfilteredRowIterator> implements AutoCloseable
 {
     private final UnfilteredRowIterator origin;
     private final int throttle;
@@ -186,5 +186,10 @@ public class ThrottledUnfilteredIterator extends AbstractIterator<UnfilteredRowI
             }
         };
         return throttledItr;
+    }
+
+    public void close()
+    {
+        origin.close();
     }
 }
