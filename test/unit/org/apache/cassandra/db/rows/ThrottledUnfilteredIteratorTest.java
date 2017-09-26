@@ -18,33 +18,69 @@
 
 package org.apache.cassandra.db.rows;
 
+import static org.apache.cassandra.SchemaLoader.standardCFMD;
 import static org.junit.Assert.*;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
+
+import com.google.common.collect.Iterators;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.UpdateBuilder;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.AbstractReadCommandBuilder;
 import org.apache.cassandra.db.BufferDecoratedKey;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.ReadCommand;
+import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.RegularAndStaticColumns;
+import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.db.partitions.AbstractUnfilteredPartitionIterator;
+import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
+import org.apache.cassandra.db.partitions.Partition;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.ColumnMetadata;
+import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CloseableIterator;
+import org.apache.cassandra.utils.FBUtilities;
 
 public class ThrottledUnfilteredIteratorTest extends CQLTester
 {
+    private static final String KSNAME = "ThrottledUnfilteredIteratorTest";
+    private static final String CFNAME = "StandardInteger1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        SchemaLoader.prepareServer();
+        SchemaLoader.createKeyspace(KSNAME,
+                                    KeyspaceParams.simple(1),
+                                    standardCFMD(KSNAME, CFNAME, 1, UTF8Type.instance, Int32Type.instance, Int32Type.instance));
+    }
+
     static final TableMetadata metadata;
     static final ColumnMetadata v1Metadata;
     static final ColumnMetadata v2Metadata;
@@ -109,12 +145,12 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
                 rowIterator.forEachRemaining(expectedUnfiltereds::add);
 
                 // test different throttle
-                for (Integer throttle : Arrays.asList(1, 2, 3, 4, 5, 11, 41, 99, 1000, 10001))
+                for (Integer throttle : Arrays.asList(2, 3, 4, 5, 11, 41, 99, 1000, 10001))
                 {
-                    try (ISSTableScanner scannerForThrottle = reader.getScanner();)
+                    try (ISSTableScanner scannerForThrottle = reader.getScanner())
                     {
                         assertTrue(scannerForThrottle.hasNext());
-                        try (UnfilteredRowIterator rowIteratorForThrottle = scannerForThrottle.next();)
+                        try (UnfilteredRowIterator rowIteratorForThrottle = scannerForThrottle.next())
                         {
                             assertFalse(scannerForThrottle.hasNext());
                             verifyThrottleIterator(expectedUnfiltereds,
@@ -144,6 +180,7 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
             assertMetadata(rowIteratorForThrottle, splittedIterator, isFirst);
 
             List<Unfiltered> splittedUnfiltereds = new ArrayList<>();
+
             splittedIterator.forEachRemaining(splittedUnfiltereds::add);
 
             int remain = expectedUnfiltereds.size() - output.size();
@@ -229,6 +266,17 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
     @Test
     public void simpleThrottleTest()
     {
+        simpleThrottleTest(false);
+    }
+
+    @Test
+    public void skipTest()
+    {
+        simpleThrottleTest(true);
+    }
+
+    public void simpleThrottleTest(boolean skipOdd)
+    {
         // all live rows with partition deletion
         ThrottledUnfilteredIterator throttledIterator;
         UnfilteredRowIterator origin;
@@ -240,7 +288,7 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
             rows.add(createRow(i, createCell(v1Metadata, i), createCell(v2Metadata, i)));
 
         // testing different throttle limit
-        for (int throttle = 1; throttle < 1200; throttle += 21)
+        for (int throttle = 2; throttle < 1200; throttle += 21)
         {
             origin = rows(metadata.regularAndStaticColumns(),
                           1,
@@ -259,10 +307,106 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
 
                 int start = (i - 1) * throttle;
                 int end = i == splittedCount ? rowCount : i * throttle;
-                assertRows(splitted, rows.subList(start, end).toArray(new Row[0]));
+                if (skipOdd && (i % 2) == 0)
+                {
+                    assertRows(splitted, rows.subList(start, end).toArray(new Row[0]));
+                }
             }
             assertTrue(!throttledIterator.hasNext());
         }
+    }
+
+    @Test
+    public void throttledPartitionIteratorTest()
+    {
+        // all live rows with partition deletion
+        CloseableIterator<UnfilteredRowIterator> throttledIterator;
+        UnfilteredPartitionIterator origin;
+
+        SortedMap<Integer, List<Row>> partitions = new TreeMap<>();
+        int partitionCount = 13;
+        int baseRowsPerPartition = 1111;
+
+        for (int i = 1; i <= partitionCount; i++)
+        {
+            ArrayList<Row> rows = new ArrayList<>();
+            for (int j = 0; j < (baseRowsPerPartition + i); j++)
+                rows.add(createRow(i, createCell(v1Metadata, j), createCell(v2Metadata, j)));
+            partitions.put(i, rows);
+        }
+
+        // testing different throttle limit
+        for (int throttle = 2; throttle < 1200; throttle += 21)
+        {
+            origin = partitions(metadata.regularAndStaticColumns(),
+                                new DeletionTime(0, 100),
+                                Rows.EMPTY_STATIC_ROW,
+                                partitions);
+            throttledIterator = ThrottledUnfilteredIterator.throttle(origin, throttle);
+
+            int currentPartition = 0;
+            int rowsInPartition = 0;
+            int expectedSplitCount = 0;
+            int currentSplit = 1;
+            while (throttledIterator.hasNext())
+            {
+                UnfilteredRowIterator splitted = throttledIterator.next();
+                if (currentSplit > expectedSplitCount)
+                {
+                    currentPartition++;
+                    rowsInPartition = partitions.get(currentPartition).size();
+                    expectedSplitCount = (int) Math.ceil(rowsInPartition * 1.0 / throttle);
+                    currentSplit = 1;
+                }
+                UnfilteredRowIterator current = rows(metadata.regularAndStaticColumns(),
+                                                     currentPartition,
+                                                     new DeletionTime(0, 100),
+                                                     Rows.EMPTY_STATIC_ROW,
+                                                     partitions.get(currentPartition).toArray(new Row[0]));
+                assertMetadata(current, splitted, currentSplit == 1);
+                // no op
+                splitted.close();
+
+                int start = (currentSplit - 1) * throttle;
+                int end = currentSplit == expectedSplitCount ? rowsInPartition : currentSplit * throttle;
+                assertRows(splitted, partitions.get(currentPartition).subList(start, end).toArray(new Row[0]));
+                currentSplit++;
+            }
+        }
+
+
+        origin = partitions(metadata.regularAndStaticColumns(),
+                            new DeletionTime(0, 100),
+                            Rows.EMPTY_STATIC_ROW,
+                            partitions);
+        try
+        {
+            try (CloseableIterator<UnfilteredRowIterator> throttled = ThrottledUnfilteredIterator.throttle(origin, 10))
+            {
+                int i = 0;
+                while (throttled.hasNext())
+                {
+                    assertEquals(dk(1), throttled.next().partitionKey());
+                    if (i++ == 10)
+                    {
+                        throw new RuntimeException("Dummy exception");
+                    }
+                }
+                fail("Should not reach here");
+            }
+        }
+        catch (RuntimeException rte)
+        {
+            int iteratedPartitions = 2;
+            while (iteratedPartitions <= partitionCount)
+            {
+                // check that original iterator was not closed
+                assertTrue(origin.hasNext());
+                // check it's possible to fetch second partition from original iterator
+                assertEquals(dk(iteratedPartitions++), origin.next().partitionKey());
+            }
+        }
+
     }
 
     private void assertMetadata(UnfilteredRowIterator origin, UnfilteredRowIterator splitted, boolean isFirst)
@@ -275,13 +419,13 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
 
         if (isFirst)
         {
-            assertEquals(splitted.partitionLevelDeletion(), origin.partitionLevelDeletion());
-            assertEquals(splitted.staticRow(), origin.staticRow());
+            assertEquals(origin.partitionLevelDeletion(), splitted.partitionLevelDeletion());
+            assertEquals(origin.staticRow(), splitted.staticRow());
         }
         else
         {
-            assertEquals(splitted.partitionLevelDeletion(), DeletionTime.LIVE);
-            assertEquals(splitted.staticRow(), Rows.EMPTY_STATIC_ROW);
+            assertEquals(DeletionTime.LIVE, splitted.partitionLevelDeletion());
+            assertEquals(Rows.EMPTY_STATIC_ROW, splitted.staticRow());
         }
     }
 
@@ -315,6 +459,38 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
         };
     }
 
+    private static UnfilteredPartitionIterator partitions(RegularAndStaticColumns columns,
+                                                          DeletionTime partitionDeletion,
+                                                          Row staticRow,
+                                                          SortedMap<Integer, List<Row>> partitions)
+    {
+        Iterator<Map.Entry<Integer, List<Row>>> partitionIt = partitions.entrySet().iterator();
+        return new AbstractUnfilteredPartitionIterator() {
+            public boolean hasNext()
+            {
+                return partitionIt.hasNext();
+            }
+
+            public UnfilteredRowIterator next()
+            {
+                Map.Entry<Integer, List<Row>> next = partitionIt.next();
+                Iterator<Row> rowsIterator = next.getValue().iterator();
+                return new AbstractUnfilteredRowIterator(metadata, dk(next.getKey()), partitionDeletion, columns, staticRow, false, EncodingStats.NO_STATS) {
+                    protected Unfiltered computeNext()
+                    {
+                        return rowsIterator.hasNext() ? rowsIterator.next() : endOfData();
+                    }
+                };
+            }
+
+            public TableMetadata metadata()
+            {
+                return metadata;
+            }
+        };
+    }
+
+
     private static Row createRow(int ck, Cell... columns)
     {
         return createRow(ck, ck, columns);
@@ -342,5 +518,93 @@ public class ThrottledUnfilteredIteratorTest extends CQLTester
                               localDeletionTime,
                               ByteBufferUtil.bytes(v),
                               null);
+    }
+
+    @Test
+    public void testThrottledIteratorWithRangeDeletions() throws Exception
+    {
+        Keyspace keyspace = Keyspace.open(KSNAME);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CFNAME);
+
+        // Inserting data
+        String key = "k1";
+
+        UpdateBuilder builder;
+
+        builder = UpdateBuilder.create(cfs.metadata(), key).withTimestamp(0);
+        for (int i = 0; i < 40; i += 2)
+            builder.newRow(i).add("val", i);
+        builder.applyUnsafe();
+
+        new RowUpdateBuilder(cfs.metadata(), 1, key).addRangeTombstone(10, 22).build().applyUnsafe();
+
+        cfs.forceBlockingFlush();
+
+        builder = UpdateBuilder.create(cfs.metadata(), key).withTimestamp(2);
+        for (int i = 1; i < 40; i += 2)
+            builder.newRow(i).add("val", i);
+        builder.applyUnsafe();
+
+        new RowUpdateBuilder(cfs.metadata(), 3, key).addRangeTombstone(19, 27).build().applyUnsafe();
+        // We don't flush to test with both a range tomsbtone in memtable and in sstable
+
+        // Queries by name
+        int[] live = new int[]{ 4, 9, 11, 17, 28 };
+        int[] dead = new int[]{ 12, 19, 21, 24, 27 };
+
+        AbstractReadCommandBuilder.PartitionRangeBuilder cmdBuilder = Util.cmd(cfs);
+
+        ReadCommand cmd = cmdBuilder.build();
+
+        for (int batchSize = 2; batchSize <= 40; batchSize++)
+        {
+            List<UnfilteredRowIterator> unfilteredRowIterators = new LinkedList<>();
+
+            try (ReadExecutionController executionController = cmd.executionController();
+                 UnfilteredPartitionIterator iterator = cmd.executeLocally(executionController))
+            {
+                assertTrue(iterator.hasNext());
+                ThrottledUnfilteredIterator throttled = new ThrottledUnfilteredIterator(iterator.next(), batchSize);
+                while (throttled.hasNext())
+                {
+                    UnfilteredRowIterator next = throttled.next();
+                    ImmutableBTreePartition materializedPartition = ImmutableBTreePartition.create(next);
+                    int unfilteredCount = Iterators.size(materializedPartition.unfilteredIterator());
+
+                    System.out.println("batchsize " + batchSize + " unfilteredCount " + unfilteredCount + " materializedPartition " + materializedPartition);
+
+                    if (throttled.hasNext())
+                    {
+                        if (unfilteredCount != batchSize)
+                        {
+                            //when there is extra unfiltered, it must be close bound marker
+                            assertEquals(batchSize + 1, unfilteredCount);
+                            Unfiltered last = Iterators.getLast(materializedPartition.unfilteredIterator());
+                            assertTrue(last.isRangeTombstoneMarker());
+                            RangeTombstoneMarker marker = (RangeTombstoneMarker) last;
+                            assertFalse(marker.isBoundary());
+                            assertTrue(marker.isClose(false));
+                        }
+                    }
+                    else
+                    {
+                        //only last batch can be smaller than batchSize
+                        assertTrue(unfilteredCount <= batchSize + 1);
+                    }
+                    unfilteredRowIterators.add(materializedPartition.unfilteredIterator());
+                }
+                assertFalse(iterator.hasNext());
+            }
+
+            // Verify throttled data after merge
+            Partition partition = ImmutableBTreePartition.create(UnfilteredRowIterators.merge(unfilteredRowIterators, FBUtilities.nowInSeconds()));
+
+            int nowInSec = FBUtilities.nowInSeconds();
+
+            for (int i : live)
+                assertTrue("Row " + i + " should be live", partition.getRow(Clustering.make(ByteBufferUtil.bytes((i)))).hasLiveData(nowInSec));
+            for (int i : dead)
+                assertFalse("Row " + i + " shouldn't be live", partition.getRow(Clustering.make(ByteBufferUtil.bytes((i)))).hasLiveData(nowInSec));
+        }
     }
 }
