@@ -26,8 +26,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.base.Function;
+import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
+import com.google.common.util.concurrent.Futures;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +42,7 @@ import org.apache.cassandra.db.ReadQuery;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionInfo;
+import org.apache.cassandra.db.compaction.CompactionInterruptedException;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
@@ -68,6 +71,7 @@ public class ViewBuilderTask extends CompactionInfo.Holder implements Callable<L
     private volatile Token prevToken;
     private volatile long keysBuilt = 0;
     private volatile boolean isStopped = false;
+    private volatile boolean isCompactionInterrupted = false;
 
     ViewBuilderTask(ColumnFamilyStore baseCfs, View view, Range<Token> range, Token lastToken, long keysBuilt)
     {
@@ -167,6 +171,11 @@ public class ViewBuilderTask extends CompactionInfo.Holder implements Callable<L
         else
         {
             logger.debug("Stopped build for view({}.{}) for range {} after covering {} keys", ksName, view.name, range, keysBuilt);
+
+            // If it's stopped due to a compaction interruption we should throw that exception.
+            // Otherwise we assume that the task has been stopped due to a schema update and we can finish successfully.
+            if (isCompactionInterrupted)
+                throw new StoppedException(ksName, view.name, getCompactionInfo());
         }
     }
 
@@ -189,6 +198,53 @@ public class ViewBuilderTask extends CompactionInfo.Holder implements Callable<L
     @Override
     public void stop()
     {
+        stop(true);
+    }
+
+    synchronized void stop(boolean isCompactionInterrupted)
+    {
         isStopped = true;
+        this.isCompactionInterrupted = isCompactionInterrupted;
+    }
+
+    long keysBuilt()
+    {
+        return keysBuilt;
+    }
+
+    /**
+     * {@link CompactionInterruptedException} with {@link Object#equals(Object)} and {@link Object#hashCode()}
+     * implementations that consider equals all the exceptions produced by the same view build, independently of their
+     * token range.
+     * <p>
+     * This is used to avoid Guava's {@link Futures#allAsList(Iterable)} log spamming when multiple build tasks fail
+     * due to compaction interruption.
+     */
+    static class StoppedException extends CompactionInterruptedException
+    {
+        private final String ksName, viewName;
+
+        private StoppedException(String ksName, String viewName, CompactionInfo info)
+        {
+            super(info);
+            this.ksName = ksName;
+            this.viewName = viewName;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (!(o instanceof StoppedException))
+                return false;
+
+            StoppedException that = (StoppedException) o;
+            return Objects.equal(this.ksName, that.ksName) && Objects.equal(this.viewName, that.viewName);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return 31 * ksName.hashCode() + viewName.hashCode();
+        }
     }
 }

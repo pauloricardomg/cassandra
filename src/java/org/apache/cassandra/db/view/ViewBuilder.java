@@ -39,6 +39,7 @@ import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.compaction.CompactionInterruptedException;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -184,8 +185,17 @@ class ViewBuilder
 
             public void onFailure(Throwable t)
             {
-                ScheduledExecutors.nonPeriodicTasks.schedule(() -> loadStatusAndBuild(), 5, TimeUnit.MINUTES);
-                logger.warn("Materialized View failed to complete, sleeping 5 minutes before restarting", t);
+                if (t instanceof CompactionInterruptedException)
+                {
+                    isStopped = true;
+                    keysBuilt = tasks.stream().mapToLong(ViewBuilderTask::keysBuilt).sum();
+                    logger.info("Interrupted build for view({}.{}) after covering {} keys", ksName, view.name, keysBuilt);
+                }
+                else
+                {
+                    ScheduledExecutors.nonPeriodicTasks.schedule(() -> loadStatusAndBuild(), 5, TimeUnit.MINUTES);
+                    logger.warn("Materialized View failed to complete, sleeping 5 minutes before restarting", t);
+                }
             }
         }, MoreExecutors.directExecutor());
         this.future = future;
@@ -217,8 +227,10 @@ class ViewBuilder
      */
     synchronized void stop()
     {
+        boolean wasStopped = isStopped;
         isStopped = true;
-        tasks.forEach(ViewBuilderTask::stop);
-        FBUtilities.waitOnFuture(future);
+        tasks.forEach(task -> task.stop(false));
+        if (!wasStopped)
+            FBUtilities.waitOnFuture(future);
     }
 }
