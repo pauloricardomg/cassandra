@@ -23,12 +23,15 @@ import java.util.List;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
+import org.apache.cassandra.service.StorageService;
+
 public class DiskBoundaries
 {
     public final List<Directories.DataDirectory> directories;
     public final ImmutableList<PartitionPosition> positions;
     final long ringVersion;
     final int directoriesVersion;
+    private volatile boolean isInvalid = false;
 
     @VisibleForTesting
     public DiskBoundaries(Directories.DataDirectory[] directories, List<PartitionPosition> positions, long ringVersion, int diskVersion)
@@ -69,5 +72,22 @@ public class DiskBoundaries
                ", ringVersion=" + ringVersion +
                ", directoriesVersion=" + directoriesVersion +
                '}';
+    }
+
+    /**
+     * check if the given disk boundaries are out of date due not being set or to having too old diskVersion/ringVersion
+     */
+    public boolean isOutOfDate()
+    {
+        if (isInvalid)
+            return true;
+        long currentRingVersion = StorageService.instance.getTokenMetadata().getRingVersion();
+        int currentDiskVersion = BlacklistedDirectories.getDirectoriesVersion();
+        return currentRingVersion != ringVersion || currentDiskVersion != directoriesVersion;
+    }
+
+    public void invalidate()
+    {
+        this.isInvalid = true;
     }
 }
