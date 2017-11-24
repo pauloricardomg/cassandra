@@ -239,19 +239,6 @@ public abstract class AbstractCompactionStrategy
     }
 
     /**
-     * Handle a flushed memtable.
-     *
-     * @param memtable the flushed memtable
-     * @param sstables the written sstables. can be null or empty if the memtable was clean.
-     */
-    public void replaceFlushed(Memtable memtable, Collection<SSTableReader> sstables)
-    {
-        cfs.getTracker().replaceFlushed(memtable, sstables);
-        if (sstables != null && !sstables.isEmpty())
-            CompactionManager.instance.submitBackground(cfs);
-    }
-
-    /**
      * Filters SSTables that are to be blacklisted from the given collection
      *
      * @param originalCandidates The collection to check for blacklisted SSTables

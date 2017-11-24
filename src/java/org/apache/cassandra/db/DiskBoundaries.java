@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 
 import java.util.List;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 public class DiskBoundaries
@@ -29,7 +30,8 @@ public class DiskBoundaries
     final long ringVersion;
     final int directoriesVersion;
 
-    DiskBoundaries(Directories.DataDirectory[] directories, List<PartitionPosition> positions, long ringVersion, int diskVersion)
+    @VisibleForTesting
+    public DiskBoundaries(Directories.DataDirectory[] directories, List<PartitionPosition> positions, long ringVersion, int diskVersion)
     {
         this.directories = directories == null ? null : ImmutableList.copyOf(directories);
         this.positions = positions == null ? null : ImmutableList.copyOf(positions);
