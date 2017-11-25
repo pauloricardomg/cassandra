@@ -217,7 +217,7 @@ public class CompactionStrategyManager implements INotificationConsumer
      * @param sstable
      * @return
      */
-    public AbstractCompactionStrategy getCompactionStrategyFor(SSTableReader sstable)
+    protected AbstractCompactionStrategy getCompactionStrategyFor(SSTableReader sstable)
     {
         readLock.lock();
         try
@@ -245,7 +245,7 @@ public class CompactionStrategyManager implements INotificationConsumer
      * @param sstable
      * @return
      */
-    public int getCompactionStrategyIndex(SSTableReader sstable)
+    private int getCompactionStrategyIndex(SSTableReader sstable)
     {
         //We only have a single compaction strategy when sstables are not
         //partitioned by token range
