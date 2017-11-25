@@ -117,7 +117,7 @@ public class CompactionStrategyManager implements INotificationConsumer
      */
     public AbstractCompactionTask getNextBackgroundTask(int gcBefore)
     {
-        maybeReload(cfs.metadata);
+        maybeReload();
         readLock.lock();
         try
         {
@@ -297,15 +297,19 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
+    /**
+     * @deprecated use {@link this#maybeReload()} instead
+     */
+    @Deprecated
     public void maybeReload(CFMetaData metadata)
     {
-        if (shouldNotReload(metadata))
+        if (!shouldReload(metadata))
             return;
 
         writeLock.lock();
         try
         {
-            if (shouldNotReload(metadata))
+            if (!shouldReload(metadata))
                 return;
             reload(metadata);
         }
@@ -315,11 +319,15 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
-    private boolean shouldNotReload(CFMetaData metadata)
+    public void maybeReload()
     {
-        return metadata.params.compaction.equals(schemaCompactionParams) && // compare the old schema configuration to the new one, ignore any locally set changes.
-               Arrays.equals(locations, cfs.getDirectories().getWriteableLocations()) // any drives broken?
-               && Objects.equals(currentBoundaries, boundariesSupplier.get()); //disk boundaries changed?
+        maybeReload(cfs.metadata);
+    }
+
+    private boolean shouldReload(CFMetaData metadata)
+    {
+        return !metadata.params.compaction.equals(schemaCompactionParams) || // compare the old schema configuration to the new one, ignore any locally set changes.
+               currentBoundaries.isOutOfDate(); //disk boundaries changed?
     }
 
     /**
@@ -332,20 +340,16 @@ public class CompactionStrategyManager implements INotificationConsumer
     {
         boolean disabledWithJMX = !enabled && shouldBeEnabled();
 
-        DiskBoundaries newBoundaries = boundariesSupplier.get();
-
         if (currentBoundaries != null)
         {
             if (!metadata.params.compaction.equals(schemaCompactionParams))
                 logger.debug("Recreating compaction strategy - compaction parameters changed for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
-            else if (!Arrays.equals(locations, cfs.getDirectories().getWriteableLocations()))
-                logger.debug("Recreating compaction strategy - writeable locations changed for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
-            else if (!Objects.equals(currentBoundaries.positions, newBoundaries.positions))
-                logger.debug("Recreating compaction strategy - disk boundaries changed for {}.{}.", cfs.keyspace.getName(), cfs.getTableName());
+            else if (currentBoundaries.isOutOfDate())
+                logger.debug("Recreating compaction strategy - disk boundaries are out of date for {}.{}.", cfs.keyspace.getName(), cfs.getTableName());
         }
 
-        if (!Objects.equals(currentBoundaries, newBoundaries))
-            currentBoundaries = newBoundaries;
+        if (currentBoundaries == null || currentBoundaries.isOutOfDate())
+            currentBoundaries = boundariesSupplier.get();
 
         setStrategy(metadata.params.compaction);
         schemaCompactionParams = metadata.params.compaction;
@@ -707,7 +711,7 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     public AbstractCompactionTask getCompactionTask(LifecycleTransaction txn, int gcBefore, long maxSSTableBytes)
     {
-        maybeReload(cfs.metadata);
+        maybeReload();
         validateForCompaction(txn.originals());
         return getCompactionStrategyFor(txn.originals().iterator().next()).getCompactionTask(txn, gcBefore, maxSSTableBytes);
     }
@@ -737,7 +741,7 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     public Collection<AbstractCompactionTask> getMaximalTasks(final int gcBefore, final boolean splitOutput)
     {
-        maybeReload(cfs.metadata);
+        maybeReload();
         // runWithCompactionsDisabled cancels active compactions and disables them, then we are able
         // to make the repaired/unrepaired strategies mark their own sstables as compacting. Once the
         // sstables are marked the compactions are re-enabled
@@ -785,7 +789,7 @@ public class CompactionStrategyManager implements INotificationConsumer
      */
     public List<AbstractCompactionTask> getUserDefinedTasks(Collection<SSTableReader> sstables, int gcBefore)
     {
-        maybeReload(cfs.metadata);
+        maybeReload();
         List<AbstractCompactionTask> ret = new ArrayList<>();
         readLock.lock();
         try

@@ -274,7 +274,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             for (ColumnFamilyStore cfs : concatWithIndexes())
                 cfs.crcCheckChance = new DefaultValue(metadata.params.crcCheckChance);
 
-        compactionStrategyManager.maybeReload(metadata);
+        compactionStrategyManager.maybeReload();
         directories = compactionStrategyManager.getDirectories();
 
         scheduleFlush();

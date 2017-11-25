@@ -548,7 +548,7 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 if (!cfs.getPartitioner().splitter().isPresent())
                     return true;
-                cfs.getCompactionStrategyManager().maybeReload(cfs.metadata); //maybe reload boundaries
+                cfs.getCompactionStrategyManager().maybeReload(); //maybe reload boundaries
                 int directoryIndex = cfs.getCompactionStrategyManager().getCompactionStrategyIndex(sstable);
                 Directories.DataDirectory[] locations = cfs.getDirectories().getWriteableLocations();
 

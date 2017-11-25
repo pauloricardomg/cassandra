@@ -114,8 +114,10 @@ public class CompactionStrategyManagerTest
 
         // Creates a compaction strategy manager with an external boundary supplier
         final Integer[] boundaries = computeBoundaries(numSSTables, numDisks);
+
+        MockBoundaryManager mockBoundaryManager = new MockBoundaryManager(cfs, boundaries);
         System.out.println("Boundaries for " + numDisks + " disks is " + Arrays.toString(boundaries));
-        CompactionStrategyManager csm = new CompactionStrategyManager(cfs, () -> createDiskBoundaries(cfs, boundaries),
+        CompactionStrategyManager csm = new CompactionStrategyManager(cfs, mockBoundaryManager::getBoundaries,
                                                                       true);
 
         // Check that SSTables are assigned to the correct Compaction Strategy
@@ -128,7 +130,7 @@ public class CompactionStrategyManagerTest
         {
             // Update disk boundaries
             Integer[] previousBoundaries = Arrays.copyOf(boundaries, boundaries.length);
-            updateBoundaries(boundaries, delta);
+            updateBoundaries(mockBoundaryManager, boundaries, delta);
 
             // Check that SSTables are still assigned to the previous boundary layout
             System.out.println("Old boundaries: " + Arrays.toString(previousBoundaries) + " New boundaries: " + Arrays.toString(boundaries));
@@ -138,7 +140,7 @@ public class CompactionStrategyManagerTest
             }
 
             // Reload CompactionStrategyManager so new disk boundaries will be loaded
-            csm.maybeReload(cfs.metadata);
+            csm.maybeReload();
 
             for (SSTableReader reader : cfs.getLiveSSTables())
             {
@@ -177,7 +179,7 @@ public class CompactionStrategyManagerTest
     /**
      * Updates the boundaries with a delta
      */
-    private void updateBoundaries(Integer[] boundaries, int delta)
+    private void updateBoundaries(MockBoundaryManager boundaryManager, Integer[] boundaries, int delta)
     {
         for (int j = 0; j < boundaries.length - 1; j++)
         {
@@ -186,6 +188,7 @@ public class CompactionStrategyManagerTest
             else
                 boundaries[j] += delta;
         }
+        boundaryManager.invalidateBoundaries();
     }
 
     private void verifySSTableIsAssignedToCorrectStrategy(Integer[] boundaries, CompactionStrategyManager csm, SSTableReader reader)
@@ -229,10 +232,38 @@ public class CompactionStrategyManagerTest
         return index;
     }
 
-    private static DiskBoundaries createDiskBoundaries(ColumnFamilyStore cfs, Integer[] boundaries)
+
+
+    class MockBoundaryManager
     {
-        List<PartitionPosition> positions = Arrays.stream(boundaries).map(b -> Util.token(String.format(String.format("%04d", b))).minKeyBound()).collect(Collectors.toList());
-        return new DiskBoundaries(cfs.getDirectories().getWriteableLocations(), positions, 0, 0);
+        private final ColumnFamilyStore cfs;
+        private Integer[] positions;
+        private DiskBoundaries boundaries;
+
+        public MockBoundaryManager(ColumnFamilyStore cfs, Integer[] positions)
+        {
+            this.cfs = cfs;
+            this.positions = positions;
+            this.boundaries = createDiskBoundaries(cfs, positions);
+        }
+
+        public void invalidateBoundaries()
+        {
+            boundaries.invalidate();
+        }
+
+        public DiskBoundaries getBoundaries()
+        {
+            if (boundaries.isOutOfDate())
+                boundaries = createDiskBoundaries(cfs, positions);
+            return boundaries;
+        }
+
+        private DiskBoundaries createDiskBoundaries(ColumnFamilyStore cfs, Integer[] boundaries)
+        {
+            List<PartitionPosition> positions = Arrays.stream(boundaries).map(b -> Util.token(String.format(String.format("%04d", b))).minKeyBound()).collect(Collectors.toList());
+            return new DiskBoundaries(cfs.getDirectories().getWriteableLocations(), positions, 0, 0);
+        }
     }
 
     private static void createSSTableWithKey(String keyspace, String table, int key)
