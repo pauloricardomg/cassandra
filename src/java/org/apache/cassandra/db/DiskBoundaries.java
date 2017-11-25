@@ -18,11 +18,13 @@
 
 package org.apache.cassandra.db;
 
+import java.util.Collections;
 import java.util.List;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.service.StorageService;
 
 public class DiskBoundaries
@@ -89,5 +91,31 @@ public class DiskBoundaries
     public void invalidate()
     {
         this.isInvalid = true;
+    }
+
+    public int getDiskIndex(SSTableReader sstable)
+    {
+        if (positions == null)
+        {
+            return getBoundariesFromSSTableDirectory(sstable);
+        }
+
+        int pos = Collections.binarySearch(positions, sstable.first);
+        assert pos < 0; // boundaries are .minkeybound and .maxkeybound so they should never be equal
+        return -pos - 1;
+    }
+
+    /**
+     * Try to figure out location based on sstable directory
+     */
+    private int getBoundariesFromSSTableDirectory(SSTableReader sstable)
+    {
+        for (int i = 0; i < directories.size(); i++)
+        {
+            Directories.DataDirectory directory = directories.get(i);
+            if (sstable.descriptor.directory.getAbsolutePath().startsWith(directory.location.getAbsolutePath()))
+                return i;
+        }
+        return 0;
     }
 }

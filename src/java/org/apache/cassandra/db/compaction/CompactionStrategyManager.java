@@ -247,20 +247,15 @@ public class CompactionStrategyManager implements INotificationConsumer
      */
     public int getCompactionStrategyIndex(SSTableReader sstable)
     {
+        //We only have a single compaction strategy when sstables are not
+        //partitioned by token range
+        if (!partitionSSTablesByTokenRange)
+            return 0;
+
         readLock.lock();
         try
         {
-            if (!partitionSSTablesByTokenRange)
-                return 0;
-
-            if (currentBoundaries.positions == null)
-            {
-                return getBoundariesFromSSTableDirectory(sstable);
-            }
-
-            int pos = Collections.binarySearch(currentBoundaries.positions, sstable.first);
-            assert pos < 0; // boundaries are .minkeybound and .maxkeybound so they should never be equal
-            return -pos - 1;
+            return currentBoundaries.getDiskIndex(sstable);
         }
         finally
         {
@@ -268,18 +263,7 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
-    private int getBoundariesFromSSTableDirectory(SSTableReader sstable)
-    {
-        List<Directories.DataDirectory> directories = currentBoundaries.directories;
-        // try to figure out location based on sstable directory:
-        for (int i = 0; i < directories.size(); i++)
-        {
-            Directories.DataDirectory directory = directories.get(i);
-            if (sstable.descriptor.directory.getAbsolutePath().startsWith(directory.location.getAbsolutePath()))
-                return i;
-        }
-        return 0;
-    }
+
 
     public void shutdown()
     {
@@ -990,18 +974,5 @@ public class CompactionStrategyManager implements INotificationConsumer
     public boolean supportsEarlyOpen()
     {
         return repaired.get(0).supportsEarlyOpen();
-    }
-
-    public Map<Integer, List<SSTableReader>> groupByDiskIndex(Set<SSTableReader> needsRelocation)
-    {
-        readLock.lock();
-        try
-        {
-            return needsRelocation.stream().collect(Collectors.groupingBy((s) -> getCompactionStrategyIndex(s)));
-        }
-        finally
-        {
-            readLock.unlock();
-        }
     }
 }
