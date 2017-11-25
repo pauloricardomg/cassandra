@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.List;
 
@@ -117,5 +118,10 @@ public class DiskBoundaries
                 return i;
         }
         return 0;
+    }
+
+    public File getSSTableLocation(SSTableReader sstable)
+    {
+        return directories.get(getDiskIndex(sstable)).location;
     }
 }
