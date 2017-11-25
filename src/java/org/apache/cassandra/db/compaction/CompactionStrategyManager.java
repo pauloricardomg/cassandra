@@ -285,17 +285,18 @@ public class CompactionStrategyManager implements INotificationConsumer
      * @deprecated use {@link this#maybeReload()} instead
      */
     @Deprecated
-    public void maybeReload(CFMetaData metadata)
+    public boolean maybeReload(CFMetaData metadata)
     {
         if (!shouldReload(metadata))
-            return;
+            return false;
 
         writeLock.lock();
         try
         {
             if (!shouldReload(metadata))
-                return;
+                return false;
             reload(metadata);
+            return true;
         }
         finally
         {
@@ -303,9 +304,9 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
-    public void maybeReload()
+    public boolean maybeReload()
     {
-        maybeReload(cfs.metadata);
+        return maybeReload(cfs.metadata);
     }
 
     private boolean shouldReload(CFMetaData metadata)
@@ -550,6 +551,11 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     public void handleNotification(INotification notification, Object sender)
     {
+        // If reloaded, SSTables will be placed in their correct locations
+        // so there is no need to process notification
+        if (maybeReload())
+            return;
+
         if (notification instanceof SSTableAddedNotification)
         {
             handleFlushNotification(((SSTableAddedNotification) notification).added);
