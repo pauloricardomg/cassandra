@@ -193,6 +193,16 @@ public class SplitterTest
         testSplit(partitioner, 4,
                   newHashSet(Pair.create(1, 100)),
                   newHashSet(Pair.create(1, 25), Pair.create(25, 50), Pair.create(50, 75), Pair.create(75, 100)));
+        testSplit(partitioner, 5,
+                  newHashSet(Pair.create(3,79)),
+                  newHashSet(Pair.create(3, 18), Pair.create(18, 33), Pair.create(33, 48), Pair.create(48, 63),
+                             Pair.create(63, 79)));
+        testSplit(partitioner, 3,
+                  newHashSet(Pair.create(3,20)),
+                  newHashSet(Pair.create(3, 8), Pair.create(8, 14), Pair.create(14, 20)));
+        testSplit(partitioner, 4,
+                  newHashSet(Pair.create(3,20)),
+                  newHashSet(Pair.create(3, 7), Pair.create(7, 11), Pair.create(11, 15), Pair.create(15, 20)));
 
         // single range too small to be partitioned
         testSplit(partitioner, 1, newHashSet(Pair.create(1, 2)), newHashSet(Pair.create(1, 2)));
