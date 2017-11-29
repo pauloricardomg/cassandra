@@ -187,7 +187,7 @@ class ViewBuilder
             {
                 if (t instanceof CompactionInterruptedException)
                 {
-                    isStopped = true;
+                    internalStop(true);
                     keysBuilt = tasks.stream().mapToLong(ViewBuilderTask::keysBuilt).sum();
                     logger.info("Interrupted build for view({}.{}) after covering {} keys", ksName, view.name, keysBuilt);
                 }
@@ -228,9 +228,14 @@ class ViewBuilder
     synchronized void stop()
     {
         boolean wasStopped = isStopped;
-        isStopped = true;
-        tasks.forEach(task -> task.stop(false));
+        internalStop(false);
         if (!wasStopped)
             FBUtilities.waitOnFuture(future);
+    }
+
+    private void internalStop(boolean isCompactionInterrupted)
+    {
+        isStopped = true;
+        tasks.forEach(task -> task.stop(isCompactionInterrupted));
     }
 }
