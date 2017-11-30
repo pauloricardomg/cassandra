@@ -36,7 +36,6 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.DiskBoundaries;
-import org.apache.cassandra.db.DiskBoundaryManager;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.RowUpdateBuilder;
@@ -51,6 +50,7 @@ import org.apache.cassandra.service.StorageService;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 
 public class CompactionStrategyManagerTest
@@ -112,48 +112,34 @@ public class CompactionStrategyManagerTest
         //Check that CFS will contain numSSTables
         assertEquals(numSSTables, cfs.getLiveSSTables().size());
 
-        // Creates a compaction strategy manager with an external boundary supplier
-        final Integer[] boundaries = computeBoundaries(numSSTables, numDisks);
-
-        MockBoundaryManager mockBoundaryManager = new MockBoundaryManager(cfs, boundaries);
-        System.out.println("Boundaries for " + numDisks + " disks is " + Arrays.toString(boundaries));
+        // Creates a compaction strategy manager with a mock boundary manager
+        MockBoundaryManager mockBoundaryManager = new MockBoundaryManager(cfs, numSSTables, numDisks);
         CompactionStrategyManager csm = new CompactionStrategyManager(cfs, mockBoundaryManager::getBoundaries,
                                                                       true);
 
         // Check that SSTables are assigned to the correct Compaction Strategy
         for (SSTableReader reader : cfs.getLiveSSTables())
         {
-            verifySSTableIsAssignedToCorrectStrategy(boundaries, csm, reader);
+            verifySSTableIsAssignedOnlyToCorrectStrategy(csm, reader);
         }
 
         for (int delta = 1; delta <= 3; delta++)
         {
             // Update disk boundaries
-            Integer[] previousBoundaries = Arrays.copyOf(boundaries, boundaries.length);
-            updateBoundaries(mockBoundaryManager, boundaries, delta);
-
-            // Check that SSTables are still assigned to the previous boundary layout
-            System.out.println("Old boundaries: " + Arrays.toString(previousBoundaries) + " New boundaries: " + Arrays.toString(boundaries));
-            for (SSTableReader reader : cfs.getLiveSSTables())
-            {
-                verifySSTableIsAssignedToCorrectStrategy(previousBoundaries, csm, reader);
-            }
-
-            // Reload CompactionStrategyManager so new disk boundaries will be loaded
-            csm.maybeReload(cfs.metadata);
+            updateBoundaries(mockBoundaryManager, delta);
 
             for (SSTableReader reader : cfs.getLiveSSTables())
             {
                 // Check that SSTables are assigned to the new boundary layout
-                verifySSTableIsAssignedToCorrectStrategy(boundaries, csm, reader);
+                verifySSTableIsAssignedOnlyToCorrectStrategy(csm, reader);
 
                 // Remove SSTable and check that it will be removed from the correct compaction strategy
                 csm.handleNotification(new SSTableDeletingNotification(reader), this);
-                assertFalse(((SizeTieredCompactionStrategy)csm.compactionStrategyFor(reader)).sstables.contains(reader));
+                assertFalse(((SizeTieredCompactionStrategy)csm.getCompactionStrategyFor(reader)).sstables.contains(reader));
 
                 // Add SSTable again and check that is correctly assigned
                 csm.handleNotification(new SSTableAddedNotification(Collections.singleton(reader)), this);
-                verifySSTableIsAssignedToCorrectStrategy(boundaries, csm, reader);
+                verifySSTableIsAssignedOnlyToCorrectStrategy(csm, reader);
             }
         }
     }
@@ -179,42 +165,52 @@ public class CompactionStrategyManagerTest
     /**
      * Updates the boundaries with a delta
      */
-    private void updateBoundaries(MockBoundaryManager boundaryManager, Integer[] boundaries, int delta)
+    private void updateBoundaries(MockBoundaryManager boundaryManager, int delta)
     {
-        for (int j = 0; j < boundaries.length - 1; j++)
+        Integer[] oldBoundaries = boundaryManager.positions;
+        Integer[] newBoundaries = Arrays.copyOf(oldBoundaries, oldBoundaries.length);
+
+        for (int j = 0; j < newBoundaries.length - 1; j++)
         {
             if ((j + delta) % 2 == 0)
-                boundaries[j] -= delta;
+                newBoundaries[j] -= delta;
             else
-                boundaries[j] += delta;
+                newBoundaries[j] += delta;
         }
-        boundaryManager.invalidateBoundaries();
-    }
 
-    private void verifySSTableIsAssignedToCorrectStrategy(Integer[] boundaries, CompactionStrategyManager csm, SSTableReader reader)
-    {
-        // Check that sstable is assigned to correct disk
-        int index = getSSTableIndex(boundaries, reader);
-        assertEquals(index, csm.compactionStrategyIndexFor(reader));
-        // Check that compaction strategy actually contains SSTable
-        assertTrue(((SizeTieredCompactionStrategy)csm.compactionStrategyFor(reader)).sstables.contains(reader));
-    }
+        System.out.println("Old boundaries: " + Arrays.toString(oldBoundaries) +
+                           " New boundaries: " + Arrays.toString(newBoundaries));
 
-    /**
-     * Creates disk boundaries such that each disk receives
-     * an equal amount of SSTables
-     */
-    private Integer[] computeBoundaries(int numSSTables, int numDisks)
-    {
-        Integer[] result = new Integer[numDisks];
-        int sstablesPerRange = numSSTables / numDisks;
-        result[0] = sstablesPerRange;
-        for (int i = 1; i < numDisks; i++)
+        // Check that SSTables are assigned to correct disks before change
+        for (SSTableReader reader : boundaryManager.cfs.getLiveSSTables())
         {
-            result[i] = result[i - 1] + sstablesPerRange;
+            assertEquals(getSSTableIndex(oldBoundaries, reader), boundaryManager.getBoundaries().getDiskIndex(reader));
         }
-        result[numDisks - 1] = numSSTables; // make last boundary alwyays be the number of SSTables to prevent rounding errors
-        return result;
+
+        boundaryManager.updateBoundaries(newBoundaries);
+
+        // Check that SSTables are assigned to correct disks after change
+        for (SSTableReader reader : boundaryManager.cfs.getLiveSSTables())
+        {
+            assertEquals(getSSTableIndex(newBoundaries, reader), boundaryManager.getBoundaries().getDiskIndex(reader));
+        }
+    }
+
+    private void verifySSTableIsAssignedOnlyToCorrectStrategy(CompactionStrategyManager csm, SSTableReader reader)
+    {
+        for (AbstractCompactionStrategy strategy : csm.getStrategies().stream().flatMap(s -> s.stream()).collect(Collectors.toSet()))
+        {
+            AbstractCompactionStrategy correctStrategy = csm.getCompactionStrategyFor(reader);
+            SizeTieredCompactionStrategy stcs = (SizeTieredCompactionStrategy)strategy;
+            if (stcs.sstables.contains(reader))
+            {
+                assertEquals(correctStrategy, stcs);
+            }
+            else
+            {
+                assertFalse(correctStrategy.equals(stcs));
+            }
+        }
     }
 
     /**
@@ -234,22 +230,35 @@ public class CompactionStrategyManagerTest
 
 
 
-    class MockBoundaryManager
+    static class MockBoundaryManager
     {
         private final ColumnFamilyStore cfs;
         private Integer[] positions;
         private DiskBoundaries boundaries;
 
-        public MockBoundaryManager(ColumnFamilyStore cfs, Integer[] positions)
+        public MockBoundaryManager(ColumnFamilyStore cfs, int numSSTables, int numDisks)
         {
             this.cfs = cfs;
-            this.positions = positions;
+            this.positions = computeInitialBoundaries(numSSTables, numDisks);
             this.boundaries = createDiskBoundaries(cfs, positions);
+            System.out.println("Boundaries for " + numDisks + " disks is " + Arrays.toString(positions));
         }
 
-        public void invalidateBoundaries()
+        /**
+         * Creates disk boundaries such that each disk receives
+         * an equal amount of SSTables
+         */
+        private static Integer[] computeInitialBoundaries(int numSSTables, int numDisks)
         {
-            boundaries.invalidate();
+            Integer[] result = new Integer[numDisks];
+            int sstablesPerRange = numSSTables / numDisks;
+            result[0] = sstablesPerRange;
+            for (int i = 1; i < numDisks; i++)
+            {
+                result[i] = result[i - 1] + sstablesPerRange;
+            }
+            result[numDisks - 1] = numSSTables; // make last boundary alwyays be the number of SSTables to prevent rounding errors
+            return result;
         }
 
         public DiskBoundaries getBoundaries()
@@ -263,6 +272,12 @@ public class CompactionStrategyManagerTest
         {
             List<PartitionPosition> positions = Arrays.stream(boundaries).map(b -> Util.token(String.format(String.format("%04d", b))).minKeyBound()).collect(Collectors.toList());
             return new DiskBoundaries(cfs.getDirectories().getWriteableLocations(), positions, 0, 0);
+        }
+
+        public void updateBoundaries(Integer[] newBoundaries)
+        {
+            positions = newBoundaries;
+            boundaries.invalidate();
         }
     }
 

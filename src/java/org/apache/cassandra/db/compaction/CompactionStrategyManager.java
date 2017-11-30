@@ -272,14 +272,7 @@ public class CompactionStrategyManager implements INotificationConsumer
      * @param sstable
      * @return
      */
-    public int getCompactionStrategyIndex(SSTableReader sstable)
-    {
-        maybeReload();
-        return compactionStrategyIndexFor(sstable);
-    }
-
-    @VisibleForTesting
-    protected int compactionStrategyIndexFor(SSTableReader sstable)
+    private int compactionStrategyIndexFor(SSTableReader sstable)
     {
         // should not call maybeReload because it may be called from within lock
         readLock.lock();
