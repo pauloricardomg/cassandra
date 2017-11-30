@@ -1026,7 +1026,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public static boolean isReplacingSameAddress()
     {
-        return DatabaseDescriptor.getReplaceAddress().equals(FBUtilities.getBroadcastAddress());
+        InetAddress replaceAddress = DatabaseDescriptor.getReplaceAddress();
+        return replaceAddress != null && replaceAddress.equals(FBUtilities.getBroadcastAddress());
     }
 
     public void gossipSnitchInfo()
@@ -1495,6 +1496,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             logger.info("Resetting bootstrap progress to start fresh");
             SystemKeyspace.resetAvailableRanges();
         }
+
+        // Force disk boundary invalidation now that local tokens are set
+        tokenMetadata.invalidateCachedRings();
 
         setMode(Mode.JOINING, "Starting to bootstrap...", true);
         BootStrapper bootstrapper = new BootStrapper(FBUtilities.getBroadcastAddress(), tokens, tokenMetadata);
