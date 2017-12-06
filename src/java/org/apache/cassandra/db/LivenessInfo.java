@@ -203,11 +203,16 @@ public class LivenessInfo
     {
         if (timestamp != other.timestamp)
             return timestamp > other.timestamp;
-        if (ttl() == MV_EXPIRED_TTL ^ other.ttl() == MV_EXPIRED_TTL)
-            return ttl() == MV_EXPIRED_TTL;
+        if (isExpired() ^ other.isExpired())
+            return isExpired();
         if (isExpiring() == other.isExpiring())
             return localExpirationTime() > other.localExpirationTime();
         return isExpiring();
+    }
+
+    protected boolean isExpired()
+    {
+        return false;
     }
 
     /**
@@ -260,6 +265,12 @@ public class LivenessInfo
             super(timestamp, ttl, localExpirationTime);
             assert ttl == EXPIRED_LIVENESS_TTL;
             assert timestamp != NO_TIMESTAMP;
+        }
+
+        @Override
+        public boolean isExpired()
+        {
+            return true;
         }
 
         @Override
