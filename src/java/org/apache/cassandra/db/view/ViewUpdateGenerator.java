@@ -408,7 +408,7 @@ public class ViewUpdateGenerator
               * the storage engine to properly support this, but on the meantime this
               * should be fine because it only happens in some specific scenarios explained above.
               */
-            LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, Integer.MAX_VALUE, nowInSec);
+            LivenessInfo info = LivenessInfo.withExpirationTime(timestamp, LivenessInfo.MV_EXPIRED_TTL, nowInSec);
             currentViewEntryBuilder.addPrimaryKeyLivenessInfo(info);
         }
         currentViewEntryBuilder.addRowDeletion(mergedBaseRow.deletion());
