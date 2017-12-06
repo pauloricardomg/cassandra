@@ -295,7 +295,7 @@ public class LivenessInfo
         private ExpiringLivenessInfo(long timestamp, int ttl, int localExpirationTime)
         {
             super(timestamp);
-            assert ttl != NO_TTL;
+            assert ttl != NO_TTL && localExpirationTime != NO_EXPIRATION_TIME;
             this.ttl = ttl;
             this.localExpirationTime = localExpirationTime;
         }
