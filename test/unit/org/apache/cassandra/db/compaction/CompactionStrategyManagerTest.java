@@ -21,9 +21,15 @@ package org.apache.cassandra.db.compaction;
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Sets;
@@ -45,9 +51,11 @@ import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.notifications.SSTableDeletingNotification;
+import org.apache.cassandra.notifications.SSTableListChangedNotification;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.StorageService;
@@ -59,47 +67,113 @@ import static org.junit.Assert.assertTrue;
 
 public class CompactionStrategyManagerTest
 {
-    private static final String KS_PREFIX = "Keyspace1";
-    private static final String TABLE_PREFIX = "CF_STANDARD";
-
-    private static IPartitioner originalPartitioner;
-    private static boolean backups;
-
     @BeforeClass
     public static void beforeClass()
     {
         SchemaLoader.prepareServer();
-        backups = DatabaseDescriptor.isIncrementalBackupsEnabled();
-        DatabaseDescriptor.setIncrementalBackupsEnabled(false);
-        /**
-         * We use byte ordered partitioner in this test to be able to easily infer an SSTable
-         * disk assignment based on its generation - See {@link this#getSSTableIndex(Integer[], SSTableReader)}
-         */
-        originalPartitioner = StorageService.instance.setPartitionerUnsafe(ByteOrderedPartitioner.instance);
     }
 
-    @AfterClass
-    public static void afterClass()
+    @Test
+    public void testSSTableNotifications()
     {
-        DatabaseDescriptor.setPartitionerUnsafe(originalPartitioner);
-        DatabaseDescriptor.setIncrementalBackupsEnabled(backups);
+        /**
+         * Use Murmur3Partitioner to support disk boundary invalidation
+         */
+        IPartitioner originalPartitioner = StorageService.instance.setPartitionerUnsafe(Murmur3Partitioner.instance);
+        final String keyspace = "Keyspace1";
+        final String table = "CF_STANDARD1";
+        // Create table and disable compaction
+        SchemaLoader.createKeyspace(keyspace,
+                                    KeyspaceParams.simple(1),
+                                    SchemaLoader.standardCFMD(keyspace, table)
+                                                .compaction(CompactionParams.scts(Collections.emptyMap())));
+        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
+        cfs.disableAutoCompaction();
+
+        // Update table to use Mock compaction strategy
+        CompactionStrategyManager csm = cfs.getCompactionStrategyManager();
+        csm.setNewLocalCompactionStrategy(getMockCompactionStrategyParams());
+
+        // Verify compaction strategy has no SSTables registered
+        assertEquals(0, getMockCompactionStrategy(csm).sstables.size());
+
+        // Add 10 SSTables to test SSTableAddedNotification
+        for (int i = 0; i < 10; i++)
+        {
+            createSSTableWithKey(keyspace, table, i);
+        }
+        Set<SSTableReader> allSSTables = Sets.newHashSet(cfs.getLiveSSTables());
+        assertEquals(10, allSSTables.size());
+        Set<SSTableReader> liveSSTables = Sets.newHashSet(allSSTables);
+        verifyLiveSSTables(cfs, csm, liveSSTables);
+
+        // Simulate removal of 3 SSTables with SSTableDeletingNotification
+        Set<SSTableReader> removedSSTables = liveSSTables.stream().limit(3).collect(Collectors.toSet());
+        liveSSTables.removeAll(removedSSTables);
+        removedSSTables.forEach(s -> csm.handleNotification(new SSTableDeletingNotification(s), this));
+        verifyLiveSSTables(cfs, csm, liveSSTables);
+
+        // Simulate replacement of 3 sstables with the previous removed ones with SSTableListChangedNotification
+        Set<SSTableReader> addedSSTables = Sets.newHashSet(removedSSTables);
+        removedSSTables = liveSSTables.stream().limit(3).collect(Collectors.toSet());
+        liveSSTables.addAll(addedSSTables);
+        liveSSTables.removeAll(removedSSTables);
+        csm.handleNotification(new SSTableListChangedNotification(addedSSTables, removedSSTables, OperationType.COMPACTION), this);
+        verifyLiveSSTables(cfs, csm, liveSSTables);
+
+        /**
+         * Set back original partitioner
+         */
+        StorageService.instance.setPartitionerUnsafe(originalPartitioner);
+    }
+
+    private void verifyLiveSSTables(ColumnFamilyStore cfs, CompactionStrategyManager csm, Set<SSTableReader> liveSSTables)
+    {
+        // Check the compaction strategy only contains the live sstables
+        assertEquals(liveSSTables.size(), getMockCompactionStrategy(csm).sstables.size());
+        assertEquals(liveSSTables, new HashSet<>(getMockCompactionStrategy(csm).sstables));
+        // Force disk boundary invalidation and reload compaction strategy
+        cfs.getDiskBoundaries().invalidate();
+        assertTrue(cfs.getCompactionStrategyManager().maybeReloadDiskBoundaries());
+        // Check the compaction strategy only contains the live sstables
+        assertEquals(liveSSTables.size(), getMockCompactionStrategy(csm).sstables.size());
+        assertEquals(liveSSTables, new HashSet<>(getMockCompactionStrategy(csm).sstables));
+    }
+
+    private MockCompactionStrategy getMockCompactionStrategy(CompactionStrategyManager csm)
+    {
+        AbstractCompactionStrategy strategy = csm.getStrategies().get(1).get(0);
+        assertTrue(strategy instanceof MockCompactionStrategy);
+        return (MockCompactionStrategy)strategy;
+    }
+
+    private CompactionParams getMockCompactionStrategyParams()
+    {
+        Map<String, String> mockCompactionStrategyOptions = CompactionParams.DEFAULT.asMap();
+        mockCompactionStrategyOptions.put(CompactionParams.Option.CLASS.toString(), MockCompactionStrategy.class.getName());
+        return CompactionParams.fromMap(mockCompactionStrategyOptions);
     }
 
     @Test
     public void testSSTablesAssignedToCorrectCompactionStrategy() throws IOException
     {
+        boolean backups = DatabaseDescriptor.isIncrementalBackupsEnabled();
+        DatabaseDescriptor.setIncrementalBackupsEnabled(false);
+
+        String keyspace = "Keyspace2";
+        String table = "CF_STANDARD2";
         // Creates 100 SSTables with keys 0-99
         int numSSTables = 100;
-        SchemaLoader.createKeyspace(KS_PREFIX,
+        SchemaLoader.createKeyspace(keyspace,
                                     KeyspaceParams.simple(1),
-                                    SchemaLoader.standardCFMD(KS_PREFIX, TABLE_PREFIX)
+                                    SchemaLoader.standardCFMD(keyspace, table)
                                                 .compaction(CompactionParams.scts(Collections.emptyMap())));
-        ColumnFamilyStore cfs = Keyspace.open(KS_PREFIX).getColumnFamilyStore(TABLE_PREFIX);
+        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
         cfs.disableAutoCompaction();
         Set<SSTableReader> previousSSTables = cfs.getLiveSSTables();
         for (int i = 0; i < numSSTables; i++)
         {
-            createSSTableWithKey(KS_PREFIX, TABLE_PREFIX, i);
+            createSSTableWithKey(keyspace, table, i);
             Set<SSTableReader> currentSSTables = cfs.getLiveSSTables();
             Set<SSTableReader> newSSTables = Sets.difference(currentSSTables, previousSSTables);
             assertEquals(1, newSSTables.size());
@@ -120,14 +194,16 @@ public class CompactionStrategyManagerTest
         // if the SSTables are assigned to the correct compaction strategies
         for (int numDisks = 2; numDisks < 10; numDisks++)
         {
-            testSSTablesAssignedToCorrectCompactionStrategy(numSSTables, numDisks);
+            testSSTablesAssignedToCorrectCompactionStrategy(keyspace, table, numSSTables, numDisks);
         }
+
+        DatabaseDescriptor.setIncrementalBackupsEnabled(backups);
     }
 
-    public void testSSTablesAssignedToCorrectCompactionStrategy(int numSSTables, int numDisks)
+    public void testSSTablesAssignedToCorrectCompactionStrategy(String keyspace, String table, int numSSTables, int numDisks)
     {
         // Create a mock CFS with the given number of disks
-        MockCFS cfs = createJBODMockCFS(numDisks);
+        MockCFS cfs = createJBODMockCFS(keyspace, table, numDisks);
         //Check that CFS will contain numSSTables
         assertEquals(numSSTables, cfs.getLiveSSTables().size());
 
@@ -177,7 +253,7 @@ public class CompactionStrategyManagerTest
         }
     }
 
-    private MockCFS createJBODMockCFS(int disks)
+    private MockCFS createJBODMockCFS(String keyspace, String table, int disks)
     {
         // Create #disks data directories to simulate JBOD
         Directories.DataDirectory[] directories = new Directories.DataDirectory[disks];
@@ -188,7 +264,7 @@ public class CompactionStrategyManagerTest
             directories[i] = new Directories.DataDirectory(tempDir);
         }
 
-        ColumnFamilyStore cfs = Keyspace.open(KS_PREFIX).getColumnFamilyStore(TABLE_PREFIX);
+        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
         MockCFS mockCFS = new MockCFS(cfs, new Directories(cfs.metadata(), directories));
         mockCFS.disableAutoCompaction();
         mockCFS.addSSTables(cfs.getLiveSSTables());
@@ -304,6 +380,56 @@ public class CompactionStrategyManagerTest
         MockCFS(ColumnFamilyStore cfs, Directories dirs)
         {
             super(cfs.keyspace, cfs.getTableName(), 0, cfs.metadata, dirs, false, false, true);
+        }
+    }
+
+    public static class MockCompactionStrategy extends AbstractCompactionStrategy
+    {
+        public final List<SSTableReader> sstables = new CopyOnWriteArrayList<>();
+
+        public MockCompactionStrategy(ColumnFamilyStore cfs, Map<String, String> options)
+        {
+            super(cfs, options);
+        }
+
+        public AbstractCompactionTask getNextBackgroundTask(int gcBefore)
+        {
+            return null;
+        }
+
+        public Collection<AbstractCompactionTask> getMaximalTask(int gcBefore, boolean splitOutput)
+        {
+            return null;
+        }
+
+        public AbstractCompactionTask getUserDefinedTask(Collection<SSTableReader> sstables, int gcBefore)
+        {
+            return null;
+        }
+
+        public int getEstimatedRemainingTasks()
+        {
+            return 0;
+        }
+
+        public long getMaxSSTableBytes()
+        {
+            return 0;
+        }
+
+        public void addSSTable(SSTableReader added)
+        {
+            sstables.add(added);
+        }
+
+        public void removeSSTable(SSTableReader sstable)
+        {
+            sstables.remove(sstable);
+        }
+
+        protected Set<SSTableReader> getSSTables()
+        {
+            return Sets.newHashSet(sstables);
         }
     }
 }

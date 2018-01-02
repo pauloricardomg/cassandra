@@ -176,6 +176,7 @@
 
 
 3.11.2
+ * Fix race between disk boundary reload and tracker notifications on CompactionStrategyManager (CASSANDRA-14103)
  * Avoid invalidating disk boundaries unnecessarily (CASSANDRA-14083)
  * Avoid exposing compaction strategy index externally (CASSANDRA-14082)
  * Fix imbalanced disks when replacing node with same address with JBOD (CASSANDRA-14084)
