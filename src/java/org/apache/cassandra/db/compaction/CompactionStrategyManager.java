@@ -20,6 +20,7 @@ package org.apache.cassandra.db.compaction;
 
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -79,6 +80,11 @@ public class CompactionStrategyManager implements INotificationConsumer
     private final Supplier<DiskBoundaries> boundariesSupplier;
 
     /**
+     * Keep track of managed SSTables to allow safe reloading when receiving tracker notifications (CASSANDRA-14103)
+     */
+    private final Set<SSTableReader> managedSSTables = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    /**
      * Performs mutual exclusion on the variables below
      */
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -124,6 +130,8 @@ public class CompactionStrategyManager implements INotificationConsumer
         this.partitionSSTablesByTokenRange = partitionSSTablesByTokenRange;
         params = cfs.metadata.params.compaction;
         enabled = params.isEnabled();
+        // Initial population of sstable set
+        cfs.getSSTables(SSTableSet.CANONICAL).forEach(s -> managedSSTables.add(s));
         reload(cfs.metadata.params.compaction);
     }
 
@@ -208,7 +216,7 @@ public class CompactionStrategyManager implements INotificationConsumer
         writeLock.lock();
         try
         {
-            for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+            for (SSTableReader sstable : managedSSTables)
             {
                 if (sstable.openReason != SSTableReader.OpenReason.EARLY)
                     compactionStrategyFor(sstable).addSSTable(sstable);
@@ -492,16 +500,15 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     private void handleFlushNotification(Iterable<SSTableReader> added)
     {
-        // If reloaded, SSTables will be placed in their correct locations
-        // so there is no need to process notification
-        if (maybeReloadDiskBoundaries())
-            return;
-
+        maybeReloadDiskBoundaries();
         readLock.lock();
         try
         {
             for (SSTableReader sstable : added)
+            {
                 compactionStrategyFor(sstable).addSSTable(sstable);
+                managedSSTables.add(sstable);
+            }
         }
         finally
         {
@@ -511,11 +518,7 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     private void handleListChangedNotification(Iterable<SSTableReader> added, Iterable<SSTableReader> removed)
     {
-        // If reloaded, SSTables will be placed in their correct locations
-        // so there is no need to process notification
-        if (maybeReloadDiskBoundaries())
-            return;
-
+        maybeReloadDiskBoundaries();
         readLock.lock();
         try
         {
@@ -543,6 +546,7 @@ public class CompactionStrategyManager implements INotificationConsumer
                     repairedRemoved.get(i).add(sstable);
                 else
                     unrepairedRemoved.get(i).add(sstable);
+                managedSSTables.remove(sstable);
             }
             for (SSTableReader sstable : added)
             {
@@ -551,6 +555,7 @@ public class CompactionStrategyManager implements INotificationConsumer
                     repairedAdded.get(i).add(sstable);
                 else
                     unrepairedAdded.get(i).add(sstable);
+                managedSSTables.add(sstable);
             }
             for (int i = 0; i < locationSize; i++)
             {
@@ -573,11 +578,7 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     private void handleRepairStatusChangedNotification(Iterable<SSTableReader> sstables)
     {
-        // If reloaded, SSTables will be placed in their correct locations
-        // so there is no need to process notification
-        if (maybeReloadDiskBoundaries())
-            return;
-        // we need a write lock here since we move sstables from one strategy instance to another
+        maybeReloadDiskBoundaries();
         readLock.lock();
         try
         {
@@ -604,14 +605,12 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     private void handleDeletingNotification(SSTableReader deleted)
     {
-        // If reloaded, SSTables will be placed in their correct locations
-        // so there is no need to process notification
-        if (maybeReloadDiskBoundaries())
-            return;
+        maybeReloadDiskBoundaries();
         readLock.lock();
         try
         {
             compactionStrategyFor(deleted).removeSSTable(deleted);
+            managedSSTables.remove(deleted);
         }
         finally
         {
