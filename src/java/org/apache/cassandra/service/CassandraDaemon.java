@@ -367,15 +367,7 @@ public class CassandraDaemon
 
         // Because we are writing to the system_distributed keyspace, this should happen after that is created, which
         // happens in StorageService.instance.initServer()
-        Runnable viewRebuild = () -> {
-            for (Keyspace keyspace : Keyspace.all())
-            {
-                keyspace.viewManager.buildAllViews();
-            }
-            logger.debug("Completed submission of build tasks for any materialized views defined at startup");
-        };
-
-        ScheduledExecutors.optionalTasks.schedule(viewRebuild, StorageService.RING_DELAY, TimeUnit.MILLISECONDS);
+        StorageService.instance.buildAllViewsAsync();
 
         if (!FBUtilities.getBroadcastAddress().equals(InetAddress.getLoopbackAddress()))
             Gossiper.waitToSettle();

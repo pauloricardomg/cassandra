@@ -27,6 +27,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.MatchResult;
 import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
@@ -53,6 +54,7 @@ import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.hook.DelayingShutdownHook;
 import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.auth.AuthSchemaChangeListener;
+import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchRemoveVerbHandler;
 import org.apache.cassandra.batchlog.BatchStoreVerbHandler;
 import org.apache.cassandra.batchlog.BatchlogManager;
@@ -66,6 +68,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token.TokenFactory;
@@ -1030,9 +1033,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         SystemKeyspace.setBootstrapState(SystemKeyspace.BootstrapState.COMPLETED);
         executePreJoinTasks(didBootstrap);
         setTokens(tokens);
-
         assert tokenMetadata.sortedTokens().size() > 0;
         doAuthSetup();
+        if (didBootstrap)
+            finishViewBootstrap();
     }
 
     private void doAuthSetup()
@@ -1520,13 +1524,39 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     }
 
     /**
-     * All MVs have been created during bootstrap, so mark them as built
+     * During bootstrap, all views received by this node were written to the batchlog (see {@link StorageProxy#mutateMV(ByteBuffer, Collection, boolean, AtomicLong, long)}.
+     *
+     * Before marking the view as built on this node, we need to replay the batchlog to ensure all received views are
+     * replayed.
      */
-    private void markViewsAsBuilt() {
+    private synchronized void finishViewBootstrap()
+    {
+        if (!hasViews())
+            return;
+
+        try
+        {
+            // Only batchlogs older than batchlog timeout are replayed, so we must wait to ensure recently received views will be replayed
+            logger.info("Materialized views detected, sleeping {}ms before view batchlog replay.", BatchlogManager.getBatchlogTimeout());
+            Thread.sleep(BatchlogManager.getBatchlogTimeout());
+            logger.info("Replaying batchlogs to ensure views are updated after bootstrap.");
+            BatchlogManager.instance.forceBatchlogReplay();
+            logger.info("Batchlog replay completed, marking views as built.");
+        }
+        catch(Exception e)
+        {
+            logger.warn("Could not replay batchlogs in order to mark Materialized Views as built after bootstrap." +
+                        "Triggering asynchronous view build.", e);
+            buildAllViewsAsync();
+            return;
+        }
+
         for (String keyspace : Schema.instance.getUserKeyspaces())
         {
             for (ViewMetadata view: Schema.instance.getKeyspaceMetadata(keyspace).views)
+            {
                 SystemKeyspace.finishViewBuildStatus(view.keyspace, view.name);
+            }
         }
     }
 
@@ -1534,7 +1564,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * Called when bootstrap did finish successfully
      */
     private void bootstrapFinished() {
-        markViewsAsBuilt();
         isBootstrapMode = false;
     }
 
@@ -4663,6 +4692,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return Collections.unmodifiableMap(result);
     }
 
+    public boolean hasBuiltAllViews(String keyspace, String baseTable, InetAddress peer)
+    {
+        UUID peerID = tokenMetadata.getHostId(peer);
+        for (ViewMetadata viewMetadata : View.findAll(keyspace, baseTable))
+        {
+            if (!SystemDistributedKeyspace.isViewBuilt(peerID, keyspace, viewMetadata.name))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public void setDynamicUpdateInterval(int dynamicUpdateInterval)
     {
         if (DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitch)
@@ -5072,5 +5114,28 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         DatabaseDescriptor.setHintedHandoffThrottleInKB(throttleInKB);
         logger.info("Updated hinted_handoff_throttle_in_kb to {}", throttleInKB);
+    }
+
+    public boolean hasViews(ColumnFamilyStore cfs)
+    {
+        return !Iterables.isEmpty(View.findAll(cfs.metadata.keyspace, cfs.getTableName()));
+    }
+
+    public boolean hasViews()
+    {
+        return Schema.instance.getUserKeyspaces().stream().anyMatch(ks -> !Schema.instance.getKeyspaceMetadata(ks).views.isEmpty());
+    }
+
+    public void buildAllViewsAsync()
+    {
+        Runnable viewRebuild = () -> {
+            for (Keyspace keyspace : Keyspace.all())
+            {
+                keyspace.viewManager.buildAllViews();
+            }
+            logger.debug("Completed submission of build tasks for any materialized views defined at startup");
+        };
+
+        ScheduledExecutors.optionalTasks.schedule(viewRebuild, StorageService.RING_DELAY, TimeUnit.MILLISECONDS);
     }
 }

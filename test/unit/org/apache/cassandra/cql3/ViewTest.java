@@ -20,6 +20,7 @@ package org.apache.cassandra.cql3;
 
 import static org.junit.Assert.*;
 
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -39,12 +40,14 @@ import com.datastax.driver.core.exceptions.InvalidQueryException;
 import org.apache.cassandra.concurrent.SEPExecutor;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
+import org.apache.cassandra.repair.SystemDistributedKeyspace;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -1384,5 +1387,58 @@ public class ViewTest extends CQLTester
         {
             testViewBuilderResume(i);
         }
+    }
+
+    @Test
+    public void testhasBuiltAllViews() throws Throwable
+    {
+        createTable("CREATE TABLE %s (" +
+                    "k int, " +
+                    "asciival ascii, " +
+                    "bigintval bigint, " +
+                    "textval1 text, " +
+                    "textval2 text, " +
+                    "PRIMARY KEY((k, asciival), bigintval, textval1)" +
+                    ")");
+
+        execute("USE " + keyspace());
+        executeNet(protocolVersion, "USE " + keyspace());
+
+        String viewNamePrefix = "mv_test1";
+
+        assertFalse(SystemDistributedKeyspace.isViewBuilt(SystemKeyspace.getLocalHostId(), keyspace(), viewNamePrefix));
+
+        // Since there are no views, all views are considered built
+        assertTrue(StorageService.instance.hasBuiltAllViews(keyspace(), currentTable(), FBUtilities.getBroadcastAddress()));
+
+        // Create 5 views
+        for (int i = 0; i < 5; i++)
+        {
+            createView(viewNamePrefix + i, "CREATE MATERIALIZED VIEW %s AS SELECT * FROM %%s WHERE textval2 IS NOT NULL AND k IS NOT NULL AND asciival IS NOT NULL AND bigintval IS NOT NULL AND textval1 IS NOT NULL PRIMARY KEY ((textval2, k), asciival, bigintval, textval1)");
+        }
+
+        // View is still building, so this should return false
+        assertFalse(StorageService.instance.hasBuiltAllViews(keyspace(), currentTable(), FBUtilities.getBroadcastAddress()));
+
+        int retryCount = 0;
+        // Wait until all views are built
+        while (true)
+        {
+            Thread.sleep(1000);
+            if (retryCount++ > 10)
+                fail("View should be built in 10 seconds.");
+            for (int i = 0; i < 5; i++)
+            {
+                if (!SystemDistributedKeyspace.isViewBuilt(SystemKeyspace.getLocalHostId(), keyspace(), viewNamePrefix + i))
+                    continue;
+            }
+            break;
+        }
+
+        // Ensure all views are built for this node
+        assertTrue(StorageService.instance.hasBuiltAllViews(keyspace(), currentTable(), FBUtilities.getBroadcastAddress()));
+
+        // Check that all views are not built for another unknown node
+        assertFalse(StorageService.instance.hasBuiltAllViews(keyspace(), currentTable(), InetAddress.getByName("127.0.0.3")));
     }
 }

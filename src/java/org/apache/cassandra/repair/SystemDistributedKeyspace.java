@@ -293,6 +293,29 @@ public final class SystemDistributedKeyspace
         return status;
     }
 
+    public static boolean isViewBuilt(UUID peerID, String keyspace, String view)
+    {
+        String query = "SELECT host_id, status FROM %s.%s WHERE keyspace_name = ? AND view_name = ? AND host_id = ?";
+        UntypedResultSet results;
+        try
+        {
+            results = QueryProcessor.execute(format(query, SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, VIEW_BUILD_STATUS),
+                                             ConsistencyLevel.ONE,
+                                             keyspace,
+                                             view,
+                                             peerID);
+            UntypedResultSet.Row row = results.one();
+            if (row.has("status") && row.getString("status").equals(BuildStatus.SUCCESS.name()))
+                return true;
+        }
+        catch (Exception e)
+        {
+            logger.debug("Problem while fetching view build status from system_distributed table.", e);
+            return false;
+        }
+        return false;
+    }
+
     public static void setViewRemoved(String keyspaceName, String viewName)
     {
         String buildReq = "DELETE FROM %s.%s WHERE keyspace_name = ? AND view_name = ?";

@@ -45,6 +45,8 @@ import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.schema.ViewMetadata;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Throwables;
@@ -164,12 +166,35 @@ public class StreamReceiveTask extends StreamTask
          * can be archived by the CDC process on discard.
          */
         private boolean requiresWritePath(ColumnFamilyStore cfs) {
-            return hasCDC(cfs) || (task.session.streamOperation().requiresViewBuild() && hasViews(cfs));
+            if (hasCDC(cfs))
+                return true;
+
+            if (hasViews(cfs))
+            {
+                if (task.session.streamOperation().requiresViewBuild())
+                    return true;
+
+                // View build during streaming can only be skipped if source node has built all views for this base table
+                if (StorageService.instance.hasBuiltAllViews(cfs.keyspace.getName(), cfs.getTableName(), task.session.peer))
+                {
+                    logger.info("Peer {} already built all views for base table {}.{}. Skipping view rebuild.",
+                                task.session.peer, cfs.keyspace.getName(), cfs.getTableName());
+                    return false;
+                }
+                else
+                {
+                    logger.info("Peer {} did not build all views for base table {}.{}. Rebuilding views during streaming.",
+                                task.session.peer, cfs.keyspace.getName(), cfs.getTableName());
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private boolean hasViews(ColumnFamilyStore cfs)
         {
-            return !Iterables.isEmpty(View.findAll(cfs.metadata.keyspace, cfs.getTableName()));
+            return StorageService.instance.hasViews(cfs);
         }
 
         private boolean hasCDC(ColumnFamilyStore cfs)
