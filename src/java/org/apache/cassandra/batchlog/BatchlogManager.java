@@ -336,7 +336,7 @@ public class BatchlogManager implements BatchlogManagerMBean
                 }
                 catch (WriteTimeoutException|WriteFailureException e)
                 {
-                    logger.trace("Failed replaying a batched mutation to a node, will write a hint");
+                    logger.debug("Failed replaying a batched mutation to {} with {}, will write a hint.", handler.undelivered, e.getClass().getName());
                     logger.trace("Failure was : {}", e.getMessage());
                     // writing hints for the rest to hints, starting from i
                     writeHintsForUndeliveredEndpoints(i, hintedNodes);
