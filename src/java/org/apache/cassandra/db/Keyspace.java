@@ -500,6 +500,17 @@ public class Keyspace
         if (TEST_FAIL_WRITES && metadata.name.equals(TEST_FAIL_WRITES_KS))
             throw new RuntimeException("Testing write failures");
 
+        // Validate all tables exist first before doing any work
+        for (PartitionUpdate upd : mutation.getPartitionUpdates())
+        {
+            ColumnFamilyStore cfs = columnFamilyStores.get(upd.metadata().id);
+            if (cfs == null)
+            {
+                throw new RuntimeException(String.format("Attempting to mutate non-existant table %s (%s.%s)",
+                                                         upd.metadata().id, upd.metadata().keyspace, upd.metadata().name));
+            }
+        }
+
         Lock[] locks = null;
 
         boolean requiresViewUpdate = updateIndexes && viewManager.updatesAffectView(Collections.singleton(mutation), false);
@@ -608,8 +619,8 @@ public class Keyspace
                 ColumnFamilyStore cfs = columnFamilyStores.get(upd.metadata().id);
                 if (cfs == null)
                 {
-                    logger.error("Attempting to mutate non-existant table {} ({}.{})", upd.metadata().id, upd.metadata().keyspace, upd.metadata().name);
-                    continue;
+                    throw new RuntimeException(String.format("Attempting to mutate non-existant table %s (%s.%s)",
+                                                             upd.metadata().id, upd.metadata().keyspace, upd.metadata().name));
                 }
                 AtomicLong baseComplete = new AtomicLong(Long.MAX_VALUE);
 

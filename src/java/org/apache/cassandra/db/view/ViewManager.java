@@ -164,6 +164,7 @@ public class ViewManager
         if (view == null)
             return;
 
+        view.stopBuild();
         forTable(view.getDefinition().baseTableId).removeByName(name);
         SystemKeyspace.setViewRemoved(keyspace.getName(), view.name);
         SystemDistributedKeyspace.setViewRemoved(keyspace.getName(), view.name);

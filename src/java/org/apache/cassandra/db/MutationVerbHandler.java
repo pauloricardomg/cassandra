@@ -21,6 +21,9 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.io.util.FastByteArrayInputStream;
 import org.apache.cassandra.net.*;
@@ -28,6 +31,8 @@ import org.apache.cassandra.tracing.Tracing;
 
 public class MutationVerbHandler implements IVerbHandler<Mutation>
 {
+    private static final Logger logger = LoggerFactory.getLogger(MutationVerbHandler.class);
+
     private void reply(int id, InetAddress replyTo)
     {
         Tracing.trace("Enqueuing response to {}", replyTo);
@@ -66,6 +71,10 @@ public class MutationVerbHandler implements IVerbHandler<Mutation>
         catch (WriteTimeoutException wto)
         {
             failed();
+        }
+        catch (Throwable t)
+        {
+            logger.warn("Got exception while attempting to apply remote mutation", t);
         }
     }
 
