@@ -70,6 +70,7 @@ class ViewBuilder
     private final Map<Range<Token>, Pair<Token, Long>> pendingRanges = Maps.newConcurrentMap();
     private final Set<ViewBuilderTask> tasks = Sets.newConcurrentHashSet();
     private volatile long keysBuilt = 0;
+    private volatile boolean isStarted = false;
     private volatile boolean isStopped = false;
     private volatile Future<?> future = Futures.immediateFuture(null);
 
@@ -82,6 +83,7 @@ class ViewBuilder
 
     public void start()
     {
+        isStarted = true;
         if (SystemKeyspace.isViewBuilt(ksName, view.name))
         {
             logger.debug("View already marked built for {}.{}", ksName, view.name);
@@ -229,7 +231,7 @@ class ViewBuilder
     {
         boolean wasStopped = isStopped;
         internalStop(false);
-        if (!wasStopped)
+        if (isStarted && !wasStopped)
             FBUtilities.waitOnFuture(future);
     }
 

@@ -191,6 +191,12 @@ public class ViewManager
             view.build();
     }
 
+    public void stopAllViewBuilds()
+    {
+        for (View view : allViews())
+            view.stopBuild();
+    }
+
     public TableViews forTable(TableId id)
     {
         TableViews views = viewsByBaseTable.get(id);
