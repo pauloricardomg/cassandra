@@ -18,6 +18,9 @@ using the provided 'sstableupgrade' tool.
 
 Upgrading
 ---------
+    - Maximum allowed TTL was reduced from 20 years to 15 years. This means requests with TTL
+      longer than 15 years will be rejected. Please update your application to use a TTL within
+      the allowed range.  More details on CASSANDRA-14092
     - Cassandra is now relying on the JVM options to properly shutdown on OutOfMemoryError. By default it will
       rely on the OnOutOfMemoryError option as the ExitOnOutOfMemoryError and CrashOnOutOfMemoryError options
       are not supported by the older 1.7 and 1.8 JVMs. A warning will be logged at startup if none of those JVM
