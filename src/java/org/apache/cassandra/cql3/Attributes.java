@@ -42,7 +42,7 @@ public class Attributes
      *
      * See {@link org.apache.cassandra.db.LivenessInfo#EXPIRED_LIVENESS_TTL}
      */
-    public static final int MAX_TTL = 20 * 365 * 24 * 60 * 60; // 20 years in seconds
+    public static final int MAX_TTL = 15 * 365 * 24 * 60 * 60; // 15 years in seconds
 
     private final Term timestamp;
     private final Term timeToLive;
