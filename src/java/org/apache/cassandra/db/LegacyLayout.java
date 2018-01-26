@@ -1530,7 +1530,7 @@ public abstract class LegacyLayout
             this.name = name;
             this.value = value;
             this.timestamp = timestamp;
-            this.localDeletionTime = localDeletionTime;
+            this.localDeletionTime = Cell.sanitizeLocalDeletionTime(ttl, localDeletionTime);
             this.ttl = ttl;
         }
 
