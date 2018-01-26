@@ -66,6 +66,8 @@ public class Scrubber implements Closeable
     long currentRowPositionFromIndex;
     long nextRowPositionFromIndex;
 
+    private NegativeLocalDeletionInfoMetrics negativeLocalDeletionInfoMetrics = new NegativeLocalDeletionInfoMetrics();
+
     private final OutputHandler outputHandler;
 
     private static final Comparator<Partition> partitionComparator = new Comparator<Partition>()
@@ -293,8 +295,12 @@ public class Scrubber implements Closeable
         if (completed)
         {
             outputHandler.output("Scrub of " + sstable + " complete: " + goodRows + " rows in new sstable and " + emptyRows + " empty (tombstoned) rows dropped");
+            if (negativeLocalDeletionInfoMetrics.fixedRows > 0)
+                outputHandler.output("Fixed " + negativeLocalDeletionInfoMetrics.fixedRows + " rows with overflowed local deletion time.");
             if (badRows > 0)
                 outputHandler.warn("Unable to recover " + badRows + " rows that were skipped.  You can attempt manual recovery from the pre-scrub snapshot.  You can also run nodetool repair to transfer the data from a healthy replica, if any");
+            if (negativeLocalDeletionInfoMetrics.tombstone > 0)
+                outputHandler.warn("Found " + negativeLocalDeletionInfoMetrics.tombstone + " tombstones with overflowed local deletion time. Data loss may have ocurred.");
         }
         else
         {
@@ -311,7 +317,7 @@ public class Scrubber implements Closeable
         // OrderCheckerIterator will check, at iteration time, that the rows are in the proper order. If it detects
         // that one row is out of order, it will stop returning them. The remaining rows will be sorted and added
         // to the outOfOrder set that will be later written to a new SSTable.
-        OrderCheckerIterator sstableIterator = new OrderCheckerIterator(new RowMergingSSTableIterator(outputHandler, sstable, dataFile, key),
+        OrderCheckerIterator sstableIterator = new OrderCheckerIterator(new RowMergingSSTableIterator(outputHandler, sstable, dataFile, key, negativeLocalDeletionInfoMetrics),
                                                                         cfs.metadata.comparator);
 
         try (UnfilteredRowIterator iterator = withValidation(sstableIterator, dataFile.getPath()))
@@ -478,6 +484,12 @@ public class Scrubber implements Closeable
         }
     }
 
+    public class NegativeLocalDeletionInfoMetrics
+    {
+        public volatile int fixedRows = 0;
+        public volatile int tombstone = 0;
+    }
+
     /**
      * During 2.x migration, under some circumstances rows might have gotten duplicated.
      * Merging iterator merges rows with same clustering.
@@ -487,11 +499,14 @@ public class Scrubber implements Closeable
     private static class RowMergingSSTableIterator extends SSTableIdentityIterator
     {
         private final OutputHandler outputHandler;
+        private final NegativeLocalDeletionInfoMetrics negativeLocalExpirationTimeMetrics;
 
-        RowMergingSSTableIterator(OutputHandler outputHandler, SSTableReader sstable, RandomAccessReader file, DecoratedKey key)
+        RowMergingSSTableIterator(OutputHandler outputHandler, SSTableReader sstable, RandomAccessReader file, DecoratedKey key,
+                                  NegativeLocalDeletionInfoMetrics negativeLocalDeletionInfoMetrics)
         {
             super(sstable, file, key);
             this.outputHandler = outputHandler;
+            this.negativeLocalExpirationTimeMetrics = negativeLocalDeletionInfoMetrics;
         }
 
         @Override
@@ -519,8 +534,11 @@ public class Scrubber implements Closeable
                 }
             }
 
-            if (hasNegativeLocalExpirationTime((Row) next))
+            if (hasNegativeLocalExpirationTime((Row) next, negativeLocalExpirationTimeMetrics))
+            {
+                negativeLocalExpirationTimeMetrics.fixedRows++;
                 return removeNegativeLocalExpirationTime((Row) next);
+            }
 
             return next;
         }
@@ -551,14 +569,14 @@ public class Scrubber implements Closeable
             return builder.build();
         }
 
-        private boolean hasNegativeLocalExpirationTime(Row next)
+        private boolean hasNegativeLocalExpirationTime(Row next, NegativeLocalDeletionInfoMetrics negativeLocalExpirationTimeMetrics)
         {
-            boolean hasCellWithNegativeLocalExpirationTime = false;
+            boolean hasCellOrPkWithNegativeLocalExpirationTime = false;
             boolean hasTombstoneWithNegativeLocalExpirationTime = false;
             Row row = next;
             if (row.primaryKeyLivenessInfo().localExpirationTime() < 0)
             {
-                hasCellWithNegativeLocalExpirationTime = true;
+                hasCellOrPkWithNegativeLocalExpirationTime = true;
             }
 
             if (row.deletion().time().localDeletionTime() < 0)
@@ -576,7 +594,7 @@ public class Scrubber implements Closeable
                     {
                         if (cell.isTombstone())
                             hasTombstoneWithNegativeLocalExpirationTime = true;
-                        hasCellWithNegativeLocalExpirationTime = true;
+                        hasCellOrPkWithNegativeLocalExpirationTime = true;
                     }
                 }
                 else
@@ -588,16 +606,19 @@ public class Scrubber implements Closeable
                             hasTombstoneWithNegativeLocalExpirationTime = true;
                         if (cell.localDeletionTime() < 0)
                         {
-                            hasCellWithNegativeLocalExpirationTime = true;
+                            hasCellOrPkWithNegativeLocalExpirationTime = true;
                         }
                     }
                 }
             }
 
             if (hasTombstoneWithNegativeLocalExpirationTime)
+            {
+                negativeLocalExpirationTimeMetrics.tombstone++;
                 outputHandler.warn(String.format("Found tombstone with negative local expiration time on the following row: %s", row.toString(metadata(), true)));
+            }
 
-            return hasCellWithNegativeLocalExpirationTime;
+            return hasCellOrPkWithNegativeLocalExpirationTime;
         }
     }
 
