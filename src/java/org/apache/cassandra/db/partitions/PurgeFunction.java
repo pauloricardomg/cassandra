@@ -42,6 +42,7 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
         this.isForThrift = isForThrift;
         this.nowInSec = nowInSec;
         this.purger = (timestamp, localDeletionTime) ->
+                      localDeletionTime >= 0 && // Avoid purging rows deleted due to overflowed TTL (CASSANDRA-14092)
                       !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
                       && localDeletionTime < gcBefore
                       && getPurgeEvaluator().test(timestamp);
