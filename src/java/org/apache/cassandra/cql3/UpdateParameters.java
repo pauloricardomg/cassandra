@@ -116,7 +116,9 @@ public class UpdateParameters
 
     public void addPrimaryKeyLivenessInfo()
     {
-        builder.addPrimaryKeyLivenessInfo(LivenessInfo.create(metadata, timestamp, ttl, nowInSec));
+        LivenessInfo info = LivenessInfo.create(metadata, timestamp, ttl, nowInSec);
+        assert info.localExpirationTime() >= 0 : "PK localExpirationTime should be zero or positive.";
+        builder.addPrimaryKeyLivenessInfo(info);
     }
 
     public void addRowDeletion()
@@ -151,6 +153,7 @@ public class UpdateParameters
         Cell cell = ttl == LivenessInfo.NO_TTL
                   ? BufferCell.live(metadata, column, timestamp, value, path)
                   : BufferCell.expiring(column, timestamp, ttl, nowInSec, value, path);
+        assert cell.localDeletionTime() >= 0 : "Cell localExpirationTime should be zero or positive.";
         builder.addCell(cell);
     }
 
