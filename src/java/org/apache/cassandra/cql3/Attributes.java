@@ -19,6 +19,11 @@ package org.apache.cassandra.cql3;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.helpers.MessageFormatter;
 
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.db.LivenessInfo;
@@ -26,7 +31,10 @@ import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * Utility class for the Parser to gather attributes for modification
@@ -34,6 +42,14 @@ import org.apache.cassandra.utils.ByteBufferUtil;
  */
 public class Attributes
 {
+
+    public static final String MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING = "TTL of {} seconds exceeds maximum supported expiration date of " +
+                                                                          "2038-01-19T03:14:06+00:00. Rows with expiration date exceeding the maximum " +
+                                                                          "supported date will expire in the limit date. In order to avoid this use a " +
+                                                                          "lower TTL or upgrade to a version where this limitation is fixed. See " +
+                                                                          "CASSANDRA-14092 for more details.";
+    private static final Logger logger = LoggerFactory.getLogger(Attributes.class);
+
     /**
      * If this limit is ever raised, make sure @{@link Integer#MAX_VALUE} is not allowed,
      * as this is used as a flag to represent expired liveness.
@@ -128,6 +144,15 @@ public class Attributes
 
         if (defaultTimeToLive != LivenessInfo.NO_TTL && ttl == LivenessInfo.NO_TTL)
             return LivenessInfo.NO_TTL;
+
+        // Check for localExpirationTime overflow (CASSANDRA-14092)
+        if (ttl + FBUtilities.nowInSeconds() < 0)
+        {
+            NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING,
+                             ttl);
+            ClientWarn.instance.warn(MessageFormatter.arrayFormat(MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING, new Object[] { ttl })
+                                                     .getMessage());
+        }
 
         return ttl;
     }

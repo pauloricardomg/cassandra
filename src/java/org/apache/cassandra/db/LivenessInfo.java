@@ -21,6 +21,7 @@ import java.util.Objects;
 
 import com.google.common.hash.Hasher;
 
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.HashingUtils;
 
@@ -40,7 +41,7 @@ import org.apache.cassandra.utils.HashingUtils;
 public class LivenessInfo
 {
     public static final long NO_TIMESTAMP = Long.MIN_VALUE;
-    public static final int NO_TTL = 0;
+    public static final int NO_TTL = Cell.NO_TTL;
     /**
      * Used as flag for representing an expired liveness.
      *
@@ -48,7 +49,7 @@ public class LivenessInfo
      * (See {@link org.apache.cassandra.cql3.Attributes#MAX_TTL})
      */
     public static final int EXPIRED_LIVENESS_TTL = Integer.MAX_VALUE;
-    public static final int NO_EXPIRATION_TIME = Integer.MAX_VALUE;
+    public static final int NO_EXPIRATION_TIME = Cell.NO_DELETION_TIME;
 
     public static final LivenessInfo EMPTY = new LivenessInfo(NO_TIMESTAMP);
 
@@ -297,7 +298,7 @@ public class LivenessInfo
             super(timestamp);
             assert ttl != NO_TTL && localExpirationTime != NO_EXPIRATION_TIME;
             this.ttl = ttl;
-            this.localExpirationTime = localExpirationTime;
+            this.localExpirationTime = Cell.sanitizeLocalDeletionTime(ttl, localExpirationTime);
         }
 
         @Override

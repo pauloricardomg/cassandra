@@ -42,6 +42,7 @@ public abstract class Cell extends ColumnData
 {
     public static final int NO_TTL = 0;
     public static final int NO_DELETION_TIME = Integer.MAX_VALUE;
+    public static final int MAX_DELETION_TIME = Integer.MAX_VALUE - 1;
 
     public final static Comparator<Cell> comparator = (c1, c2) ->
     {
@@ -305,5 +306,16 @@ public abstract class Cell extends ColumnData
 
             return true;
         }
+    }
+
+    public static int sanitizeLocalDeletionTime(int ttl, int localDeletionTime)
+    {
+        if (ttl == NO_TTL)
+            return NO_DELETION_TIME;
+
+        if (localDeletionTime < 0 || localDeletionTime == NO_DELETION_TIME)
+            return MAX_DELETION_TIME;
+
+        return localDeletionTime;
     }
 }
