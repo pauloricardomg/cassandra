@@ -19,12 +19,17 @@ package org.apache.cassandra.cql3;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ExpiringCell;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * Utility class for the Parser to gather attributes for modification
@@ -32,6 +37,14 @@ import org.apache.cassandra.serializers.MarshalException;
  */
 public class Attributes
 {
+    public static final String MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING = "TTL of {} seconds exceeds maximum supported expiration date of " +
+                                                                          "2038-01-19T03:14:06+00:00. Rows with expiration date exceeding the maximum " +
+                                                                          "supported date will expire in the limit date. In order to avoid this use a " +
+                                                                          "lower TTL or upgrade to a version where this limitation is fixed. See " +
+                                                                          "CASSANDRA-14092 for more details.";
+    private static final Logger logger = LoggerFactory.getLogger(Attributes.class);
+
+
     private final Term timestamp;
     private final Term timeToLive;
 
@@ -101,6 +114,14 @@ public class Attributes
 
         if (ttl > ExpiringCell.MAX_TTL)
             throw new InvalidRequestException(String.format("ttl is too large. requested (%d) maximum (%d)", ttl, ExpiringCell.MAX_TTL));
+
+        // Check for localExpirationTime overflow (CASSANDRA-14092)
+        int nowInSecs = (int) (System.currentTimeMillis() / 1000);
+        if (ttl + nowInSecs < 0)
+        {
+            NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING,
+                             ttl);
+        }
 
         return ttl;
     }

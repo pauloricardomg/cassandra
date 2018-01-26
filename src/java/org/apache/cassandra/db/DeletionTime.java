@@ -61,7 +61,7 @@ public class DeletionTime implements Comparable<DeletionTime>, IMeasurableMemory
     public DeletionTime(long markedForDeleteAt, int localDeletionTime)
     {
         this.markedForDeleteAt = markedForDeleteAt;
-        this.localDeletionTime = localDeletionTime;
+        this.localDeletionTime = sanitizeLocalDeletionTime(localDeletionTime);
     }
 
     /**
@@ -155,5 +155,10 @@ public class DeletionTime implements Comparable<DeletionTime>, IMeasurableMemory
             return typeSizes.sizeof(delTime.localDeletionTime)
                  + typeSizes.sizeof(delTime.markedForDeleteAt);
         }
+    }
+
+    public static int sanitizeLocalDeletionTime(int localDeletionTime)
+    {
+        return localDeletionTime >= 0 ? localDeletionTime : BufferExpiringCell.MAX_DELETION_TIME;
     }
 }
