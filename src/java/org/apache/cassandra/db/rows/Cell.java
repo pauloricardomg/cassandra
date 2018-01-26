@@ -140,6 +140,8 @@ public abstract class Cell extends ColumnData
 
     public abstract Cell withUpdatedValue(ByteBuffer newValue);
 
+    public abstract Cell withUpdatedLocalDeletionTime(int newLocalDeletionTime);
+
     public abstract Cell copy(AbstractAllocator allocator);
 
     @Override
