@@ -232,6 +232,11 @@ public class LivenessInfo
         return new LivenessInfo(newTimestamp);
     }
 
+    public LivenessInfo withUpdatedLocalDeletionTime(int newLocalDeletionTime)
+    {
+        return LivenessInfo.create(timestamp, ttl(), newLocalDeletionTime);
+    }
+
     @Override
     public String toString()
     {

@@ -142,6 +142,11 @@ public class BufferCell extends AbstractCell
         return new BufferCell(column, timestamp, ttl, localDeletionTime, newValue, path);
     }
 
+    public Cell withUpdatedLocalDeletionTime(int newLocalDeletionTime)
+    {
+        return new BufferCell(column, timestamp, ttl, newLocalDeletionTime, value, path);
+    }
+
     public Cell copy(AbstractAllocator allocator)
     {
         if (!value.hasRemaining())
