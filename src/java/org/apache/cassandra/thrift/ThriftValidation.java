@@ -19,11 +19,13 @@ package org.apache.cassandra.thrift;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.*;
+import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
@@ -41,6 +43,7 @@ import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * This has a lot of building blocks for CassandraServer to call to make sure it has valid input
@@ -358,6 +361,14 @@ public class ThriftValidation
 
             if (column.ttl > ExpiringCell.MAX_TTL)
                 throw new org.apache.cassandra.exceptions.InvalidRequestException(String.format("ttl is too large. requested (%d) maximum (%d)", column.ttl, ExpiringCell.MAX_TTL));
+
+            // Check for localExpirationTime overflow (CASSANDRA-14092)
+            int nowInSecs = (int) (System.currentTimeMillis() / 1000);
+            if (column.ttl + nowInSecs < 0)
+            {
+                NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, Attributes.MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING,
+                                 column.ttl);
+            }
         }
         else
         {
