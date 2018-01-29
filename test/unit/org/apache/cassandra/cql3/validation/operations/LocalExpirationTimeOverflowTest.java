@@ -24,16 +24,24 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.rows.AbstractCell;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
 
+/**
+ * This suite checks that data inserted with a TTL overflowing {@link AbstractCell#localDeletionTime()}
+ * is readable after inserted.
+ */
 public class LocalExpirationTimeOverflowTest extends CQLTester
 {
+    public static int MAX_TTL = Attributes.MAX_TTL;
+
     public static final String KEYSPACE = "keyspace1";
     public static final String SIMPLE_NOCLUSTERING = "table1";
     public static final String SIMPLE_CLUSTERING = "table2";
@@ -68,6 +76,8 @@ public class LocalExpirationTimeOverflowTest extends CQLTester
         keyspace.getColumnFamilyStore(COMPLEX_CLUSTERING).truncateBlocking();
     }
 
+    /* Check that entry inserted with MAX_TTL on table with simple and no clustering columns is present on read */
+
     @Test
     public void testLocalExpirationTimeOverflowSimpleNoClusteringWithFlush() throws Throwable
     {
@@ -80,10 +90,12 @@ public class LocalExpirationTimeOverflowTest extends CQLTester
         testLocalExpirationTimeOverflowSimple(false, false);
     }
 
+    /* Check that entry inserted with MAX_TTL on table with simple and clustering columns is present on read */
+
     @Test
     public void testLocalExpirationTimeOverflowSimpleClusteringWithFlush() throws Throwable
     {
-        testLocalExpirationTimeOverflowSimple(true,true);
+        testLocalExpirationTimeOverflowSimple(true, true);
     }
 
     @Test
@@ -92,10 +104,12 @@ public class LocalExpirationTimeOverflowTest extends CQLTester
         testLocalExpirationTimeOverflowComplex(true, false);
     }
 
+    /* Check that entry inserted with MAX_TTL on table with complex and no clustering columns is present on read */
+
     @Test
     public void testLocalExpirationTimeOverflowComplexNoClusteringWithFlush() throws Throwable
     {
-        testLocalExpirationTimeOverflowComplex(false,true);
+        testLocalExpirationTimeOverflowComplex(false, true);
     }
 
     @Test
@@ -104,10 +118,12 @@ public class LocalExpirationTimeOverflowTest extends CQLTester
         testLocalExpirationTimeOverflowComplex(false, false);
     }
 
+    /* Check that entry inserted with MAX_TTL on table with complex and clustering columns is present on read */
+
     @Test
     public void testLocalExpirationTimeOverflowComplexClusteringWithFlush() throws Throwable
     {
-        testLocalExpirationTimeOverflowComplex(true,true);
+        testLocalExpirationTimeOverflowComplex(true, true);
     }
 
     @Test
@@ -119,11 +135,11 @@ public class LocalExpirationTimeOverflowTest extends CQLTester
     public void testLocalExpirationTimeOverflowSimple(boolean clustering, boolean flush) throws Throwable
     {
         String tableName = getTableName(true, clustering);
-        execute("INSERT INTO " + tableName + " (k, a, b) VALUES (?, ?, ?) USING TTL 630720000", 2, 2, 2);
+        execute("INSERT INTO " + tableName + " (k, a, b) VALUES (?, ?, ?) USING TTL " + MAX_TTL, 2, 2, 2);
         if (clustering)
-            execute("UPDATE " + tableName + " USING TTL 630720000 SET b = 1 WHERE k = 1 AND a = 1;");
+            execute("UPDATE " + tableName + " USING TTL " + MAX_TTL + " SET b = 1 WHERE k = 1 AND a = 1;");
         else
-            execute("UPDATE " + tableName + " USING TTL 630720000 SET a = 1, b = 1 WHERE k = 1;");
+            execute("UPDATE " + tableName + " USING TTL " + MAX_TTL + " SET a = 1, b = 1 WHERE k = 1;");
 
         Keyspace ks = Keyspace.open(KEYSPACE);
         if (flush)
@@ -139,9 +155,9 @@ public class LocalExpirationTimeOverflowTest extends CQLTester
         String tableName = getTableName(false, clustering);
         execute("INSERT INTO " + tableName + " (k, a, b) VALUES (?, ?, ?) USING TTL 630720000", 2, 2, set("v21", "v22", "v23", "v24"));
         if (clustering)
-            execute("UPDATE  " + tableName + " USING TTL 630720000 SET b = ? WHERE k = 1 AND a = 1;", set("v11", "v12", "v13", "v14"));
+            execute("UPDATE  " + tableName + " USING TTL " + MAX_TTL + " SET b = ? WHERE k = 1 AND a = 1;", set("v11", "v12", "v13", "v14"));
         else
-            execute("UPDATE  " + tableName + " USING TTL 630720000 SET a = 1, b = ? WHERE k = 1;", set("v11", "v12", "v13", "v14"));
+            execute("UPDATE  " + tableName + " USING TTL " + MAX_TTL + " SET a = 1, b = ? WHERE k = 1;", set("v11", "v12", "v13", "v14"));
 
         Keyspace ks = Keyspace.open(KEYSPACE);
         if (flush)
