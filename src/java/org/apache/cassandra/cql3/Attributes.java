@@ -43,8 +43,8 @@ public class Attributes
 {
 
     public static final String MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING = "TTL of {} seconds exceeds maximum supported expiration date of " +
-                                                                          "2038-01-19T03:14:06+00:00. Rows with expiration date exceeding the maximum " +
-                                                                          "supported date will expire in the limit date. In order to avoid this use a " +
+                                                                          "2038-01-19T03:14:06+00:00. Rows that should expire after that date " +
+                                                                          "will have its expiration capped to that date. In order to avoid this use a " +
                                                                           "lower TTL or upgrade to a version where this limitation is fixed. See " +
                                                                           "CASSANDRA-14092 for more details.";
     private static final Logger logger = LoggerFactory.getLogger(Attributes.class);
