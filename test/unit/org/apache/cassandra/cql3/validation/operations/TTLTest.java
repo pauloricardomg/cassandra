@@ -5,7 +5,10 @@ import static org.junit.Assert.fail;
 
 import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.utils.FBUtilities;
+
 import org.junit.Test;
 
 public class TTLTest extends CQLTester
@@ -17,8 +20,8 @@ public class TTLTest extends CQLTester
         createTable("CREATE TABLE %s (k int PRIMARY KEY, i int)");
         // insert
         execute("INSERT INTO %s (k, i) VALUES (1, 1) USING TTL ?", Attributes.MAX_TTL); // max ttl
-        int ttl = execute("SELECT ttl(i) FROM %s").one().getInt("ttl(i)");
-        assertTrue(ttl > Attributes.MAX_TTL - 10);
+        checkMaxTTL();
+
 
         try
         {
@@ -43,8 +46,7 @@ public class TTLTest extends CQLTester
 
         // update
         execute("UPDATE %s USING TTL ? SET i = 1 WHERE k = 2", Attributes.MAX_TTL); // max ttl
-        ttl = execute("SELECT ttl(i) FROM %s").one().getInt("ttl(i)");
-        assertTrue(ttl > Attributes.MAX_TTL - 10);
+        checkMaxTTL();
 
         try
         {
@@ -65,6 +67,28 @@ public class TTLTest extends CQLTester
         {
             assertTrue(e.getMessage().contains("A TTL must be greater or equal to 0, but was -1"));
         }
+    }
+
+    /**
+     * Verify that the computed TTL is equal to the maximum allowed ttl given the
+     * {@link Cell#localDeletionTime()} field limitation (CASSANDRA-14092)
+     */
+    private void checkMaxTTL() throws Throwable
+    {
+        // Since the max TTL is dynamic, we compute if before and after the query to avoid flakiness
+        int minTTL = computeMaxTTL();
+        int ttl = execute("SELECT ttl(i) FROM %s").one().getInt("ttl(i)");
+        int maxTTL = computeMaxTTL();
+        assertTrue(minTTL >= ttl &&  ttl <= maxTTL);
+    }
+
+    /**
+     * The max TTL is computed such that the TTL summed with the current time is equal to the maximum
+     * allowed expiration time {@link Cell#MAX_DELETION_TIME} (2038-01-19T03:14:06+00:00)
+     */
+    private int computeMaxTTL()
+    {
+        return Cell.MAX_DELETION_TIME - FBUtilities.nowInSeconds();
     }
 
     @Test
@@ -97,8 +121,7 @@ public class TTLTest extends CQLTester
 
         createTable("CREATE TABLE %s (k int PRIMARY KEY, i int) WITH default_time_to_live=" + Attributes.MAX_TTL);
         execute("INSERT INTO %s (k, i) VALUES (1, 1)");
-        int ttl = execute("SELECT ttl(i) FROM %s").one().getInt("ttl(i)");
-        assertTrue(ttl > 10000 - 10); // within 10 second
+        checkMaxTTL();
     }
 
 }
