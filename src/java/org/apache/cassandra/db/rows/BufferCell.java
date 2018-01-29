@@ -48,7 +48,7 @@ public class BufferCell extends AbstractCell
         assert column.isComplex() == (path != null);
         this.timestamp = timestamp;
         this.ttl = ttl;
-        this.localDeletionTime = sanitizeLocalDeletionTime(ttl, localDeletionTime);
+        this.localDeletionTime = Cell.sanitizeLocalDeletionTime(ttl, localDeletionTime);
         this.value = value;
         this.path = path;
     }
