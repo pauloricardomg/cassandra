@@ -46,7 +46,7 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
         super(name, value, timestamp);
         assert timeToLive > 0 : timeToLive;
         this.timeToLive = timeToLive;
-        this.localExpirationTime = sanitizeLocalExpirationTime(localExpirationTime);
+        this.localExpirationTime = BufferExpiringCell.sanitizeLocalExpirationTime(localExpirationTime);
         assert this.localExpirationTime > 0 : this.localExpirationTime;
     }
 
@@ -187,6 +187,11 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
         return new BufferDeletedCell(name, localExpirationTime - timeToLive, timestamp);
     }
 
+    /**
+     * This method caps the {@link #getLocalDeletionTime()} to the maximum representable value
+     * which is {@link #MAX_DELETION_TIME},.
+     * See CASSANDRA-14092
+     */
     public static int sanitizeLocalExpirationTime(int localDeletionTime)
     {
         return localDeletionTime >= 0? localDeletionTime : MAX_DELETION_TIME;
