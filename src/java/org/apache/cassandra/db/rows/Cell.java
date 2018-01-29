@@ -307,12 +307,17 @@ public abstract class Cell extends ColumnData
         }
     }
 
+    /**
+     * The {@link this#localDeletionTime()} overflows when its value is negative or equal to {@link Integer#MAX_VALUE},
+     * which is used to represented {@link #NO_DELETION_TIME}.
+     *
+     * This method caps the {@link #localDeletionTime()} to the maximum representable value which is {@link #MAX_DELETION_TIME},.
+     *
+     * See CASSANDRA-14092
+     */
     public static int sanitizeLocalDeletionTime(int ttl, int localDeletionTime)
     {
-        if (ttl == NO_TTL)
-            return NO_DELETION_TIME;
-
-        if (localDeletionTime < 0 || localDeletionTime == NO_DELETION_TIME)
+        if (ttl != NO_TTL && (localDeletionTime < 0 || localDeletionTime == NO_DELETION_TIME))
             return MAX_DELETION_TIME;
 
         return localDeletionTime;
