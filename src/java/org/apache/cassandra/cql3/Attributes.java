@@ -26,10 +26,11 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.helpers.MessageFormatter;
 
 import org.apache.cassandra.cql3.functions.Function;
-import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -42,12 +43,10 @@ import org.apache.cassandra.utils.NoSpamLogger;
  */
 public class Attributes
 {
-
-    public static final String MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING = "TTL of {} seconds exceeds maximum supported expiration date of " +
-                                                                          "2038-01-19T03:14:06+00:00. Rows that should expire after that date " +
-                                                                          "will have its expiration capped to that date. In order to avoid this use a " +
-                                                                          "lower TTL or upgrade to a version where this limitation is fixed. See " +
-                                                                          "CASSANDRA-14092 for more details.";
+    public static final String MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING = "Request on table {}.{} with {}ttl of {} seconds exceeds maximum supported expiration " +
+                                                                          "date of 2038-01-19T03:14:06+00:00 and will have its expiration capped to that date. " +
+                                                                          "In order to avoid this use a lower TTL or upgrade to a version where this limitation " +
+                                                                          "is fixed. See CASSANDRA-14092 for more details.";
     private static final Logger logger = LoggerFactory.getLogger(Attributes.class);
 
     /**
@@ -114,17 +113,23 @@ public class Attributes
         return LongType.instance.compose(tval);
     }
 
-    public int getTimeToLive(QueryOptions options, int defaultTimeToLive) throws InvalidRequestException
+    public int getTimeToLive(QueryOptions options, TableMetadata metadata) throws InvalidRequestException
     {
         if (timeToLive == null)
-            return defaultTimeToLive;
+        {
+            maybeLogMaximumExpirationDateExceededMessage(metadata, metadata.params.defaultTimeToLive, true);
+            return metadata.params.defaultTimeToLive;
+        }
 
         ByteBuffer tval = timeToLive.bindAndGet(options);
         if (tval == null)
             return 0;
 
         if (tval == ByteBufferUtil.UNSET_BYTE_BUFFER)
-            return defaultTimeToLive;
+        {
+            maybeLogMaximumExpirationDateExceededMessage(metadata, metadata.params.defaultTimeToLive, true);
+            return metadata.params.defaultTimeToLive;
+        }
 
         try
         {
@@ -142,17 +147,7 @@ public class Attributes
         if (ttl > MAX_TTL)
             throw new InvalidRequestException(String.format("ttl is too large. requested (%d) maximum (%d)", ttl, MAX_TTL));
 
-        if (defaultTimeToLive != LivenessInfo.NO_TTL && ttl == LivenessInfo.NO_TTL)
-            return LivenessInfo.NO_TTL;
-
-        // Check for localExpirationTime overflow (CASSANDRA-14092)
-        if (ttl + FBUtilities.nowInSeconds() < 0)
-        {
-            NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING,
-                             ttl);
-            ClientWarn.instance.warn(MessageFormatter.arrayFormat(MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING, new Object[] { ttl })
-                                                     .getMessage());
-        }
+        maybeLogMaximumExpirationDateExceededMessage(metadata, ttl, false);
 
         return ttl;
     }
@@ -185,6 +180,22 @@ public class Attributes
         private ColumnSpecification timeToLiveReceiver(String ksName, String cfName)
         {
             return new ColumnSpecification(ksName, cfName, new ColumnIdentifier("[ttl]", true), Int32Type.instance);
+        }
+    }
+
+    public static void maybeLogMaximumExpirationDateExceededMessage(TableMetadata metadata, int ttl, boolean isDefaultTTL)
+    {
+        if (ttl == Cell.NO_TTL)
+            return;
+
+        // Check for localExpirationTime overflow (CASSANDRA-14092)
+        if (ttl + FBUtilities.nowInSeconds() < 0)
+        {
+            String msgPrefix = isDefaultTTL? "default " : "";
+            NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING,
+                             metadata.keyspace, metadata.name, msgPrefix, ttl);
+            ClientWarn.instance.warn(MessageFormatter.arrayFormat(MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING, new Object[] { metadata.keyspace, metadata.name, msgPrefix, ttl })
+                                                     .getMessage());
         }
     }
 }
