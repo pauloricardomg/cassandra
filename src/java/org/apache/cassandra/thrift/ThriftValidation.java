@@ -19,7 +19,6 @@ package org.apache.cassandra.thrift;
 
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +42,6 @@ import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * This has a lot of building blocks for CassandraServer to call to make sure it has valid input
@@ -361,11 +359,11 @@ public class ThriftValidation
 
             if (column.ttl > ExpiringCell.MAX_TTL)
                 throw new org.apache.cassandra.exceptions.InvalidRequestException(String.format("ttl is too large. requested (%d) maximum (%d)", column.ttl, ExpiringCell.MAX_TTL));
-            Attributes.maybeLogMaximumExpirationDateExceededMessage(metadata, column.ttl, false);
+            Attributes.maybeApplyExpirationDateOverflowPolicy(metadata, column.ttl, false);
         }
         else
         {
-            Attributes.maybeLogMaximumExpirationDateExceededMessage(metadata, metadata.getDefaultTimeToLive(), true);
+            Attributes.maybeApplyExpirationDateOverflowPolicy(metadata, metadata.getDefaultTimeToLive(), true);
             // if it's not set, then it should be zero -- here we are just checking to make sure Thrift doesn't change that contract with us.
             assert column.ttl == 0;
         }

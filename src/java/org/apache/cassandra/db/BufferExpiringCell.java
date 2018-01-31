@@ -38,16 +38,19 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
 
     public BufferExpiringCell(CellName name, ByteBuffer value, long timestamp, int timeToLive)
     {
-        this(name, value, timestamp, timeToLive, (int) (System.currentTimeMillis() / 1000) + timeToLive);
+        super(name, value, timestamp);
+        assert timeToLive > 0 : timeToLive;
+        this.timeToLive = timeToLive;
+        this.localExpirationTime = computeLocalExpirationTime(timeToLive);
     }
 
     public BufferExpiringCell(CellName name, ByteBuffer value, long timestamp, int timeToLive, int localExpirationTime)
     {
         super(name, value, timestamp);
         assert timeToLive > 0 : timeToLive;
+        assert localExpirationTime > 0 : localExpirationTime;
         this.timeToLive = timeToLive;
-        this.localExpirationTime = BufferExpiringCell.sanitizeLocalExpirationTime(localExpirationTime);
-        assert this.localExpirationTime > 0 : this.localExpirationTime;
+        this.localExpirationTime = localExpirationTime;
     }
 
     public int getTimeToLive()
@@ -188,13 +191,18 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
     }
 
     /**
-     * This method caps the {@link #getLocalDeletionTime()} to the maximum representable value
-     * which is {@link #MAX_DELETION_TIME},.
+     * This method computes the {@link #localExpirationTime}, maybe capping to the maximum representable value
+     * which is {@link #MAX_DELETION_TIME}.
+     *
+     * Please note that the {@link org.apache.cassandra.cql3.Attributes.ExpirationDateOverflowPolicy} is applied
+     * during {@link org.apache.cassandra.cql3.Attributes#maybeApplyExpirationDateOverflowPolicy(CFMetaData, int, boolean)},
+     * so if the request was not denied it means it's expiration date should be capped.
+     *
      * See CASSANDRA-14092
      */
-    public static int sanitizeLocalExpirationTime(int localDeletionTime)
+    private int computeLocalExpirationTime(int timeToLive)
     {
-        return localDeletionTime >= 0? localDeletionTime : MAX_DELETION_TIME;
+        int localExpirationTime =  (int) (System.currentTimeMillis() / 1000) + timeToLive;
+        return localExpirationTime >= 0? localExpirationTime : MAX_DELETION_TIME;
     }
-
 }
