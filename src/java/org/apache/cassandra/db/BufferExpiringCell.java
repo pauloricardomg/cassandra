@@ -31,6 +31,8 @@ import org.apache.cassandra.utils.memory.MemtableAllocator;
 
 public class BufferExpiringCell extends BufferCell implements ExpiringCell
 {
+    public static final int MAX_DELETION_TIME = Integer.MAX_VALUE - 1;
+
     private final int localExpirationTime;
     private final int timeToLive;
 
@@ -43,9 +45,9 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
     {
         super(name, value, timestamp);
         assert timeToLive > 0 : timeToLive;
-        assert localExpirationTime > 0 : localExpirationTime;
         this.timeToLive = timeToLive;
-        this.localExpirationTime = localExpirationTime;
+        this.localExpirationTime = BufferExpiringCell.sanitizeLocalExpirationTime(localExpirationTime);
+        assert this.localExpirationTime > 0 : this.localExpirationTime;
     }
 
     public int getTimeToLive()
@@ -184,4 +186,15 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
         // http://cassandra-user-incubator-apache-org.3065146.n2.nabble.com/repair-compaction-and-tombstone-rows-td7583481.html
         return new BufferDeletedCell(name, localExpirationTime - timeToLive, timestamp);
     }
+
+    /**
+     * This method caps the {@link #getLocalDeletionTime()} to the maximum representable value
+     * which is {@link #MAX_DELETION_TIME},.
+     * See CASSANDRA-14092
+     */
+    public static int sanitizeLocalExpirationTime(int localDeletionTime)
+    {
+        return localDeletionTime >= 0? localDeletionTime : MAX_DELETION_TIME;
+    }
+
 }

@@ -19,11 +19,13 @@ package org.apache.cassandra.thrift;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.*;
+import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
@@ -41,6 +43,7 @@ import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * This has a lot of building blocks for CassandraServer to call to make sure it has valid input
@@ -314,7 +317,7 @@ public class ThriftValidation
             if (isCommutative)
                 throw new org.apache.cassandra.exceptions.InvalidRequestException("invalid operation for commutative columnfamily " + metadata.cfName);
 
-            validateTtl(cosc.column);
+            validateTtl(metadata, cosc.column);
             validateColumnPath(metadata, new ColumnPath(metadata.cfName).setSuper_column((ByteBuffer)null).setColumn(cosc.column.name));
             validateColumnData(metadata, key, null, cosc.column);
         }
@@ -349,7 +352,7 @@ public class ThriftValidation
         }
     }
 
-    private static void validateTtl(Column column) throws org.apache.cassandra.exceptions.InvalidRequestException
+    private static void validateTtl(CFMetaData metadata, Column column) throws org.apache.cassandra.exceptions.InvalidRequestException
     {
         if (column.isSetTtl())
         {
@@ -358,9 +361,11 @@ public class ThriftValidation
 
             if (column.ttl > ExpiringCell.MAX_TTL)
                 throw new org.apache.cassandra.exceptions.InvalidRequestException(String.format("ttl is too large. requested (%d) maximum (%d)", column.ttl, ExpiringCell.MAX_TTL));
+            Attributes.maybeLogMaximumExpirationDateExceededMessage(metadata, column.ttl, false);
         }
         else
         {
+            Attributes.maybeLogMaximumExpirationDateExceededMessage(metadata, metadata.getDefaultTimeToLive(), true);
             // if it's not set, then it should be zero -- here we are just checking to make sure Thrift doesn't change that contract with us.
             assert column.ttl == 0;
         }
@@ -434,7 +439,7 @@ public class ThriftValidation
      */
     public static void validateColumnData(CFMetaData metadata, ByteBuffer key, ByteBuffer scName, Column column) throws org.apache.cassandra.exceptions.InvalidRequestException
     {
-        validateTtl(column);
+        validateTtl(metadata, column);
         if (!column.isSetValue())
             throw new org.apache.cassandra.exceptions.InvalidRequestException("Column value is required");
         if (!column.isSetTimestamp())
