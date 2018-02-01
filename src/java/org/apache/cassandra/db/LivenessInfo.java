@@ -25,8 +25,6 @@ import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.FBUtilities;
 
-import static org.apache.cassandra.db.ExpirationDateOverflowHandling.maybeRecoverOverflowedExpiration;
-
 /**
  * Stores the information relating to the liveness of the primary key columns of a row.
  * <p>
@@ -304,7 +302,7 @@ public class LivenessInfo
             super(timestamp);
             assert ttl != NO_TTL && localExpirationTime != NO_EXPIRATION_TIME;
             this.ttl = ttl;
-            this.localExpirationTime = maybeRecoverOverflowedExpiration(ttl, localExpirationTime);
+            this.localExpirationTime = localExpirationTime;
         }
 
         @Override

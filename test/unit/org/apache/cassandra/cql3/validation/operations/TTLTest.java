@@ -246,8 +246,6 @@ public class TTLTest extends CQLTester
 
     public void baseTestRecoverOverflowedExpiration(boolean recover) throws Throwable
     {
-        // Test cap at maximum policy
-        ExpirationDateOverflowHandling.recoverOverflowedExpiration  = recover;
 
         // simple column, clustering
         testRecoverOverflowedExpiration(true, true, recover);
@@ -257,9 +255,6 @@ public class TTLTest extends CQLTester
         testRecoverOverflowedExpiration(false, true, recover);
         // complex column, noclustering
         testRecoverOverflowedExpiration(false, false, recover);
-
-        // Test cap and warn policy
-        ExpirationDateOverflowHandling.recoverOverflowedExpiration = false;
     }
 
     private void createTable(boolean simple, boolean clustering)

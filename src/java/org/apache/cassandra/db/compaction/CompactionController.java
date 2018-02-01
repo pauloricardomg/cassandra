@@ -20,7 +20,6 @@ package org.apache.cassandra.db.compaction;
 import java.util.*;
 import java.util.function.Predicate;
 
-import org.apache.cassandra.db.ExpirationDateOverflowHandling;
 import org.apache.cassandra.db.Memtable;
 import com.google.common.collect.Iterables;
 
@@ -37,7 +36,6 @@ import org.apache.cassandra.utils.AlwaysPresentFilter;
 import org.apache.cassandra.utils.OverlapIterator;
 import org.apache.cassandra.utils.concurrent.Refs;
 
-import static org.apache.cassandra.db.ExpirationDateOverflowHandling.maybeRecoverOverflowedExpiration;
 import static org.apache.cassandra.db.lifecycle.SSTableIntervalTree.buildIntervals;
 
 /**
@@ -154,9 +152,7 @@ public class CompactionController implements AutoCloseable
 
         for (SSTableReader candidate : compacting)
         {
-            // CASSANDRA-14092 may have written negative localDeletionTimes, so if we are in recovery mode
-            // we cannot drop those :(
-            if (maybeRecoverOverflowedExpiration(candidate.getSSTableMetadata().maxLocalDeletionTime) < gcBefore)
+            if (candidate.getSSTableMetadata().maxLocalDeletionTime < gcBefore)
                 candidates.add(candidate);
             else
                 minTimestamp = Math.min(minTimestamp, candidate.getMinTimestamp());

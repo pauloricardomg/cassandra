@@ -31,8 +31,6 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.memory.AbstractAllocator;
 
-import static org.apache.cassandra.db.ExpirationDateOverflowHandling.maybeRecoverOverflowedExpiration;
-
 public class BufferCell extends AbstractCell
 {
     private static final long EMPTY_SIZE = ObjectSizes.measure(new BufferCell(ColumnDefinition.regularDef("", "", "", ByteType.instance), 0L, 0, 0, ByteBufferUtil.EMPTY_BYTE_BUFFER, null));
@@ -50,7 +48,7 @@ public class BufferCell extends AbstractCell
         assert column.isComplex() == (path != null);
         this.timestamp = timestamp;
         this.ttl = ttl;
-        this.localDeletionTime = maybeRecoverOverflowedExpiration(ttl, localDeletionTime);
+        this.localDeletionTime = localDeletionTime;
         this.value = value;
         this.path = path;
     }

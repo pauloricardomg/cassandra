@@ -43,8 +43,6 @@ public class ExpirationDateOverflowHandling
     @VisibleForTesting
     public static ExpirationDateOverflowPolicy expirationDateOverflowPolicy;
 
-    public static boolean recoverOverflowedExpiration = Boolean.valueOf(System.getProperty("cassandra.recover_overflowed_expiration_best_effort", "false"));
-
     static {
         String policyAsString = System.getProperty("cassandra.expiration_date_overflow_policy", ExpirationDateOverflowPolicy.REJECT.name());
         try
@@ -97,33 +95,6 @@ public class ExpirationDateOverflowHandling
         }
     }
 
-
-    public static int maybeRecoverOverflowedExpiration(int localExpirationTime)
-    {
-        return maybeRecoverOverflowedExpiration(-1, localExpirationTime);
-    }
-
-    /**
-     * The {@link org.apache.cassandra.db.rows.BufferCell#localDeletionTime} overflows when its value is negative
-     * or equal to {@link Integer#MAX_VALUE}, which is used to represented {@link org.apache.cassandra.db.rows.BufferCell#NO_DELETION_TIME}.
-     *
-     * This method recovers overflowed {@link org.apache.cassandra.db.rows.BufferCell#localDeletionTime} setting it
-     * to the maximum representable value which is {@link Cell#MAX_DELETION_TIME}, iff the system property
-     * cassandra.recover_overflowed_expiration_best_effort is true.
-     *
-     * See CASSANDRA-14092
-     */
-    public static int maybeRecoverOverflowedExpiration(int ttl, int localExpirationTime)
-    {
-        if (!recoverOverflowedExpiration)
-            return localExpirationTime;
-
-        if (ttl != BufferCell.NO_TTL && (localExpirationTime < 0 || localExpirationTime == BufferCell.NO_DELETION_TIME))
-            return Cell.MAX_DELETION_TIME;
-
-        return localExpirationTime;
-    }
-
     /**
      * This method computes the {@link Cell#localDeletionTime()}, maybe capping to the maximum representable value
      * which is {@link Cell#MAX_DELETION_TIME}.
@@ -139,5 +110,4 @@ public class ExpirationDateOverflowHandling
         int localExpirationTime =  nowInSec + timeToLive;
         return localExpirationTime >= 0? localExpirationTime : Cell.MAX_DELETION_TIME;
     }
-
 }
