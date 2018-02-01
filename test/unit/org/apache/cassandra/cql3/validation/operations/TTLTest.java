@@ -166,15 +166,10 @@ public class TTLTest extends CQLTester
     }
 
     @Test
-    public void testRecoverOverflowedExpiration() throws Throwable
-    {
-        baseTestRecoverOverflowedExpiration(true);
-    }
-
-    @Test
-    public void testDontRecoverOverflowedExpiration() throws Throwable
+    public void testRecoverOverflowedExpirationWithScrub() throws Throwable
     {
         baseTestRecoverOverflowedExpiration(false);
+        baseTestRecoverOverflowedExpiration(true);
     }
 
     public void testCapExpirationDateOverflowPolicy(ExpirationDateOverflowHandling.ExpirationDateOverflowPolicy policy) throws Throwable
@@ -244,17 +239,16 @@ public class TTLTest extends CQLTester
         }
     }
 
-    public void baseTestRecoverOverflowedExpiration(boolean recover) throws Throwable
+    public void baseTestRecoverOverflowedExpiration(boolean runScrub) throws Throwable
     {
-
         // simple column, clustering
-        testRecoverOverflowedExpiration(true, true, recover);
+        testRecoverOverflowedExpirationWithScrub(true, true, runScrub);
         // simple column, noclustering
-        testRecoverOverflowedExpiration(true, false, recover);
+        testRecoverOverflowedExpirationWithScrub(true, false, runScrub);
         // complex column, clustering
-        testRecoverOverflowedExpiration(false, true, recover);
+        testRecoverOverflowedExpirationWithScrub(false, true, runScrub);
         // complex column, noclustering
-        testRecoverOverflowedExpiration(false, false, recover);
+        testRecoverOverflowedExpirationWithScrub(false, false, runScrub);
     }
 
     private void createTable(boolean simple, boolean clustering)
@@ -318,7 +312,7 @@ public class TTLTest extends CQLTester
         return AbstractCell.MAX_DELETION_TIME - nowInSecs;
     }
 
-    public void testRecoverOverflowedExpiration(boolean simple, boolean clustering, boolean recover) throws Throwable
+    public void testRecoverOverflowedExpirationWithScrub(boolean simple, boolean clustering, boolean runScrub) throws Throwable
     {
         createTable(simple, clustering);
 
@@ -331,8 +325,9 @@ public class TTLTest extends CQLTester
 
         cfs.loadNewSSTables();
 
-        if (recover)
+        if (runScrub)
         {
+            cfs.scrub(true, false, true, 1);
             if (simple)
                 assertRows(execute("SELECT * from %s"), row(1, 1, 1), row(2, 2, 2));
             else
