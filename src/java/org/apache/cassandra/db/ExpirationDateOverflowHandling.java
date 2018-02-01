@@ -97,6 +97,12 @@ public class ExpirationDateOverflowHandling
         }
     }
 
+
+    public static int maybeRecoverOverflowedExpiration(int localExpirationTime)
+    {
+        return maybeRecoverOverflowedExpiration(-1, localExpirationTime);
+    }
+
     /**
      * The {@link org.apache.cassandra.db.rows.BufferCell#localDeletionTime} overflows when its value is negative
      * or equal to {@link Integer#MAX_VALUE}, which is used to represented {@link org.apache.cassandra.db.rows.BufferCell#NO_DELETION_TIME}.
