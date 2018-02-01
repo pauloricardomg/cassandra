@@ -19,6 +19,94 @@ public class TTLTest extends CQLTester
     public static int MAX_TTL = ExpiringCell.MAX_TTL;
 
     @Test
+    public void testTTLPerRequestLimit() throws Throwable
+    {
+        createTable("CREATE TABLE %s (k int PRIMARY KEY, i int)");
+        // insert with low TTL should not be denied
+        execute("INSERT INTO %s (k, i) VALUES (1, 1) USING TTL ?", 10); // max ttl
+
+        try
+        {
+            execute("INSERT INTO %s (k, i) VALUES (1, 1) USING TTL ?", MAX_TTL + 1);
+            fail("Expect InvalidRequestException");
+        }
+        catch (InvalidRequestException e)
+        {
+            assertTrue(e.getMessage().contains("ttl is too large."));
+        }
+
+        try
+        {
+            execute("INSERT INTO %s (k, i) VALUES (1, 1) USING TTL ?", -1);
+            fail("Expect InvalidRequestException");
+        }
+        catch (InvalidRequestException e)
+        {
+            assertTrue(e.getMessage().contains("A TTL must be greater or equal to 0"));
+        }
+        execute("TRUNCATE %s");
+
+        // insert with low TTL should not be denied
+        execute("UPDATE %s USING TTL ? SET i = 1 WHERE k = 2", 5); // max ttl
+
+        try
+        {
+            execute("UPDATE %s USING TTL ? SET i = 1 WHERE k = 2", MAX_TTL + 1);
+            fail("Expect InvalidRequestException");
+        }
+        catch (InvalidRequestException e)
+        {
+            assertTrue(e.getMessage().contains("ttl is too large."));
+        }
+
+        try
+        {
+            execute("UPDATE %s USING TTL ? SET i = 1 WHERE k = 2", -1);
+            fail("Expect InvalidRequestException");
+        }
+        catch (InvalidRequestException e)
+        {
+            assertTrue(e.getMessage().contains("A TTL must be greater or equal to 0"));
+        }
+    }
+
+
+    @Test
+    public void testTTLDefaultLimit() throws Throwable
+    {
+        try
+        {
+            createTable("CREATE TABLE %s (k int PRIMARY KEY, i int) WITH default_time_to_live=-1");
+            fail("Expect Invalid schema");
+        }
+        catch (RuntimeException e)
+        {
+            assertTrue(e.getCause()
+                        .getCause()
+                        .getMessage()
+                        .contains("default_time_to_live cannot be smaller than 0"));
+        }
+        try
+        {
+            createTable("CREATE TABLE %s (k int PRIMARY KEY, i int) WITH default_time_to_live="
+                        + (MAX_TTL + 1));
+            fail("Expect Invalid schema");
+        }
+        catch (RuntimeException e)
+        {
+            assertTrue(e.getCause()
+                        .getCause()
+                        .getMessage()
+                        .contains("default_time_to_live must be less than or equal to " + MAX_TTL + " (got "
+                                  + (MAX_TTL + 1) + ")"));
+        }
+
+        // table with default low TTL should not be denied
+        createTable("CREATE TABLE %s (k int PRIMARY KEY, i int) WITH default_time_to_live=" + 5);
+        execute("INSERT INTO %s (k, i) VALUES (1, 1)");
+    }
+
+    @Test
     public void testRejectExpirationDateOverflowPolicy() throws Throwable
     {
         Attributes.expirationDateOverflowPolicy = Attributes.ExpirationDateOverflowPolicy.REJECT;
