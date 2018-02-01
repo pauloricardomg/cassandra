@@ -31,6 +31,8 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.memory.AbstractAllocator;
 
+import static org.apache.cassandra.db.ExpirationDateOverflowHandling.maybeRecoverOverflowedExpiration;
+
 public class BufferCell extends AbstractCell
 {
     private static final long EMPTY_SIZE = ObjectSizes.measure(new BufferCell(ColumnDefinition.regularDef("", "", "", ByteType.instance), 0L, 0, 0, ByteBufferUtil.EMPTY_BYTE_BUFFER, null));
@@ -48,7 +50,7 @@ public class BufferCell extends AbstractCell
         assert column.isComplex() == (path != null);
         this.timestamp = timestamp;
         this.ttl = ttl;
-        this.localDeletionTime = localDeletionTime;
+        this.localDeletionTime = maybeRecoverOverflowedExpiration(ttl, localDeletionTime);
         this.value = value;
         this.path = path;
     }
@@ -74,7 +76,7 @@ public class BufferCell extends AbstractCell
     public static BufferCell expiring(ColumnDefinition column, long timestamp, int ttl, int nowInSec, ByteBuffer value, CellPath path)
     {
         assert ttl != NO_TTL;
-        return new BufferCell(column, timestamp, ttl, nowInSec + ttl, value, path);
+        return new BufferCell(column, timestamp, ttl, ExpirationDateOverflowHandling.computeLocalExpirationTime(nowInSec, ttl), value, path);
     }
 
     public static BufferCell tombstone(ColumnDefinition column, long timestamp, int nowInSec)
