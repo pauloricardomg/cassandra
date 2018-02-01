@@ -329,14 +329,14 @@ public class TTLTest extends CQLTester
         {
             cfs.scrub(true, false, true, 1);
             if (simple)
-                assertRows(execute("SELECT * from %s"), row(1, 1, 1), row(2, 2, 2));
+                assertRows(execute("SELECT * from %s"), row(1, 1, 1), row(2, 2, null));
             else
                 assertRows(execute("SELECT * from %s"), row(1, 1, set("v11", "v12", "v13", "v14")), row(2, 2, set("v21", "v22", "v23", "v24")));
 
             cfs.forceMajorCompaction();
 
             if (simple)
-                assertRows(execute("SELECT * from %s"), row(1, 1, 1), row(2, 2, 2));
+                assertRows(execute("SELECT * from %s"), row(1, 1, 1), row(2, 2, null));
             else
                 assertRows(execute("SELECT * from %s"), row(1, 1, set("v11", "v12", "v13", "v14")), row(2, 2, set("v21", "v22", "v23", "v24")));
         }
