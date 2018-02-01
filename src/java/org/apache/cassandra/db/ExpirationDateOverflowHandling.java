@@ -107,7 +107,7 @@ public class ExpirationDateOverflowHandling
      */
     public static int computeLocalExpirationTime(int nowInSec, int timeToLive)
     {
-        int localExpirationTime =  nowInSec + timeToLive;
+        int localExpirationTime = nowInSec + timeToLive;
         return localExpirationTime >= 0? localExpirationTime : Cell.MAX_DELETION_TIME;
     }
 }
