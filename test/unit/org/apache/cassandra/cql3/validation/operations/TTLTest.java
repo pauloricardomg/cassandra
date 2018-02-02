@@ -133,11 +133,11 @@ public class TTLTest extends CQLTester
     @Test
     public void testCapNoWarnExpirationOverflowPolicyDefaultTTL() throws Throwable
     {
-        ExpirationDateOverflowHandling.expirationDateOverflowPolicy = ExpirationDateOverflowHandling.expirationDateOverflowPolicy.CAP_NOWARN;
+        ExpirationDateOverflowHandling.policy = ExpirationDateOverflowHandling.policy.CAP_NOWARN;
         createTable("CREATE TABLE %s (k int PRIMARY KEY, i int) WITH default_time_to_live=" + MAX_TTL);
         execute("INSERT INTO %s (k, i) VALUES (1, 1)");
         checkTTLIsCapped("i");
-        ExpirationDateOverflowHandling.expirationDateOverflowPolicy = ExpirationDateOverflowHandling.expirationDateOverflowPolicy.REJECT;
+        ExpirationDateOverflowHandling.policy = ExpirationDateOverflowHandling.policy.REJECT;
     }
 
     @Test
@@ -173,7 +173,7 @@ public class TTLTest extends CQLTester
 
     public void testCapExpirationDateOverflowPolicy(ExpirationDateOverflowHandling.ExpirationDateOverflowPolicy policy) throws Throwable
     {
-        ExpirationDateOverflowHandling.expirationDateOverflowPolicy = policy;
+        ExpirationDateOverflowHandling.policy = policy;
 
         // simple column, clustering, flush
         testCapExpirationDateOverflowPolicy(true, true, true);
@@ -193,7 +193,7 @@ public class TTLTest extends CQLTester
         testCapExpirationDateOverflowPolicy(false, false, false);
 
         // Return to previous policy
-        ExpirationDateOverflowHandling.expirationDateOverflowPolicy = ExpirationDateOverflowHandling.ExpirationDateOverflowPolicy.REJECT;
+        ExpirationDateOverflowHandling.policy = ExpirationDateOverflowHandling.ExpirationDateOverflowPolicy.REJECT;
     }
 
     public void testCapExpirationDateOverflowPolicy(boolean simple, boolean clustering, boolean flush) throws Throwable

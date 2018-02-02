@@ -44,18 +44,18 @@ public class ExpirationDateOverflowHandling
     }
 
     @VisibleForTesting
-    public static ExpirationDateOverflowPolicy expirationDateOverflowPolicy;
+    public static ExpirationDateOverflowPolicy policy;
 
     static {
         String policyAsString = System.getProperty("cassandra.expiration_date_overflow_policy", ExpirationDateOverflowPolicy.REJECT.name());
         try
         {
-            expirationDateOverflowPolicy = ExpirationDateOverflowPolicy.valueOf(policyAsString.toUpperCase());
+            policy = ExpirationDateOverflowPolicy.valueOf(policyAsString.toUpperCase());
         }
         catch (RuntimeException e)
         {
             logger.warn("Invalid expiration date overflow policy: {}. Using default: {}", policyAsString, ExpirationDateOverflowPolicy.REJECT.name());
-            expirationDateOverflowPolicy = ExpirationDateOverflowPolicy.REJECT;
+            policy = ExpirationDateOverflowPolicy.REJECT;
         }
     }
 
@@ -78,7 +78,7 @@ public class ExpirationDateOverflowHandling
         int nowInSecs = (int)(System.currentTimeMillis() / 1000);
         if (ttl + nowInSecs < 0)
         {
-            switch (expirationDateOverflowPolicy)
+            switch (policy)
             {
                 case CAP:
                     ClientWarn.instance.warn(MessageFormatter.arrayFormat(MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING, new Object[] { metadata.ksName,
