@@ -121,7 +121,7 @@ public class TTLTest extends CQLTester
     public void testCapWarnExpirationOverflowPolicy() throws Throwable
     {
         // We don't test that the actual warn is logged here, only on dtest
-        testCapExpirationDateOverflowPolicy(ExpirationDateOverflowHandling.ExpirationDateOverflowPolicy.CAP_WARN);
+        testCapExpirationDateOverflowPolicy(ExpirationDateOverflowHandling.ExpirationDateOverflowPolicy.CAP);
     }
 
     @Test

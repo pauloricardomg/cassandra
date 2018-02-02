@@ -27,7 +27,6 @@ import org.slf4j.helpers.MessageFormatter;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.Attributes;
-import org.apache.cassandra.db.rows.BufferCell;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.service.ClientWarn;
@@ -39,7 +38,7 @@ public class ExpirationDateOverflowHandling
 
     public enum ExpirationDateOverflowPolicy
     {
-        REJECT, CAP_NOWARN, CAP_WARN
+        REJECT, CAP_NOWARN, CAP
     }
 
     @VisibleForTesting
@@ -79,7 +78,7 @@ public class ExpirationDateOverflowHandling
         {
             switch (expirationDateOverflowPolicy)
             {
-                case CAP_WARN:
+                case CAP:
                     ClientWarn.instance.warn(MessageFormatter.arrayFormat(MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING, new Object[] { metadata.ksName,
                                                                                                                                    metadata.cfName,
                                                                                                                                    isDefaultTTL? "default " : "", ttl })
