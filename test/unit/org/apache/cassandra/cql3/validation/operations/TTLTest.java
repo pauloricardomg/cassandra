@@ -84,7 +84,6 @@ public class TTLTest extends CQLTester
         }
     }
 
-
     @Test
     public void testTTLDefaultLimit() throws Throwable
     {

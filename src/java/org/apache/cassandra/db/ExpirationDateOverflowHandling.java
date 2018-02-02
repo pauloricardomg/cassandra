@@ -23,12 +23,14 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.helpers.MessageFormatter;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.db.rows.BufferCell;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 public class ExpirationDateOverflowHandling
@@ -78,14 +80,18 @@ public class ExpirationDateOverflowHandling
             switch (expirationDateOverflowPolicy)
             {
                 case CAP_WARN:
-                    NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING,
-                                     metadata.ksName, metadata.cfName, isDefaultTTL? "default " : "", ttl);
+                    ClientWarn.instance.warn(MessageFormatter.arrayFormat(MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING, new Object[] { metadata.ksName,
+                                                                                                                                   metadata.cfName,
+                                                                                                                                   isDefaultTTL? "default " : "", ttl })
+                                                             .getMessage());
                 case CAP_NOWARN:
                     /**
                      * Capping at this stage is basically not rejecting the request. The actual capping is done
                      * by {@link org.apache.cassandra.db.BufferExpiringCell#sanitizeLocalExpirationTime(int)},
                      * which converts the negative TTL to {@link org.apache.cassandra.db.BufferExpiringCell#MAX_DELETION_TIME}
                      */
+                    NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES, MAXIMUM_EXPIRATION_DATE_EXCEEDED_WARNING,
+                                     metadata.ksName, metadata.cfName, isDefaultTTL? "default " : "", ttl);
                     return;
 
                 default:
