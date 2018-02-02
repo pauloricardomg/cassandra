@@ -716,6 +716,7 @@ public class Scrubber implements Closeable
 
             if (hasNegativeLocalExpirationTime((Row) next, negativeLocalExpirationTimeMetrics))
             {
+                outputHandler.debug(String.format("Found row with negative local expiration time: %s", next.toString(metadata(), false)));
                 negativeLocalExpirationTimeMetrics.fixedRows++;
                 return removeNegativeLocalExpirationTime((Row) next);
             }
@@ -756,10 +757,10 @@ public class Scrubber implements Closeable
                     ComplexColumnData complexData = (ComplexColumnData)cd;
                     for (Cell cell : complexData)
                     {
-                        if (cell.isTombstone())
-                            hasTombstoneWithNegativeLocalExpirationTime = true;
                         if (cell.localDeletionTime() < 0)
                         {
+                            if (cell.isTombstone())
+                                hasTombstoneWithNegativeLocalExpirationTime = true;
                             hasCellOrPkWithNegativeLocalExpirationTime = true;
                         }
                     }
@@ -769,7 +770,7 @@ public class Scrubber implements Closeable
             if (hasTombstoneWithNegativeLocalExpirationTime)
             {
                 negativeLocalExpirationTimeMetrics.tombstone++;
-                outputHandler.warn(String.format("Found tombstone with negative local expiration time on the following row: %s", row.toString(metadata(), true)));
+                outputHandler.debug(String.format("Found tombstone with negative local expiration time on the following row: %s", row.toString(metadata(), false)));
             }
 
             return hasCellOrPkWithNegativeLocalExpirationTime;
@@ -781,21 +782,21 @@ public class Scrubber implements Closeable
             builder.newRow(row.clustering());
             builder.addPrimaryKeyLivenessInfo(row.primaryKeyLivenessInfo().localExpirationTime() >= 0 ?
                                               row.primaryKeyLivenessInfo() :
-                                              row.primaryKeyLivenessInfo().withUpdatedLocalDeletionTime(Integer.MAX_VALUE - 1));
+                                              row.primaryKeyLivenessInfo().withUpdatedLocalDeletionTime(AbstractCell.MAX_DELETION_TIME));
             builder.addRowDeletion(row.deletion());
             for (ColumnData cd : row)
             {
                 if (cd.column().isSimple())
                 {
                     Cell cell = (Cell)cd;
-                    builder.addCell(cell.localDeletionTime() >= 0 ? cell : cell.withUpdatedLocalDeletionTime(Integer.MAX_VALUE - 1));
+                    builder.addCell(cell.localDeletionTime() >= 0 ? cell : cell.withUpdatedLocalDeletionTime(AbstractCell.MAX_DELETION_TIME));
                 }
                 else
                 {
                     ComplexColumnData complexData = (ComplexColumnData)cd;
                     builder.addComplexDeletion(complexData.column(), complexData.complexDeletion());
                     for (Cell cell : complexData)
-                        builder.addCell(cell.localDeletionTime() >= 0 ? cell : cell.withUpdatedLocalDeletionTime(Integer.MAX_VALUE - 1));
+                        builder.addCell(cell.localDeletionTime() >= 0 ? cell : cell.withUpdatedLocalDeletionTime(AbstractCell.MAX_DELETION_TIME));
                 }
             }
             return builder.build();
