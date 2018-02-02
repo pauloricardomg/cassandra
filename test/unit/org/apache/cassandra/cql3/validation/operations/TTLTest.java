@@ -23,7 +23,7 @@ public class TTLTest extends CQLTester
     {
         createTable("CREATE TABLE %s (k int PRIMARY KEY, i int)");
         // insert with low TTL should not be denied
-        execute("INSERT INTO %s (k, i) VALUES (1, 1) USING TTL ?", 10); // max ttl
+        execute("INSERT INTO %s (k, i) VALUES (1, 1) USING TTL ?", 10);
 
         try
         {
@@ -47,7 +47,7 @@ public class TTLTest extends CQLTester
         execute("TRUNCATE %s");
 
         // insert with low TTL should not be denied
-        execute("UPDATE %s USING TTL ? SET i = 1 WHERE k = 2", 5); // max ttl
+        execute("UPDATE %s USING TTL ? SET i = 1 WHERE k = 2", 5);
 
         try
         {
@@ -94,8 +94,8 @@ public class TTLTest extends CQLTester
         {
             assertTrue(e.getCause()
                         .getMessage()
-                        .contains("default_time_to_live must be less than or equal to " + Attributes.MAX_TTL + " (got "
-                                  + (Attributes.MAX_TTL + 1) + ")"));
+                        .contains("default_time_to_live must be less than or equal to " + MAX_TTL + " (got "
+                                  + (MAX_TTL + 1) + ")"));
         }
 
         // table with default low TTL should not be denied
@@ -258,7 +258,7 @@ public class TTLTest extends CQLTester
     private void checkTTLIsCapped(String field) throws Throwable
     {
 
-        // Since the max TTL is dynamic, we compute if before and after the query to avoid flakiness
+        // Since the max TTL is dynamic, we compute it before and after the query to avoid flakiness
         int minTTL = computeMaxTTL();
         UntypedResultSet execute = execute("SELECT ttl(" + field + ") FROM %s WHERE k = 1");
         int maxTTL = computeMaxTTL();
