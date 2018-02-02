@@ -108,7 +108,7 @@ public class ExpirationDateOverflowHandling
      *
      * Please note that the {@link ExpirationDateOverflowHandling.ExpirationDateOverflowPolicy} is applied
      * during {@link ExpirationDateOverflowHandling#maybeApplyExpirationDateOverflowPolicy(CFMetaData, int, boolean)},
-     * so if the request was not denied it means it's expiration date should be capped.
+     * so if the request was not denied it means its expiration date should be capped.
      *
      * See CASSANDRA-14092
      */
