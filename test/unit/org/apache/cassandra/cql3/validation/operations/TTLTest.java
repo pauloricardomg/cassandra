@@ -184,11 +184,6 @@ public class TTLTest extends CQLTester
     @Test
     public void testRecoverOverflowedExpirationWithScrub() throws Throwable
     {
-        createTable(true, true);
-        createTable(true, false);
-        createTable(false, true);
-        createTable(false, false);
-
         baseTestRecoverOverflowedExpiration(false, false);
         baseTestRecoverOverflowedExpiration(true, false);
         baseTestRecoverOverflowedExpiration(true, true);
@@ -312,70 +307,72 @@ public class TTLTest extends CQLTester
             assert runScrub;
         }
 
+        createTable(simple, clustering);
+
         Keyspace keyspace = Keyspace.open(KEYSPACE);
-        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(getTableName(simple, clustering));
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(currentTable());
 
         assertEquals(0, cfs.getSSTables().size());
 
-        copySSTablesToTableDir(simple, clustering);
+        copySSTablesToTableDir(currentTable(), simple, clustering);
 
         cfs.loadNewSSTables();
 
         if (runScrub)
         {
-            cfs.scrub(true, false, false, false, reinsertOverflowedTTL, 1);
+            cfs.scrub(true, false, false, reinsertOverflowedTTL, 1);
         }
 
         if (reinsertOverflowedTTL)
         {
             if (simple)
-            {
-                UntypedResultSet execute = execute(String.format("SELECT * from %s.%s", KEYSPACE, getTableName(simple, clustering)));
-                assertRows(execute, row(1, 1, 1), row(2, 2, 2));
-
-            }
+                assertRows(execute("SELECT * from %s"), row(1, 1, 1), row(2, 2, 2));
             else
-                assertRows(execute(String.format("SELECT * from %s.%s", KEYSPACE, getTableName(simple, clustering))), row(1, 1, set("v11", "v12", "v13", "v14")), row(2, 2, set("v21", "v22", "v23", "v24")));
+                assertRows(execute("SELECT * from %s"), row(1, 1, set("v11", "v12", "v13", "v14")), row(2, 2, set("v21", "v22", "v23", "v24")));
 
             cfs.forceMajorCompaction();
 
             if (simple)
-                assertRows(execute(String.format("SELECT * from %s.%s", KEYSPACE, getTableName(simple, clustering))), row(1, 1, 1), row(2, 2, 2));
+                assertRows(execute("SELECT * from %s"), row(1, 1, 1), row(2, 2, 2));
             else
-                assertRows(execute(String.format("SELECT * from %s.%s", KEYSPACE, getTableName(simple, clustering))), row(1, 1, set("v11", "v12", "v13", "v14")), row(2, 2, set("v21", "v22", "v23", "v24")));
+                assertRows(execute("SELECT * from %s"), row(1, 1, set("v11", "v12", "v13", "v14")), row(2, 2, set("v21", "v22", "v23", "v24")));
         }
         else
         {
-            assertEmpty(execute(String.format("SELECT * from %s.%s", KEYSPACE, getTableName(simple, clustering))));
+            assertEmpty(execute("SELECT * from %s"));
         }
-        cfs.truncateBlocking(); //cleanup for next tests
     }
 
-    private void copySSTablesToTableDir(boolean simple, boolean clustering) throws IOException
+    private void copySSTablesToTableDir(String table, boolean simple, boolean clustering) throws IOException
     {
-        File destDir = Keyspace.open(KEYSPACE).getColumnFamilyStore(getTableName(simple, clustering)).directories.getCFDirectories().iterator().next();
-        File sourceDir = getTableDir(simple, clustering);
+        File destDir = Keyspace.open(keyspace()).getColumnFamilyStore(table).directories.getCFDirectories().iterator().next();
+        File sourceDir = getTableDir(table, simple, clustering);
         for (File file : sourceDir.listFiles())
         {
             copyFile(file, destDir);
         }
     }
 
-    private void createTable(boolean simple, boolean clustering) throws Throwable
+    private static File getTableDir(String table, boolean simple, boolean clustering)
+    {
+        return new File(String.format(NEGATIVE_LOCAL_EXPIRATION_TEST_DIR, getTableName(simple, clustering)));
+    }
+
+    private void createTable(boolean simple, boolean clustering)
     {
         if (simple)
         {
             if (clustering)
-                execute(String.format("create table %s.%s (k int, a int, b int, primary key(k, a))", KEYSPACE, getTableName(simple, clustering)));
+                createTable("create table %s (k int, a int, b int, primary key(k, a))");
             else
-                execute(String.format("create table %s.%s (k int primary key, a int, b int)", KEYSPACE, getTableName(simple, clustering)));
+                createTable("create table %s (k int primary key, a int, b int)");
         }
         else
         {
             if (clustering)
-                execute(String.format("create table %s.%s (k int, a int, b set<text>, primary key(k, a))", KEYSPACE, getTableName(simple, clustering)));
+                createTable("create table %s (k int, a int, b set<text>, primary key(k, a))");
             else
-                execute(String.format("create table %s.%s (k int primary key, a int, b set<text>)", KEYSPACE, getTableName(simple, clustering)));
+                createTable("create table %s (k int primary key, a int, b set<text>)");
         }
     }
 
