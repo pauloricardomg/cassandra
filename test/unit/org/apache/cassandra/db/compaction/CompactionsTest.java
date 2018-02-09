@@ -70,9 +70,9 @@ public class CompactionsTest
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.denseCFMD(KEYSPACE1, CF_DENSE1)
-                                                .compaction(CompactionParams.scts(compactionOptions)),
+                                                .compaction(CompactionParams.stcs(compactionOptions)),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1)
-                                                .compaction(CompactionParams.scts(compactionOptions)),
+                                                .compaction(CompactionParams.stcs(compactionOptions)),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD3),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD4),
@@ -82,7 +82,28 @@ public class CompactionsTest
                                                 .gcGraceSeconds(0));
     }
 
-    public ColumnFamilyStore testSingleSSTableCompaction(String strategyClassName) throws Exception
+    public static long populate(String ks, String cf, int startRowKey, int endRowKey, int ttl)
+    {
+        long timestamp = System.currentTimeMillis();
+        TableMetadata cfm = Keyspace.open(ks).getColumnFamilyStore(cf).metadata();
+        for (int i = startRowKey; i <= endRowKey; i++)
+        {
+            DecoratedKey key = Util.dk(Integer.toString(i));
+            for (int j = 0; j < 10; j++)
+            {
+                new RowUpdateBuilder(cfm, timestamp, j > 0 ? ttl : 0, key.getKey())
+                    .clustering(Integer.toString(j))
+                    .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+                    .build()
+                    .applyUnsafe();
+            }
+        }
+        return timestamp;
+    }
+
+    // Test to see if sstable has enough expired columns, it is compacted itself.
+    @Test
+    public void testSingleSSTableCompaction() throws Exception
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_DENSE1);
@@ -116,46 +137,9 @@ public class CompactionsTest
 
         // make sure max timestamp of compacted sstables is recorded properly after compaction.
         assertMaxTimestamp(store, timestamp);
-
-        return store;
-    }
-
-    public static long populate(String ks, String cf, int startRowKey, int endRowKey, int ttl)
-    {
-        long timestamp = System.currentTimeMillis();
-        TableMetadata cfm = Keyspace.open(ks).getColumnFamilyStore(cf).metadata();
-        for (int i = startRowKey; i <= endRowKey; i++)
-        {
-            DecoratedKey key = Util.dk(Integer.toString(i));
-            for (int j = 0; j < 10; j++)
-            {
-                new RowUpdateBuilder(cfm, timestamp, j > 0 ? ttl : 0, key.getKey())
-                    .clustering(Integer.toString(j))
-                    .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
-                    .build()
-                    .applyUnsafe();
-            }
-        }
-        return timestamp;
-    }
-
-    // Test to see if sstable has enough expired columns, it is compacted itself.
-    @Test
-    public void testSingleSSTableCompactionWithSizeTieredCompaction() throws Exception
-    {
-        testSingleSSTableCompaction(SizeTieredCompactionStrategy.class.getCanonicalName());
     }
 
     /*
-    @Test
-    public void testSingleSSTableCompactionWithLeveledCompaction() throws Exception
-    {
-        ColumnFamilyStore store = testSingleSSTableCompaction(LeveledCompactionStrategy.class.getCanonicalName());
-        CompactionStrategyManager strategyManager = store.getCompactionStrategyManager();
-        // tombstone removal compaction should not promote level
-        assert strategyManager.getSSTableCountPerLevel()[0] == 1;
-    }
-
     @Test
     public void testSuperColumnTombstones()
     {

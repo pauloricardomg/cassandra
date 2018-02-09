@@ -120,7 +120,7 @@ public final class SystemKeyspace
                 + "version int,"
                 + "PRIMARY KEY ((id)))")
                 .partitioner(new LocalPartitioner(TimeUUIDType.instance))
-                .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
+                .compaction(CompactionParams.stcs(singletonMap("min_threshold", "2")))
                 .build();
 
     private static final TableMetadata Paxos =
