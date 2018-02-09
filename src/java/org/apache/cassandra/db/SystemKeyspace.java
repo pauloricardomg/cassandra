@@ -124,7 +124,7 @@ public final class SystemKeyspace
                 + "version int,"
                 + "PRIMARY KEY ((id)))")
                 .copy(new LocalPartitioner(TimeUUIDType.instance))
-                .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
+                .compaction(CompactionParams.stcs(singletonMap("min_threshold", "2")))
                 .gcGraceSeconds(0);
 
     private static final CFMetaData Paxos =
@@ -282,7 +282,7 @@ public final class SystemKeyspace
                 + "mutation blob,"
                 + "PRIMARY KEY ((target_id), hint_id, message_version)) "
                 + "WITH COMPACT STORAGE")
-                .compaction(CompactionParams.scts(singletonMap("enabled", "false")))
+                .compaction(CompactionParams.stcs(singletonMap("enabled", "false")))
                 .gcGraceSeconds(0);
 
     @Deprecated
@@ -295,7 +295,7 @@ public final class SystemKeyspace
                 + "version int,"
                 + "written_at timestamp,"
                 + "PRIMARY KEY ((id)))")
-                .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
+                .compaction(CompactionParams.stcs(singletonMap("min_threshold", "2")))
                 .gcGraceSeconds(0);
 
     @Deprecated
