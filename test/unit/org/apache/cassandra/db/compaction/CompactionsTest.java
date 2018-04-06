@@ -81,7 +81,9 @@ public class CompactionsTest
                                                 .gcGraceSeconds(0));
     }
 
-    public ColumnFamilyStore testSingleSSTableCompaction(String strategyClassName) throws Exception
+    // Test to see if sstable has enough expired columns, it is compacted itself.
+    @Test
+    public void testSingleSSTableCompaction() throws Exception
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_DENSE1);
@@ -115,8 +117,6 @@ public class CompactionsTest
 
         // make sure max timestamp of compacted sstables is recorded properly after compaction.
         assertMaxTimestamp(store, timestamp);
-
-        return store;
     }
 
     public static long populate(String ks, String cf, int startRowKey, int endRowKey, int ttl)
@@ -136,13 +136,6 @@ public class CompactionsTest
             }
         }
         return timestamp;
-    }
-
-    // Test to see if sstable has enough expired columns, it is compacted itself.
-    @Test
-    public void testSingleSSTableCompactionWithSizeTieredCompaction() throws Exception
-    {
-        testSingleSSTableCompaction(SizeTieredCompactionStrategy.class.getCanonicalName());
     }
 
     /*
