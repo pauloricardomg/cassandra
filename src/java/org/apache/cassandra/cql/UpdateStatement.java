@@ -194,6 +194,7 @@ public class UpdateStatement extends AbstractModification
                 ByteBuffer colValue = op.a.getByteBuffer(metadata.getValueValidator(colName),variables);
 
                 validateColumn(metadata, colName, colValue);
+                Attributes.maybeApplyExpirationDateOverflowPolicy(keyspace, columnFamily, getTimeToLive());
                 mutation.add(columnFamily,
                              colName,
                              colValue,

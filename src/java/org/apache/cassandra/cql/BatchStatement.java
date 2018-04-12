@@ -72,10 +72,6 @@ public class BatchStatement
 
     public int getTimeToLive()
     {
-        for (AbstractModification statement : statements)
-        {
-            Attributes.maybeApplyExpirationDateOverflowPolicy(statement.keyspace, statement.columnFamily, timeToLive);
-        }
         return timeToLive;
     }
 

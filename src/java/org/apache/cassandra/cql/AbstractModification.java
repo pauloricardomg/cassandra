@@ -92,7 +92,6 @@ public abstract class AbstractModification
 
     public int getTimeToLive()
     {
-        Attributes.maybeApplyExpirationDateOverflowPolicy(keyspace, columnFamily, timeToLive);
         return timeToLive;
     }
 
