@@ -125,7 +125,7 @@ public class CQLv2TTLTest extends SchemaLoader
         }
         catch (RuntimeException e)
         {
-            assertTrue(e.getMessage().contains("Request on table Keyspace1.Standard1 with ttl of 630720000 seconds exceeds maximum supported expiration date"));
+            assertTrue(e.getMessage().contains("Request on table Keyspace1.Standard1 with ttl of " + ExpiringCell.MAX_TTL + " seconds exceeds maximum supported expiration date"));
         }
 
         // Check data with CQLv3 - should be empty
@@ -145,13 +145,13 @@ public class CQLv2TTLTest extends SchemaLoader
         {
             QueryProcessor.process("BEGIN BATCH " +
                                    "INSERT INTO 'Standard1' (KEY, 61) VALUES (61,61); " +
-                                   "INSERT INTO 'Standard1' (KEY, 62) VALUES (62,62) USING TTL 630720000; " +
+                                   "INSERT INTO 'Standard1' (KEY, 62) VALUES (62,62) USING TTL " + ExpiringCell.MAX_TTL + "; " +
                                    "APPLY BATCH;", clientState);
             fail("Should have thrown RuntimeException");
         }
         catch (RuntimeException e)
         {
-            assertTrue(e.getMessage().contains("Request on table Keyspace1.Standard1 with ttl of 630720000 seconds exceeds maximum supported expiration date"));
+            assertTrue(e.getMessage().contains("Request on table Keyspace1.Standard1 with ttl of " + ExpiringCell.MAX_TTL + " seconds exceeds maximum supported expiration date"));
         }
 
         // Check data with CQLv3 - should be empty
@@ -176,11 +176,13 @@ public class CQLv2TTLTest extends SchemaLoader
         assertEquals(1, results.size());
         UntypedResultSet.Row row = results.iterator().next();
         assertEquals(ByteBufferUtil.hexToBytes("61"), row.getBytes("key"));
+        org.apache.cassandra.cql3.Attributes.policy = org.apache.cassandra.cql3.Attributes.ExpirationDateOverflowPolicy.REJECT;
     }
 
     @Test
     public void testCapExpirationOverflowPolicyInsertBatchCqlV2() throws Throwable
     {
+        org.apache.cassandra.cql3.Attributes.policy = org.apache.cassandra.cql3.Attributes.ExpirationDateOverflowPolicy.CAP;
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
         tmd.updateNormalToken(token("1"), InetAddress.getByName("127.0.0.1"));
 
@@ -189,7 +191,7 @@ public class CQLv2TTLTest extends SchemaLoader
         clientState.setKeyspace("Keyspace1");
         QueryProcessor.process("BEGIN BATCH " +
                                "INSERT INTO 'Standard1' (KEY, 61) VALUES (61,61); " +
-                               "INSERT INTO 'Standard1' (KEY, 62) VALUES (62,62) USING TTL 630720000; " +
+                               "INSERT INTO 'Standard1' (KEY, 62) VALUES (62,62) USING TTL " + ExpiringCell.MAX_TTL + "; " +
                                "APPLY BATCH;", clientState);
 
         // Check data with CQLv3
@@ -200,5 +202,6 @@ public class CQLv2TTLTest extends SchemaLoader
         assertEquals(ByteBufferUtil.hexToBytes("61"), row1.getBytes("key"));
         UntypedResultSet.Row row2 = iterator.next();
         assertEquals(ByteBufferUtil.hexToBytes("62"), row2.getBytes("key"));
+        org.apache.cassandra.cql3.Attributes.policy = org.apache.cassandra.cql3.Attributes.ExpirationDateOverflowPolicy.REJECT;
     }
 }
