@@ -40,8 +40,6 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.util.concurrent.Futures;
 
-import org.apache.cassandra.concurrent.Stage;
-import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -124,7 +122,7 @@ public final class SystemKeyspace
                 + "version int,"
                 + "PRIMARY KEY ((id)))")
                 .copy(new LocalPartitioner(TimeUUIDType.instance))
-                .compaction(CompactionParams.stcs(singletonMap("min_threshold", "2")))
+                .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
                 .gcGraceSeconds(0);
 
     private static final CFMetaData Paxos =
@@ -282,7 +280,7 @@ public final class SystemKeyspace
                 + "mutation blob,"
                 + "PRIMARY KEY ((target_id), hint_id, message_version)) "
                 + "WITH COMPACT STORAGE")
-                .compaction(CompactionParams.stcs(singletonMap("enabled", "false")))
+                .compaction(CompactionParams.scts(singletonMap("enabled", "false")))
                 .gcGraceSeconds(0);
 
     @Deprecated
@@ -295,7 +293,7 @@ public final class SystemKeyspace
                 + "version int,"
                 + "written_at timestamp,"
                 + "PRIMARY KEY ((id)))")
-                .compaction(CompactionParams.stcs(singletonMap("min_threshold", "2")))
+                .compaction(CompactionParams.scts(singletonMap("min_threshold", "2")))
                 .gcGraceSeconds(0);
 
     @Deprecated

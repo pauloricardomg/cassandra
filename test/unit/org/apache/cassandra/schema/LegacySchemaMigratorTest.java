@@ -161,7 +161,7 @@ public class LegacySchemaMigratorTest
         keyspaces.add(KeyspaceMetadata.create(ks1,
                                               KeyspaceParams.simple(1),
                                               Tables.of(SchemaLoader.standardCFMD(ks1, "Standard1")
-                                                                    .compaction(CompactionParams.stcs(compactionOptions)),
+                                                                    .compaction(CompactionParams.scts(compactionOptions)),
                                                         SchemaLoader.standardCFMD(ks1, "StandardGCGS0").gcGraceSeconds(0),
                                                         SchemaLoader.standardCFMD(ks1, "StandardLong1"),
                                                         SchemaLoader.keysIndexCFMD(ks1, "Indexed1", true),
