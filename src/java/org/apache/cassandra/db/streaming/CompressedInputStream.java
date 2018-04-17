@@ -105,7 +105,8 @@ public class CompressedInputStream extends RebufferingInputStream implements Aut
         if (readException != null)
             throw readException;
 
-        assert position >= current : "stream can only read forward.";
+        logger.info("Position {} Current {}", position, current);
+        assert position >= current : String.format("stream can only read forward. (position=%d, current=%d)", position, current);
         current = position;
 
         if (current > bufferOffset + buffer.limit())
@@ -130,7 +131,10 @@ public class CompressedInputStream extends RebufferingInputStream implements Aut
 
         // increment the offset into the stream based on the current buffer's read count
         if (updateCurrent)
+        {
             current += buffer.position();
+            //logger.info("Rebuffering. Current is now {}", current, new RuntimeException());
+        }
 
         try
         {
