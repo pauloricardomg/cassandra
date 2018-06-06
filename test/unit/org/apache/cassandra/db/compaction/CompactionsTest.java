@@ -34,13 +34,16 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.columniterator.SSTableIterator;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.partitions.FilteredPartition;
+import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.Unfiltered;
@@ -282,10 +285,10 @@ public class CompactionsTest
     @Test
     public void testDontPurgeAccidentally() throws InterruptedException
     {
-        testDontPurgeAccidentally("test1", "Super5");
+        testDontPurgeAccidentally("test1", CF_SUPER5);
 
         // Use CF with gc_grace=0, see last bug of CASSANDRA-2786
-        testDontPurgeAccidentally("test1", "SuperDirectGC");
+        testDontPurgeAccidentally("test1", CF_SUPERGC);
     }
 
     @Test
@@ -431,16 +434,16 @@ public class CompactionsTest
 
         Collection<SSTableReader> sstablesBefore = cfs.getLiveSSTables();
 
-        Row row = Util.getOnlyRow(Util.cmd(cfs, key).build());
-        assertTrue(row.size() > 0);
+        ImmutableBTreePartition partition = Util.getOnlyPartitionUnfiltered(Util.cmd(cfs, key).build());
+        assertTrue(!partition.isEmpty());
 
         RowUpdateBuilder deleteRowBuilder = new RowUpdateBuilder(table, 2, key);
         deleteRowBuilder.clustering("c").delete("val");
         deleteRowBuilder.build().applyUnsafe();
         // Remove key
 
-        row = Util.getOnlyRow(Util.cmd(cfs, key).build());
-        assertTrue(row.size() == 0);
+        partition = Util.getOnlyPartitionUnfiltered(Util.cmd(cfs, key).build());
+        assertTrue(partition.iterator().next().cells().iterator().next().isTombstone());
 
         // Sleep one second so that the removal is indeed purgeable even with gcgrace == 0
         Thread.sleep(1000);
@@ -455,8 +458,27 @@ public class CompactionsTest
 
         Util.compact(cfs, toCompact);
 
-        row = Util.getOnlyRow(Util.cmd(cfs, key).build());
-        assertTrue(row.size() == 0);
+        SSTableReader newSSTable = null;
+        for (SSTableReader reader : cfs.getLiveSSTables())
+        {
+            assert !toCompact.contains(reader);
+            if (!sstablesBefore.contains(reader))
+                newSSTable = reader;
+        }
+
+        // We cannot read the data, since {@link ReadCommand#withoutPurgeableTombstones} will purge droppable tombstones
+        // but we just want to check here that compaction did *NOT* drop the tombstone, so we read from the SSTable directly
+        // instead
+        ISSTableScanner scanner = newSSTable.getScanner();
+        assertTrue(scanner.hasNext());
+        UnfilteredRowIterator rowIt = scanner.next();
+        assertTrue(rowIt.hasNext());
+        Unfiltered unfiltered = rowIt.next();
+        assertTrue(unfiltered.isRow());
+        Row row = (Row)unfiltered;
+        assertTrue(row.cells().iterator().next().isTombstone());
+        assertFalse(rowIt.hasNext());
+        assertFalse(scanner.hasNext());
     }
 
     private static Range<Token> rangeFor(int start, int end)
