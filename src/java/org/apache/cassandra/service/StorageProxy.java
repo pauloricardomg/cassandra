@@ -335,7 +335,7 @@ public class StorageProxy implements StorageProxyMBean
         }
         int participants = pendingEndpoints.size() + naturalEndpoints.size();
         int requiredParticipants = participants / 2 + 1; // See CASSANDRA-8346, CASSANDRA-833
-        List<InetAddress> liveEndpoints = ImmutableList.copyOf(Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), IAsyncCallback.isAlive));
+        List<InetAddress> liveEndpoints = ImmutableList.copyOf(Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), FailureDetector.isAlivePredicate));
         if (liveEndpoints.size() < requiredParticipants)
             throw new UnavailableException(consistencyForPaxos, requiredParticipants, liveEndpoints.size());
 
@@ -921,7 +921,8 @@ public class StorageProxy implements StorageProxyMBean
                                                                      endpoints.all.size() == 1 ? ConsistencyLevel.ONE : ConsistencyLevel.TWO,
                                                                      Keyspace.open(SystemKeyspace.NAME),
                                                                      null,
-                                                                     WriteType.BATCH_LOG);
+                                                                     WriteType.BATCH_LOG,
+                                                                     FailureDetector.isAlivePredicate);
 
         Batch batch = Batch.createLocal(uuid, FBUtilities.timestampMicros(), mutations);
 
