@@ -29,6 +29,8 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 
 public class TokenSerializer
@@ -49,6 +51,23 @@ public class TokenSerializer
     public static Collection<Token> deserialize(IPartitioner partitioner, DataInput in) throws IOException
     {
         Collection<Token> tokens = new ArrayList<Token>();
+        while (true)
+        {
+            int size = in.readInt();
+            if (size < 1)
+                break;
+            if (logger.isTraceEnabled())
+                logger.trace("Reading token of {}", FBUtilities.prettyPrintMemory(size));
+            byte[] bintoken = new byte[size];
+            in.readFully(bintoken);
+            tokens.add(partitioner.getTokenFactory().fromByteArray(ByteBuffer.wrap(bintoken)));
+        }
+        return tokens;
+    }
+
+    public static Set<Token> deserializeAsSet(IPartitioner partitioner, DataInput in) throws IOException
+    {
+        HashSet<Token> tokens = new HashSet<>();
         while (true)
         {
             int size = in.readInt();
