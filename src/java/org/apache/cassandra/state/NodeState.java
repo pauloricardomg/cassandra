@@ -16,19 +16,25 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state.token;
+package org.apache.cassandra.state;
 
-import org.apache.cassandra.dht.Token;
+import java.util.UUID;
 
-public class MoveTokenEvent extends TokenEvent
+import org.apache.cassandra.locator.InetAddressAndPort;
+
+public class NodeState
 {
-    public MoveTokenEvent(Token token)
+    protected final UUID id;
+    protected final InetAddressAndPort ip;
+
+    public NodeState(UUID id, InetAddressAndPort ip)
     {
-        super(token);
+        this.id = id;
+        this.ip = ip;
     }
 
-    public TokenState computeNewState(TokenState previous)
+    public static NodeState create(UUID id, InetAddressAndPort ip)
     {
-        return TokenState.MOVING;
+        return new NodeState(id, ip);
     }
 }
