@@ -16,27 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state.legacy;
+package org.apache.cassandra.state;
 
 import java.util.UUID;
-import java.util.function.Function;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.state.TokenState;
 
-public class ReplaceState extends LegacyState
+public class MovingState extends TokenState
 {
-    private final InetAddressAndPort originalNode;
+    protected final Token oldToken;
 
-    public ReplaceState(InetAddressAndPort originalNode)
+    protected MovingState(Token oldToken, Token newToken, UUID owner)
     {
-        super(Status.BOOTSTRAPPING_REPLACE);
-        this.originalNode = originalNode;
-    }
-
-    public TokenState asTokenState(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
-    {
-        return TokenState.replacing(token, id);
+        super(newToken, Status.MOVING, owner);
+        this.oldToken = oldToken;
     }
 }

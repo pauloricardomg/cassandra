@@ -28,7 +28,7 @@ public class TokenState
     enum Status
     {
         NORMAL,
-        BOOTSTRAPPING,
+        ADDING,
         REPLACING,
         MOVING,
         REMOVING,
@@ -39,7 +39,7 @@ public class TokenState
     final Status status;
     final UUID owner;
 
-    private TokenState(Token token, Status status, UUID owner)
+    protected TokenState(Token token, Status status, UUID owner)
     {
         this.token = token;
         this.status = status;
@@ -63,7 +63,7 @@ public class TokenState
 
     public static TokenState bootstrapping(Token token, UUID owner)
     {
-        return new TokenState(token, Status.BOOTSTRAPPING, owner);
+        return new TokenState(token, Status.ADDING, owner);
     }
 
     public static TokenState normal(Token token, UUID owner)
@@ -71,14 +71,14 @@ public class TokenState
         return new TokenState(token, Status.NORMAL, owner);
     }
 
-    public static TokenState replacing(Token token, UUID owner)
+    public static TokenState replacing(Token token, UUID previousOwner, UUID newOwner)
     {
-        return new TokenState(token, Status.REPLACING, owner);
+        return new ReplacingState(token, newOwner, previousOwner);
     }
 
-    public static TokenState moving(Token token, UUID owner)
+    public static TokenState moving(Token oldToken, Token newToken, UUID owner)
     {
-        return new TokenState(token, Status.MOVING, owner);
+        return new MovingState(oldToken, newToken, owner);
     }
 
     public static TokenState removing(Token token, UUID owner)

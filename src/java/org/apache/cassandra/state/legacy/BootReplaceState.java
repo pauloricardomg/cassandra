@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.state.legacy;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -25,18 +27,20 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.state.TokenState;
 
-public class MovingState extends LegacyState
+public class BootReplaceState extends LegacyState
 {
-    private final Token token;
+    private final UUID oldId;
+    private final UUID newId;
 
-    public MovingState(Token token)
+    public BootReplaceState(UUID originalNodeId, UUID newId)
     {
-        super(Status.MOVING);
-        this.token = token;
+        super(Status.BOOTSTRAPPING_REPLACE);
+        this.oldId = originalNodeId;
+        this.newId = newId;
     }
 
-    public TokenState asTokenState(UUID id, Token ignore, Function<InetAddressAndPort, UUID> idGetter)
+    public Collection<TokenState> mapToTokenStates(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
     {
-        return TokenState.moving(this.token, id);
+        return Arrays.asList(TokenState.replacing(token, oldId, newId));
     }
 }

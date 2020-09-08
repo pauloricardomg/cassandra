@@ -19,6 +19,8 @@
 package org.apache.cassandra.state.legacy;
 
 import java.net.UnknownHostException;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -50,26 +52,26 @@ public class LegacyState
         this.status = status;
     }
 
-    public TokenState asTokenState(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
+    public Collection<TokenState> mapToTokenStates(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
     {
         switch (status)
         {
             case BOOTSTRAPPING_REPLACE:
-                return TokenState.replacing(token, id);
+                return Collections.singleton(TokenState.replacing(token, oldId, id));
 
             case BOOTSTRAPPING:
-                return TokenState.bootstrapping(token, id);
+                return Collections.singleton(TokenState.bootstrapping(token, id));
 
             case NORMAL:
-                return TokenState.normal(token, id);
+                return Collections.singleton(TokenState.normal(token, id));
 
             case LEAVING:
             case REMOVING_TOKEN:
-                return TokenState.removing(token, id);
+                return Collections.singleton(TokenState.removing(token, id));
 
             case LEFT:
             case REMOVED_TOKEN:
-                return TokenState.removed(token, id);
+                return Collections.singleton(TokenState.removed(token, id));
 
             default:
                 // Must be overriden by subclasses
@@ -77,7 +79,8 @@ public class LegacyState
         }
     }
 
-    public static LegacyState fromValue(VersionedValue value, IPartitioner partitioner)
+    public static LegacyState extract(VersionedValue value, IPartitioner partitioner, UUID nodeId, Collection<Token> tokens,
+                                      Function<InetAddressAndPort, UUID> idGetter)
     {
         String[] pieces = value.value.split(VersionedValue.DELIMITER_STR, -1);
         String moveName = pieces[0];
@@ -87,7 +90,8 @@ public class LegacyState
                 try
                 {
                     InetAddressAndPort originalNode = InetAddressAndPort.getByName(pieces[1]);
-                    return new ReplaceState(originalNode);
+                    UUID originalNodeId = idGetter.apply(originalNode);
+                    return new BootReplaceState(originalNodeId, nodeId);
                 }
                 catch (UnknownHostException e)
                 {
@@ -116,8 +120,10 @@ public class LegacyState
                 return new LegacyState(Status.LEAVING);
 
             case VersionedValue.STATUS_MOVING:
-                Token token = partitioner.getTokenFactory().fromString(pieces[1]);
-                return new MovingState(token);
+                assert tokens.size() == 1 : "Node should have only one token";
+                Token oldToken = tokens.iterator().next();
+                Token newToken = partitioner.getTokenFactory().fromString(pieces[1]);
+                return new MovingLegacyState(oldToken, newToken);
 
             default:
                 throw new IllegalStateException();
