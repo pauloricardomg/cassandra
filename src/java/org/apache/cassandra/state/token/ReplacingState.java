@@ -16,19 +16,32 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state;
+package org.apache.cassandra.state.token;
 
 import java.util.UUID;
 
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.state.token.TokenState;
 
-public class MovingToState extends TokenState
+public class ReplacingState extends TokenState
 {
-    protected final Token oldToken;
+    private final UUID previousOwner;
 
-    protected MovingToState(Token oldToken, Token newToken, UUID owner)
+    public ReplacingState(Token token, UUID owner, UUID previousOwner)
     {
-        super(newToken, Status.MOVING_TO, owner);
-        this.oldToken = oldToken;
+        super(token, Status.REPLACING, owner);
+        this.previousOwner = previousOwner;
+    }
+
+    @Override
+    public boolean canTransitionFrom(TokenState oldState)
+    {
+        return Status.REPLACING.canTransitionFrom(oldState.status);
+    }
+
+    @Override
+    public boolean canTransitionTo(TokenState newState)
+    {
+        return Status.REPLACING.canTransitionTo(newState.status);
     }
 }

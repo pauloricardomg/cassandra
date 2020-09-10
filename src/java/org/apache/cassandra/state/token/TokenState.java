@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state;
+package org.apache.cassandra.state.token;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -121,9 +121,9 @@ public class TokenState
         abstract boolean canTransitionTo(Status status);
     }
 
-    final Token token;
+    public final Token token;
+    public final UUID owner;
     final Status status;
-    final UUID owner;
 
     protected TokenState(Token token, Status status, UUID owner)
     {
@@ -170,6 +170,11 @@ public class TokenState
     public int hashCode()
     {
         return Objects.hash(token, status, owner);
+    }
+
+    public String toString()
+    {
+        return String.format("{\"owner\": %s, \"status\": %s}", token, owner, status);
     }
 
     public static TokenState initial(Token token, UUID owner)

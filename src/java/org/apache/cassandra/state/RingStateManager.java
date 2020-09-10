@@ -19,11 +19,7 @@
 package org.apache.cassandra.state;
 
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
-import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -39,7 +35,8 @@ import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.state.legacy.LegacyState;
+import org.apache.cassandra.state.node.NodeState;
+import org.apache.cassandra.state.token.TokenState;
 
 public class RingStateManager implements IEndpointStateChangeSubscriber
 {
@@ -50,7 +47,6 @@ public class RingStateManager implements IEndpointStateChangeSubscriber
     private final Function<InetAddressAndPort, UUID> idGetter;
 
     public final AtomicReference<RingState> ringState = new AtomicReference<>(new RingState());
-    private final Map<InetAddressAndPort, Queue<VersionedValue>> undelivered = new HashMap<>();
 
     public RingStateManager(IPartitioner partitioner, Function<InetAddressAndPort, Collection<Token>> tokenGetter,
                             Function<InetAddressAndPort, UUID> idGetter) {
@@ -62,74 +58,30 @@ public class RingStateManager implements IEndpointStateChangeSubscriber
     public synchronized void onChange(InetAddressAndPort endpoint, ApplicationState state, VersionedValue value)
     {
         switch (state) {
-            case HOST_ID:
-                UUID newId = UUID.fromString(value.value);
-                RingState newRing = ringState.get().applyNodeState(NodeState.create(newId, endpoint));
-                maybeUpdateRingState(newRing);
-                maybeDispatchUndelivered(endpoint);
-                break;
-
-            case TOKENS:
-                maybeDispatchUndelivered(endpoint);
-
             case STATUS:
             case STATUS_WITH_PORT:
-                maybeDispatch(endpoint, value);
+                updateRingState(endpoint, value);
                 break;
         }
     }
 
-    private synchronized void maybeUpdateRingState(RingState newRing)
+    private synchronized void updateRingState(InetAddressAndPort endpoint, VersionedValue state)
     {
+        UUID id = idGetter.apply(endpoint);
+        Collection<Token> tokens = tokenGetter.apply(endpoint);
+
+        assert id != null && tokens != null && !tokens.isEmpty() : String.format("Id (%s) or tokens (%s) missing for endpoint %s.", id, tokens, endpoint);
+
+        NodeState nodeState = NodeState.extract(state, partitioner, id, tokens, idGetter);
+
+        List<TokenState> newTokenStates = tokens.stream().flatMap(t -> nodeState.mapToTokenStates(id, t).stream()).collect(Collectors.toList());
+        RingState newRing = ringState.get().applyTokenStates(newTokenStates);
+
         if (ringState.get().version != newRing.version)
         {
-            logger.info("Changing ring state from version {} to version {}.", ringState.get().version, newRing.version);
+            logger.debug("Changing ring state from version {} to version {}.", ringState.get().version, newRing.version);
             ringState.set(newRing);
         }
-    }
-
-    private synchronized void maybeDispatch(InetAddressAndPort endpoint, VersionedValue nodeStatus)
-    {
-        UUID id = idGetter.apply(endpoint);
-        Collection<Token> tokens = tokenGetter.apply(endpoint);
-        if (id == null || tokens.isEmpty())
-        {
-            logger.debug("Tokens ({}) or id ({}) missing for endpoint {}. Will queue status {} for delivery later.", tokens, id, endpoint, nodeStatus);
-            undelivered.compute(endpoint, (k, v) -> v == null ? new LinkedList<>() : v).add(nodeStatus);
-            return;
-        }
-
-        doDispatch(id, tokens, nodeStatus);
-    }
-
-    private synchronized void maybeDispatchUndelivered(InetAddressAndPort endpoint)
-    {
-        Queue<VersionedValue> toDeliver = undelivered.get(endpoint);
-        if (toDeliver == null)
-            return;
-
-        UUID id = idGetter.apply(endpoint);
-        Collection<Token> tokens = tokenGetter.apply(endpoint);
-        if (id == null || tokens.isEmpty())
-        {
-            logger.debug("Tokens ({}) or id ({}) missing for endpoint {}. Cannot deliver undelivered status updates: {}.", tokens, id, endpoint, undelivered);
-            return;
-        }
-
-        for (VersionedValue nodeStatus : toDeliver)
-        {
-            doDispatch(id, tokens, nodeStatus);
-        }
-
-        undelivered.remove(endpoint);
-    }
-
-    private synchronized void doDispatch(UUID id, Collection<Token> tokens, VersionedValue nodeStatus)
-    {
-        LegacyState legacyState = LegacyState.extract(nodeStatus, partitioner, id, tokens, idGetter);
-        List<TokenState> newStates = tokens.stream().flatMap(t -> legacyState.mapToTokenStates(id, t, idGetter).stream()).collect(Collectors.toList());
-        RingState newRing = ringState.get().applyTokenStates(newStates);
-        maybeUpdateRingState(newRing);
     }
 
     /* NO-OP */

@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state.legacy;
+package org.apache.cassandra.state.node;
 
 import java.net.UnknownHostException;
 import java.util.Collection;
@@ -28,9 +28,9 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.state.TokenState;
+import org.apache.cassandra.state.token.TokenState;
 
-public class LegacyState
+public class NodeState
 {
     enum Status
     {
@@ -47,18 +47,15 @@ public class LegacyState
 
     final Status status;
 
-    protected LegacyState(Status status)
+    protected NodeState(Status status)
     {
         this.status = status;
     }
 
-    public Collection<TokenState> mapToTokenStates(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
+    public Collection<TokenState> mapToTokenStates(UUID id, Token token)
     {
         switch (status)
         {
-            case BOOTSTRAPPING_REPLACE:
-                return Collections.singleton(TokenState.replacing(token, oldId, id));
-
             case BOOTSTRAPPING:
                 return Collections.singleton(TokenState.adding(token, id));
 
@@ -79,8 +76,8 @@ public class LegacyState
         }
     }
 
-    public static LegacyState extract(VersionedValue value, IPartitioner partitioner, UUID nodeId, Collection<Token> tokens,
-                                      Function<InetAddressAndPort, UUID> idGetter)
+    public static NodeState extract(VersionedValue value, IPartitioner partitioner, UUID nodeId, Collection<Token> tokens,
+                                    Function<InetAddressAndPort, UUID> idGetter)
     {
         String[] pieces = value.value.split(VersionedValue.DELIMITER_STR, -1);
         String moveName = pieces[0];
@@ -91,6 +88,9 @@ public class LegacyState
                 {
                     InetAddressAndPort originalNode = InetAddressAndPort.getByName(pieces[1]);
                     UUID originalNodeId = idGetter.apply(originalNode);
+
+                    assert originalNodeId != null : String.format("Id missing for endpoint %s.", originalNode);
+
                     return new BootReplaceState(originalNodeId, nodeId);
                 }
                 catch (UnknownHostException e)
@@ -99,31 +99,31 @@ public class LegacyState
                 }
 
             case VersionedValue.STATUS_BOOTSTRAPPING:
-                return new LegacyState(Status.BOOTSTRAPPING);
+                return new NodeState(Status.BOOTSTRAPPING);
 
             case VersionedValue.STATUS_NORMAL:
-                return new LegacyState(Status.NORMAL);
+                return new NodeState(Status.NORMAL);
 
             case VersionedValue.SHUTDOWN:
-                return new LegacyState(Status.SHUTDOWN);
+                return new NodeState(Status.SHUTDOWN);
 
             case VersionedValue.REMOVING_TOKEN:
-                return new LegacyState(Status.REMOVING_TOKEN);
+                return new NodeState(Status.REMOVING_TOKEN);
 
             case VersionedValue.REMOVED_TOKEN:
-                return new LegacyState(Status.REMOVED_TOKEN);
+                return new NodeState(Status.REMOVED_TOKEN);
 
             case VersionedValue.STATUS_LEFT:
-                return new LegacyState(Status.LEFT);
+                return new NodeState(Status.LEFT);
 
             case VersionedValue.STATUS_LEAVING:
-                return new LegacyState(Status.LEAVING);
+                return new NodeState(Status.LEAVING);
 
             case VersionedValue.STATUS_MOVING:
                 assert tokens.size() == 1 : "Node should have only one token";
                 Token oldToken = tokens.iterator().next();
                 Token newToken = partitioner.getTokenFactory().fromString(pieces[1]);
-                return new MovingLegacyState(oldToken, newToken);
+                return new MovingNodeState(oldToken, newToken);
 
             default:
                 throw new IllegalStateException();

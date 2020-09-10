@@ -20,18 +20,16 @@ package org.apache.cassandra.state;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.state.token.MovingToState;
+import org.apache.cassandra.state.token.TokenState;
 
 public class RingState
 {
@@ -39,18 +37,16 @@ public class RingState
 
     final long version;
     private final SortedMap<Token, TokenState> tokens;
-    private final Map<UUID, InetAddressAndPort> nodes;
 
     public RingState()
     {
-        this(0, Collections.emptySortedMap(), Collections.emptyMap());
+        this(0, Collections.emptySortedMap());
     }
 
-    private RingState(long version, SortedMap<Token, TokenState> tokens, Map<UUID, InetAddressAndPort> nodes)
+    private RingState(long version, SortedMap<Token, TokenState> tokens)
     {
         this.version = version;
         this.tokens = tokens;
-        this.nodes = nodes;
     }
 
     public RingState applyTokenStates(Collection<TokenState> newStates)
@@ -67,36 +63,33 @@ public class RingState
         if (!updatedState.get())
             return this;
 
-        return new RingState(version + 1, newTokens, nodes);
+        return new RingState(version + 1, newTokens);
     }
 
     private static boolean applyNewState(TreeMap<Token, TokenState> tokenMap, TokenState newState)
     {
-        TokenState oldState = newState.isRemoved() ? tokenMap.remove(newState.token) : tokenMap.put(newState.token, newState);
+        TokenState oldState = newState.isRemoved() ?  removeToken(tokenMap, newState.token) : tokenMap.put(newState.token, newState);
         if (oldState == null)
             oldState = TokenState.initial(newState.token, newState.owner);
 
-        assert oldState.canTransitionTo(newState) && newState.canTransitionFrom(oldState) : String.format("Cannot transition token state from %s to %s.", oldState, newState);
+        assert oldState.canTransitionTo(newState) && newState.canTransitionFrom(oldState) : String.format("Cannot transition token %s state from %s to %s.", newState.token, oldState, newState);
+
+        logger.debug("Transitioning token %s from state %s to state %s.", newState.token, oldState, newState);
 
         if (oldState.isMovingTo())
         {
             MovingToState movingToState = (MovingToState) oldState;
-            TokenState movingFromState = tokenMap.remove(movingToState.oldToken);
-            assert movingFromState != null && movingFromState.canMoveTo(newState) : String.format("Invalid old token state during move operation from %s to %s.", movingFromState, newState);
+            TokenState movingFromState = removeToken(tokenMap, movingToState.oldToken);
+            assert movingFromState != null && movingFromState.canMoveTo(newState) : String.format("Cannot move token %s state %s to token % state %s.", movingToState.oldToken, movingFromState, newState.token, newState);
+            logger.debug("Removing token %s from owner %s that moved to %s.", movingToState.oldToken, movingFromState.owner, newState.token);
+
         }
 
         return !newState.equals(oldState);
     }
 
-    public RingState applyNodeState(NodeState newState)
+    private static TokenState removeToken(TreeMap<Token, TokenState> tokenMap, Token token)
     {
-        if (newState.ip.equals(nodes.get(newState.id)))
-            return this;
-
-        ImmutableMap.Builder<UUID, InetAddressAndPort> nodesBuilder  = ImmutableMap.builder();
-        nodesBuilder.putAll(nodes);
-        nodesBuilder.put(newState.id, newState.ip);
-
-        return new RingState(version + 1, tokens, nodesBuilder.build());
+        return tokenMap.remove(token);
     }
 }

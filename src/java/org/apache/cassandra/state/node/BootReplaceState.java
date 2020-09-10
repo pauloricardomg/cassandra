@@ -16,25 +16,31 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state;
+package org.apache.cassandra.state.node;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.UUID;
+import java.util.function.Function;
 
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.state.token.TokenState;
 
-public class NodeState
+public class BootReplaceState extends NodeState
 {
-    protected final UUID id;
-    protected final InetAddressAndPort ip;
+    private final UUID oldId;
+    private final UUID newId;
 
-    public NodeState(UUID id, InetAddressAndPort ip)
+    public BootReplaceState(UUID originalNodeId, UUID newId)
     {
-        this.id = id;
-        this.ip = ip;
+        super(Status.BOOTSTRAPPING_REPLACE);
+        this.oldId = originalNodeId;
+        this.newId = newId;
     }
 
-    public static NodeState create(UUID id, InetAddressAndPort ip)
+    public Collection<TokenState> mapToTokenStates(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
     {
-        return new NodeState(id, ip);
+        return Arrays.asList(TokenState.replacing(token, oldId, newId));
     }
 }
