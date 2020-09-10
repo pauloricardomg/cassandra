@@ -57,26 +57,38 @@ public class RingStateManager implements IEndpointStateChangeSubscriber
 
     public synchronized void onChange(InetAddressAndPort endpoint, ApplicationState state, VersionedValue value)
     {
-        switch (state) {
-            case STATUS:
-            case STATUS_WITH_PORT:
-                updateRingState(endpoint, value);
-                break;
-        }
-    }
+        if (state != ApplicationState.STATUS && state != ApplicationState.STATUS_WITH_PORT)
+            return;
 
-    private synchronized void updateRingState(InetAddressAndPort endpoint, VersionedValue state)
-    {
         UUID id = idGetter.apply(endpoint);
         Collection<Token> tokens = tokenGetter.apply(endpoint);
 
         assert id != null && tokens != null && !tokens.isEmpty() : String.format("Id (%s) or tokens (%s) missing for endpoint %s.", id, tokens, endpoint);
 
-        NodeState nodeState = NodeState.extract(state, partitioner, id, tokens, idGetter);
+        NodeState nodeState = NodeState.extract(value, partitioner, id, tokens, idGetter);
 
         List<TokenState> newTokenStates = tokens.stream().flatMap(t -> nodeState.mapToTokenStates(id, t).stream()).collect(Collectors.toList());
-        RingState newRing = ringState.get().applyTokenStates(newTokenStates);
+        RingState newRing = ringState.get().withAppliedStates(newTokenStates);
 
+        maybeUpdateRingState(newRing);
+    }
+
+    public synchronized void onDead(InetAddressAndPort endpoint, EndpointState state)
+    {
+        UUID hostId = state.getHostId();
+        assert hostId != null : String.format("Host id is missing for dead host %s");
+        maybeUpdateRingState(ringState.get().withDownHost(hostId));
+    }
+
+    public synchronized void onRemove(InetAddressAndPort endpoint)
+    {
+        UUID hostId = idGetter.apply(endpoint);
+        assert hostId != null : String.format("Host id is missing for dead host %s");
+        maybeUpdateRingState(ringState.get().withRemovedHost(hostId));
+    }
+
+    private void maybeUpdateRingState(RingState newRing)
+    {
         if (ringState.get().version != newRing.version)
         {
             logger.debug("Changing ring state from version {} to version {}.", ringState.get().version, newRing.version);
@@ -97,16 +109,6 @@ public class RingStateManager implements IEndpointStateChangeSubscriber
     }
 
     public void onAlive(InetAddressAndPort endpoint, EndpointState state)
-    {
-
-    }
-
-    public void onDead(InetAddressAndPort endpoint, EndpointState state)
-    {
-
-    }
-
-    public void onRemove(InetAddressAndPort endpoint)
     {
 
     }

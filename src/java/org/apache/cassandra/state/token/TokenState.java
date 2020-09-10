@@ -38,17 +38,6 @@ public class TokenState
                 return status == NORMAL || status == REMOVED || status == MOVING_TO;
             }
         },
-        ADDING {
-            boolean canTransitionFrom(Status status)
-            {
-                return status == INITIAL;
-            }
-
-            boolean canTransitionTo(Status status)
-            {
-                return status == NORMAL || status == REMOVED;
-            }
-        },
         NORMAL {
             boolean canTransitionFrom(Status status)
             {
@@ -60,7 +49,29 @@ public class TokenState
                 return status != ADDING;
             }
         },
-        REPLACING  {
+        REMOVED {
+            boolean canTransitionFrom(Status status)
+            {
+                return true;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return false;
+            }
+        },
+        ADDING(true, REMOVED) {
+            boolean canTransitionFrom(Status status)
+            {
+                return status == INITIAL;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status == NORMAL || status == REMOVED;
+            }
+        },
+        REPLACING(true, NORMAL)  {
             boolean canTransitionFrom(Status status)
             {
                 return status == NORMAL;
@@ -71,7 +82,7 @@ public class TokenState
                 return status == NORMAL;
             }
         },
-        MOVING_FROM {
+        MOVING_FROM(true, NORMAL) {
             boolean canTransitionFrom(Status status)
             {
                 return status == NORMAL;
@@ -82,7 +93,7 @@ public class TokenState
                 return status == REMOVED;
             }
         },
-        MOVING_TO {
+        MOVING_TO(true, REMOVED) {
             boolean canTransitionFrom(Status status)
             {
                 return status == INITIAL;
@@ -103,22 +114,30 @@ public class TokenState
             {
                 return status == NORMAL || status == REMOVED;
             }
-        },
-        REMOVED {
-            boolean canTransitionFrom(Status status)
-            {
-                return true;
-            }
-
-            boolean canTransitionTo(Status status)
-            {
-                return false;
-            }
         };
 
-        abstract boolean canTransitionFrom(Status status);
+        final boolean isAbortable;
+        final Status abortedState;
 
+        Status()
+        {
+            this.isAbortable = false;
+            this.abortedState = null;
+        }
+
+        Status(boolean isAbortable, Status abortedState)
+        {
+            this.isAbortable = isAbortable;
+            this.abortedState = abortedState;
+        }
+
+        abstract boolean canTransitionFrom(Status status);
         abstract boolean canTransitionTo(Status status);
+
+        public Status abort()
+        {
+            return abortedState == null ? this : abortedState;
+        }
     }
 
     public final Token token;
@@ -155,6 +174,19 @@ public class TokenState
     public boolean canMoveTo(TokenState newState)
     {
         return status == Status.MOVING_FROM && newState.status == Status.NORMAL && owner.equals(newState.owner);
+    }
+
+    public TokenState maybeAbort()
+    {
+        if (!status.isAbortable)
+            return this;
+
+        return withStatus(status.abort());
+    }
+
+    private TokenState withStatus(Status newStatus)
+    {
+        return new TokenState(token, newStatus, owner);
     }
 
     public boolean equals(Object o)

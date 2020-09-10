@@ -20,9 +20,12 @@ package org.apache.cassandra.state;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,12 +52,24 @@ public class RingState
         this.tokens = tokens;
     }
 
-    public RingState applyTokenStates(Collection<TokenState> newStates)
+    public RingState withRemovedHost(UUID hostId)
+    {
+        List<TokenState> removedStates = tokens.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> TokenState.removed(t.token, t.owner)).collect(Collectors.toList());
+        return withAppliedStates(removedStates);
+    }
+
+    public RingState withDownHost(UUID hostId)
+    {
+        List<TokenState> abortedStates = tokens.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> t.maybeAbort()).collect(Collectors.toList());
+        return withAppliedStates(abortedStates);
+    }
+
+    public RingState withAppliedStates(Collection<TokenState> diff)
     {
         TreeMap<Token, TokenState> newTokens = new TreeMap<>(tokens);
         AtomicBoolean updatedState = new AtomicBoolean(false);
 
-        newStates.forEach(newState ->
+        diff.forEach(newState ->
                           {
                               if (applyNewState(newTokens, newState))
                                   updatedState.set(true);
@@ -71,6 +86,9 @@ public class RingState
         TokenState oldState = newState.isRemoved() ?  removeToken(tokenMap, newState.token) : tokenMap.put(newState.token, newState);
         if (oldState == null)
             oldState = TokenState.initial(newState.token, newState.owner);
+
+        if (oldState.equals(newState))
+            return false;
 
         assert oldState.canTransitionTo(newState) && newState.canTransitionFrom(oldState) : String.format("Cannot transition token %s state from %s to %s.", newState.token, oldState, newState);
 

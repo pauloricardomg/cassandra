@@ -176,6 +176,15 @@ public class EndpointState
     }
 
     @Nullable
+    public UUID getHostId()
+    {
+        VersionedValue applicationState = getApplicationState(ApplicationState.HOST_ID);
+        return applicationState != null
+               ? UUID.fromString(applicationState.value)
+               : null;
+    }
+
+    @Nullable
     public CassandraVersion getReleaseVersion()
     {
         VersionedValue applicationState = getApplicationState(ApplicationState.RELEASE_VERSION);
