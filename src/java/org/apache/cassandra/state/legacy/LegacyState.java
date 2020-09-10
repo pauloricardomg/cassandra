@@ -60,7 +60,7 @@ public class LegacyState
                 return Collections.singleton(TokenState.replacing(token, oldId, id));
 
             case BOOTSTRAPPING:
-                return Collections.singleton(TokenState.bootstrapping(token, id));
+                return Collections.singleton(TokenState.adding(token, id));
 
             case NORMAL:
                 return Collections.singleton(TokenState.normal(token, id));

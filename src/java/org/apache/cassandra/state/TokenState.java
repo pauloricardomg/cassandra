@@ -25,14 +25,100 @@ import org.apache.cassandra.dht.Token;
 
 public class TokenState
 {
-    enum Status
+    protected enum Status
     {
-        NORMAL,
-        ADDING,
-        REPLACING,
-        MOVING,
-        REMOVING,
-        REMOVED,
+        INITIAL {
+            boolean canTransitionFrom(Status status)
+            {
+                return false;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status == NORMAL || status == REMOVED || status == MOVING_TO;
+            }
+        },
+        ADDING {
+            boolean canTransitionFrom(Status status)
+            {
+                return status == INITIAL;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status == NORMAL || status == REMOVED;
+            }
+        },
+        NORMAL {
+            boolean canTransitionFrom(Status status)
+            {
+                return status != REMOVED;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status != ADDING;
+            }
+        },
+        REPLACING  {
+            boolean canTransitionFrom(Status status)
+            {
+                return status == NORMAL;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status == NORMAL;
+            }
+        },
+        MOVING_FROM {
+            boolean canTransitionFrom(Status status)
+            {
+                return status == NORMAL;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status == REMOVED;
+            }
+        },
+        MOVING_TO {
+            boolean canTransitionFrom(Status status)
+            {
+                return status == INITIAL;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status == NORMAL;
+            }
+        },
+        REMOVING {
+            boolean canTransitionFrom(Status status)
+            {
+                return status == NORMAL;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return status == NORMAL || status == REMOVED;
+            }
+        },
+        REMOVED {
+            boolean canTransitionFrom(Status status)
+            {
+                return true;
+            }
+
+            boolean canTransitionTo(Status status)
+            {
+                return false;
+            }
+        };
+
+        abstract boolean canTransitionFrom(Status status);
+
+        abstract boolean canTransitionTo(Status status);
     }
 
     final Token token;
@@ -44,6 +130,31 @@ public class TokenState
         this.token = token;
         this.status = status;
         this.owner = owner;
+    }
+
+    public boolean isRemoved()
+    {
+        return status == TokenState.Status.REMOVED;
+    }
+
+    public boolean isMovingTo()
+    {
+        return status == TokenState.Status.MOVING_TO;
+    }
+
+    public boolean canTransitionFrom(TokenState oldState)
+    {
+        return status.canTransitionFrom(oldState.status) && owner.equals(oldState.owner);
+    }
+
+    public boolean canTransitionTo(TokenState newState)
+    {
+        return owner.equals(newState.owner) && status.canTransitionTo(newState.status);
+    }
+
+    public boolean canMoveTo(TokenState newState)
+    {
+        return status == Status.MOVING_FROM && newState.status == Status.NORMAL && owner.equals(newState.owner);
     }
 
     public boolean equals(Object o)
@@ -61,7 +172,12 @@ public class TokenState
         return Objects.hash(token, status, owner);
     }
 
-    public static TokenState bootstrapping(Token token, UUID owner)
+    public static TokenState initial(Token token, UUID owner)
+    {
+        return new TokenState(token, Status.INITIAL, owner);
+    }
+
+    public static TokenState adding(Token token, UUID owner)
     {
         return new TokenState(token, Status.ADDING, owner);
     }
@@ -76,14 +192,19 @@ public class TokenState
         return new ReplacingState(token, newOwner, previousOwner);
     }
 
-    public static TokenState moving(Token oldToken, Token newToken, UUID owner)
+    public static TokenState movingFrom(Token oldToken, UUID owner)
     {
-        return new MovingState(oldToken, newToken, owner);
+        return new TokenState(oldToken, Status.MOVING_FROM, owner);
+    }
+
+    public static TokenState movingTo(Token oldToken, Token newToken, UUID owner)
+    {
+        return new MovingToState(oldToken, newToken, owner);
     }
 
     public static TokenState removing(Token token, UUID owner)
     {
-        return new TokenState(token, Status.MOVING, owner);
+        return new TokenState(token, Status.MOVING_TO, owner);
     }
 
     public static TokenState removed(Token token, UUID id)

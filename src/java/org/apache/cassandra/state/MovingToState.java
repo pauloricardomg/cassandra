@@ -22,13 +22,13 @@ import java.util.UUID;
 
 import org.apache.cassandra.dht.Token;
 
-public class MovingState extends TokenState
+public class MovingToState extends TokenState
 {
     protected final Token oldToken;
 
-    protected MovingState(Token oldToken, Token newToken, UUID owner)
+    protected MovingToState(Token oldToken, Token newToken, UUID owner)
     {
-        super(newToken, Status.MOVING, owner);
+        super(newToken, Status.MOVING_TO, owner);
         this.oldToken = oldToken;
     }
 }

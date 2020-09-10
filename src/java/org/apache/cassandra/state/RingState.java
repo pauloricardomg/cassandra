@@ -58,16 +58,11 @@ public class RingState
         TreeMap<Token, TokenState> newTokens = new TreeMap<>(tokens);
         AtomicBoolean updatedState = new AtomicBoolean(false);
 
-        newStates.forEach(s ->
-                          tokens.compute(s.token, (token, previousState) ->
+        newStates.forEach(newState ->
                           {
-                              if (!s.equals(previousState))
-                              {
-                                  validateStateChange(previousState, s);
+                              if (applyNewState(newTokens, newState))
                                   updatedState.set(true);
-                              }
-                              return s;
-                          }));
+                          });
 
         if (!updatedState.get())
             return this;
@@ -75,9 +70,22 @@ public class RingState
         return new RingState(version + 1, newTokens, nodes);
     }
 
-    private void validateStateChange(TokenState previousState, TokenState newState)
+    private static boolean applyNewState(TreeMap<Token, TokenState> tokenMap, TokenState newState)
     {
+        TokenState oldState = newState.isRemoved() ? tokenMap.remove(newState.token) : tokenMap.put(newState.token, newState);
+        if (oldState == null)
+            oldState = TokenState.initial(newState.token, newState.owner);
 
+        assert oldState.canTransitionTo(newState) && newState.canTransitionFrom(oldState) : String.format("Cannot transition token state from %s to %s.", oldState, newState);
+
+        if (oldState.isMovingTo())
+        {
+            MovingToState movingToState = (MovingToState) oldState;
+            TokenState movingFromState = tokenMap.remove(movingToState.oldToken);
+            assert movingFromState != null && movingFromState.canMoveTo(newState) : String.format("Invalid old token state during move operation from %s to %s.", movingFromState, newState);
+        }
+
+        return !newState.equals(oldState);
     }
 
     public RingState applyNodeState(NodeState newState)

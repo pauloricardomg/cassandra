@@ -31,4 +31,16 @@ public class ReplacingState extends TokenState
         super(token, Status.REPLACING, owner);
         this.previousOwner = previousOwner;
     }
+
+    @Override
+    public boolean canTransitionFrom(TokenState oldState)
+    {
+        return Status.REPLACING.canTransitionFrom(oldState.status);
+    }
+
+    @Override
+    public boolean canTransitionTo(TokenState newState)
+    {
+        return Status.REPLACING.canTransitionTo(newState.status);
+    }
 }

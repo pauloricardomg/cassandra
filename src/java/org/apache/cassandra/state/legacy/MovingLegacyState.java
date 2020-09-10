@@ -25,7 +25,6 @@ import java.util.function.Function;
 
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.state.MovingState;
 import org.apache.cassandra.state.TokenState;
 
 public class MovingLegacyState extends LegacyState
@@ -42,6 +41,6 @@ public class MovingLegacyState extends LegacyState
 
     public Collection<TokenState> mapToTokenStates(UUID id, Token ignore, Function<InetAddressAndPort, UUID> idGetter)
     {
-        return Arrays.asList(TokenState.removing(oldToken, id), TokenState.moving(oldToken, newToken, id));
+        return Arrays.asList(TokenState.removing(oldToken, id), TokenState.movingTo(oldToken, newToken, id));
     }
 }
