@@ -38,18 +38,18 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.state.node.NodeState;
 import org.apache.cassandra.state.token.TokenState;
 
-public class RingStateManager implements IEndpointStateChangeSubscriber
+public class RingManager implements IEndpointStateChangeSubscriber
 {
-    private static final Logger logger = LoggerFactory.getLogger(RingStateManager.class);
+    private static final Logger logger = LoggerFactory.getLogger(RingManager.class);
 
     private final IPartitioner partitioner;
     private final Function<InetAddressAndPort, Collection<Token>> tokenGetter;
     private final Function<InetAddressAndPort, UUID> idGetter;
 
-    public final AtomicReference<RingState> ringState = new AtomicReference<>(new RingState());
+    public final AtomicReference<RingSnapshot> ringState = new AtomicReference<>(new RingSnapshot());
 
-    public RingStateManager(IPartitioner partitioner, Function<InetAddressAndPort, Collection<Token>> tokenGetter,
-                            Function<InetAddressAndPort, UUID> idGetter) {
+    public RingManager(IPartitioner partitioner, Function<InetAddressAndPort, Collection<Token>> tokenGetter,
+                       Function<InetAddressAndPort, UUID> idGetter) {
         this.partitioner = partitioner;
         this.tokenGetter = tokenGetter;
         this.idGetter = idGetter;
@@ -68,7 +68,7 @@ public class RingStateManager implements IEndpointStateChangeSubscriber
         NodeState nodeState = NodeState.extract(value, partitioner, id, tokens, idGetter);
 
         List<TokenState> newTokenStates = tokens.stream().flatMap(t -> nodeState.mapToTokenStates(id, t).stream()).collect(Collectors.toList());
-        RingState newRing = ringState.get().withAppliedStates(newTokenStates);
+        RingSnapshot newRing = ringState.get().withAppliedStates(newTokenStates);
 
         maybeUpdateRingState(newRing);
     }
@@ -87,7 +87,7 @@ public class RingStateManager implements IEndpointStateChangeSubscriber
         maybeUpdateRingState(ringState.get().withRemovedHost(hostId));
     }
 
-    private void maybeUpdateRingState(RingState newRing)
+    private void maybeUpdateRingState(RingSnapshot newRing)
     {
         if (ringState.get().version != newRing.version)
         {
