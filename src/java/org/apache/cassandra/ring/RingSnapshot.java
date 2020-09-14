@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state;
+package org.apache.cassandra.ring;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -31,8 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.state.token.MovingToState;
-import org.apache.cassandra.state.token.TokenState;
+import org.apache.cassandra.ring.token.MovingToState;
+import org.apache.cassandra.ring.token.TokenState;
 
 public class RingSnapshot
 {
@@ -108,5 +108,25 @@ public class RingSnapshot
     private static TokenState removeToken(TreeMap<Token, TokenState> tokenMap, Token token)
     {
         return tokenMap.remove(token);
+    }
+
+    public RingIterator iterator()
+    {
+        return null;
+    }
+
+    public TokenState getPrimaryReplica(Token token)
+    {
+        return null;
+    }
+
+    public RingIterator filterByDc(String key)
+    {
+        return null;
+    }
+
+    public int getRackCount(String key)
+    {
+        return 0;
     }
 }

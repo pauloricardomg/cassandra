@@ -16,31 +16,31 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state.node;
+package org.apache.cassandra.ring.node;
 
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
-import java.util.function.Function;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.state.token.TokenState;
+import org.apache.cassandra.ring.token.TokenState;
 
-public class BootReplaceState extends NodeState
+public class MovingNodeState extends NodeState
 {
-    private final UUID oldId;
-    private final UUID newId;
+    private final Token oldToken;
+    private final Token newToken;
 
-    public BootReplaceState(UUID originalNodeId, UUID newId)
+    public MovingNodeState(Token oldToken, Token newToken)
     {
-        super(Status.BOOTSTRAPPING_REPLACE);
-        this.oldId = originalNodeId;
-        this.newId = newId;
+        super(Status.MOVING);
+        this.oldToken = oldToken;
+        this.newToken = newToken;
     }
 
-    public Collection<TokenState> mapToTokenStates(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
+    @Override
+    public Collection<TokenState> mapToTokenStates(UUID id, Token nodeToken)
     {
-        return Arrays.asList(TokenState.replacing(token, oldId, newId));
+        assert nodeToken.equals(oldToken) : String.format("Node token (%s) is different from old token (%s)", nodeToken, oldToken);
+        return Arrays.asList(TokenState.removing(oldToken, id), TokenState.movingTo(oldToken, newToken, id));
     }
 }

@@ -16,32 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state.token;
-
-import java.util.UUID;
+package org.apache.cassandra.ring;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.state.token.TokenState;
+import org.apache.cassandra.ring.token.TokenState;
 
-public class ReplacingState extends TokenState
+public class RingIterator
 {
-    private final UUID previousOwner;
 
-    public ReplacingState(Token token, UUID owner, UUID previousOwner)
+    public void advanceToToken(Token token)
     {
-        super(token, Status.REPLACING, owner);
-        this.previousOwner = previousOwner;
+
     }
 
-    @Override
-    public boolean canTransitionFrom(TokenState oldState)
+    public TokenState next()
     {
-        return Status.REPLACING.canTransitionFrom(oldState.status);
+        return null;
     }
 
-    @Override
-    public boolean canTransitionTo(TokenState newState)
+    public TokenState peekNextFromRack(String rack)
     {
-        return Status.REPLACING.canTransitionTo(newState.status);
+        return null;
     }
 }

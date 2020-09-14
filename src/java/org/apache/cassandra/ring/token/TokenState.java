@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state.token;
+package org.apache.cassandra.ring.token;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -25,6 +25,33 @@ import org.apache.cassandra.dht.Token;
 
 public class TokenState
 {
+    public boolean isPending()
+    {
+        return false;
+    }
+
+
+    public boolean isAdding()
+    {
+        return false;
+    }
+
+    public boolean isRemoving()
+    {
+        return false;
+    }
+
+//    public TokenState nextToken()
+//    {
+//        return null;
+//    }
+//
+//
+//    public TokenState nextFromSameRack()
+//    {
+//        return null;
+//    }
+
     protected enum Status
     {
         INITIAL {
@@ -142,7 +169,12 @@ public class TokenState
 
     public final Token token;
     public final UUID owner;
+    public final String rack = null;
+    public final String dc = null;
     final Status status;
+
+    public final TokenState previous = null;
+    public final TokenState next = null;
 
     protected TokenState(Token token, Status status, UUID owner)
     {

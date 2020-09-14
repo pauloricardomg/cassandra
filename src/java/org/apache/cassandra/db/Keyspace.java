@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 
 import com.google.common.base.Function;
@@ -44,6 +45,8 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.repair.KeyspaceRepairManager;
+import org.apache.cassandra.ring.ReplicatedRing;
+import org.apache.cassandra.ring.RingSnapshot;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.ReplicationParams;
 import org.apache.cassandra.schema.Schema;
@@ -93,6 +96,19 @@ public class Keyspace
     private final KeyspaceWriteHandler writeHandler;
     private volatile ReplicationParams replicationParams;
     private final KeyspaceRepairManager repairManager;
+
+    private final AtomicReference<ReplicatedRing> ringState = new AtomicReference<>();
+
+    public synchronized void onRingChange(RingSnapshot newRing)
+    {
+        ReplicatedRing newState = replicationStrategy.createReplicatedRing(newRing);
+        ringState.set(newState);
+    }
+
+    public ReplicatedRing getRingSnapshot()
+    {
+        return ringState.get();
+    }
 
     public static final Function<String,Keyspace> keyspaceTransformer = new Function<String, Keyspace>()
     {

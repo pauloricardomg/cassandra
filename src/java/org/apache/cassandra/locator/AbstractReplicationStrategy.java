@@ -36,6 +36,8 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.RingPosition;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.ring.ReplicatedRing;
+import org.apache.cassandra.ring.RingSnapshot;
 import org.apache.cassandra.service.AbstractWriteResponseHandler;
 import org.apache.cassandra.service.DatacenterSyncWriteResponseHandler;
 import org.apache.cassandra.service.DatacenterWriteResponseHandler;
@@ -460,5 +462,10 @@ public abstract class AbstractReplicationStrategy
             if (!expectedOptions.contains(key))
                 throw new ConfigurationException(String.format("Unrecognized strategy option {%s} passed to %s for keyspace %s", key, getClass().getSimpleName(), keyspaceName));
         }
+    }
+
+    public ReplicatedRing createReplicatedRing(RingSnapshot snapShot)
+    {
+        throw new UnsupportedOperationException();
     }
 }

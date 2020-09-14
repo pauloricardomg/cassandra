@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.state.node;
+package org.apache.cassandra.ring.node;
 
 import java.net.UnknownHostException;
 import java.util.Collection;
@@ -28,7 +28,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.state.token.TokenState;
+import org.apache.cassandra.ring.token.TokenState;
 
 public class NodeState
 {
