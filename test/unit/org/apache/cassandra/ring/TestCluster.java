@@ -47,7 +47,7 @@ public class TestCluster
 
     public MultiDatacenterRing getRing()
     {
-        return null;
+        return ring;
     }
 
     public static class Builder
@@ -61,10 +61,10 @@ public class TestCluster
 
             for (DatacenterBuilder dc : dcs)
             {
-                dcRfs.put(dc.name, ReplicationFactor.fullOnly(dc.rf));
+                dcRfs.put(dc.dcName, ReplicationFactor.fullOnly(dc.rf));
                 for (DatacenterBuilder.NodeBuilder node : dc.nodes)
                 {
-                    List<TokenState> newStates = Arrays.stream(node.tokens).map(t -> TokenState.normal(token(t), dc.name, "r1", node.id))
+                    List<TokenState> newStates = Arrays.stream(node.tokens).map(t -> TokenState.normal(token(t), dc.dcName, "r1", node.id))
                                                                            .collect(Collectors.toList());
                     ringSnapshot = ringSnapshot.withAppliedStates(newStates);
                 }
@@ -82,14 +82,14 @@ public class TestCluster
 
         class DatacenterBuilder
         {
-            private final String name;
+            private final String dcName;
             private final List<NodeBuilder> nodes = new LinkedList<>();
 
             private int rf = 1;
 
-            DatacenterBuilder(String name)
+            DatacenterBuilder(String dcName)
             {
-                this.name = name;
+                this.dcName = dcName;
             }
 
             public DatacenterBuilder withReplicationFactor(int rf)
@@ -100,7 +100,9 @@ public class TestCluster
 
             public NodeBuilder withNode(UUID id)
             {
-                return new NodeBuilder(id);
+                NodeBuilder nodeBuilder = new NodeBuilder(id);
+                nodes.add(nodeBuilder);
+                return nodeBuilder;
             }
 
             public TestCluster build()

@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.ring;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -92,14 +93,14 @@ public class RingSnapshot
 
         assert oldState.canTransitionTo(newState) && newState.canTransitionFrom(oldState) : String.format("Cannot transition token %s state from %s to %s.", newState.token, oldState, newState);
 
-        logger.debug("Transitioning token %s from state %s to state %s.", newState.token, oldState, newState);
+        logger.debug("Transitioning token {} from state {} to state {}.", newState.token, oldState, newState);
 
         if (oldState.isMovingTo())
         {
             MovingToState movingToState = (MovingToState) oldState;
             TokenState movingFromState = removeToken(tokenMap, movingToState.oldToken);
-            assert movingFromState != null && movingFromState.canMoveTo(newState) : String.format("Cannot move token %s state %s to token % state %s.", movingToState.oldToken, movingFromState, newState.token, newState);
-            logger.debug("Removing token %s from owner %s that moved to %s.", movingToState.oldToken, movingFromState.owner, newState.token);
+            assert movingFromState != null && movingFromState.canMoveTo(newState) : String.format("Cannot move token %s (state %s) to token % (state %s).", movingToState.oldToken, movingFromState, newState.token, newState);
+            logger.debug("Removing token {} from owner {} that moved to {}.", movingToState.oldToken, movingFromState.owner, newState.token);
         }
 
         return !newState.equals(oldState);
@@ -117,7 +118,7 @@ public class RingSnapshot
 
     public RingIterator iterator(String dcName)
     {
-        return null;
+        return new RingIterator(tokens.values().stream().filter(t -> dcName.equals(t.dc)).collect(Collectors.toCollection(ArrayList::new)));
     }
 
     public int getRackCount(String dcName)

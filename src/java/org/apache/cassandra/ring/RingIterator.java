@@ -18,24 +18,53 @@
 
 package org.apache.cassandra.ring;
 
+import java.util.ArrayList;
+import java.util.Collections;
+
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.ring.token.TokenState;
 
 public class RingIterator
 {
+    private final ArrayList<TokenState> sortedTokens;
+    private int currentIndex = 0;
+
+    public RingIterator(ArrayList<TokenState> sortedTokens)
+    {
+        this.sortedTokens = sortedTokens;
+    }
 
     public void advanceToToken(Token token)
     {
-
+        currentIndex = firstTokenIndex(sortedTokens, TokenState.initial(token, null));
     }
 
     public TokenState next()
     {
-        return null;
+        int next = currentIndex;
+        currentIndex = (currentIndex + 1) % sortedTokens.size();
+        return sortedTokens.get(next);
     }
 
     public TokenState peekNextFromRack(String rack)
     {
         return null;
+    }
+
+    /**
+     * Copy from {@link org.apache.cassandra.locator.TokenMetadata#firstTokenIndex(ArrayList, Token, boolean)}
+     */
+    private static int firstTokenIndex(final ArrayList<TokenState> ring, TokenState start)
+    {
+        assert ring.size() > 0;
+        // insert the minimum token (at index == -1) if we were asked to include it and it isn't a member of the ring
+        int i = Collections.binarySearch(ring, start);
+        if (i < 0)
+        {
+            i = (i + 1) * (-1);
+            if (i >= ring.size())
+                i = 0;
+        }
+        return i;
     }
 }

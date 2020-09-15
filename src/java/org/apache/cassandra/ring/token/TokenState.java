@@ -23,35 +23,8 @@ import java.util.UUID;
 
 import org.apache.cassandra.dht.Token;
 
-public class TokenState
+public class TokenState implements Comparable<TokenState>
 {
-    public boolean isPending()
-    {
-        return false;
-    }
-
-
-    public boolean isAdding()
-    {
-        return false;
-    }
-
-    public boolean isRemoving()
-    {
-        return false;
-    }
-
-//    public TokenState nextToken()
-//    {
-//        return null;
-//    }
-//
-//
-//    public TokenState nextFromSameRack()
-//    {
-//        return null;
-//    }
-
     protected enum Status
     {
         INITIAL {
@@ -186,6 +159,15 @@ public class TokenState
         this.owner = owner;
         this.status = status;
     }
+    public boolean isAdding()
+    {
+        return false;
+    }
+
+    public boolean isRemoving()
+    {
+        return false;
+    }
 
     public boolean isRemoved()
     {
@@ -225,6 +207,11 @@ public class TokenState
         return new TokenState(token, newStatus, owner);
     }
 
+    public int compareTo(TokenState tokenState)
+    {
+        return token.compareTo(tokenState.token);
+    }
+
     public boolean equals(Object o)
     {
         if (this == o) return true;
@@ -242,7 +229,7 @@ public class TokenState
 
     public String toString()
     {
-        return String.format("{\"owner\": %s, \"status\": %s}", token, owner, status);
+        return String.format("{\"owner\": %s, \"status\": %s}", owner, status);
     }
 
     public static TokenState initial(Token token, UUID owner)
@@ -262,7 +249,7 @@ public class TokenState
 
     public static TokenState normal(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, Status.NORMAL, owner);
+        return new TokenState(token, dc, rack, owner, Status.NORMAL);
     }
 
     public static TokenState replacing(Token token, UUID previousOwner, UUID newOwner)

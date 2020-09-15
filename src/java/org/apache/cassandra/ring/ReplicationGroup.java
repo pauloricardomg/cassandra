@@ -21,6 +21,7 @@ package org.apache.cassandra.ring;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 public class ReplicationGroup
@@ -59,5 +60,27 @@ public class ReplicationGroup
         {
             return new ReplicationGroup(normalReplicas);
         }
+    }
+
+    public boolean equals(Object o)
+    {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ReplicationGroup that = (ReplicationGroup) o;
+        return Objects.equals(normalReplicas, that.normalReplicas) &&
+               Objects.equals(pendingReplicas, that.pendingReplicas);
+    }
+
+    public int hashCode()
+    {
+        return Objects.hash(normalReplicas, pendingReplicas);
+    }
+
+    public String toString()
+    {
+        return "ReplicationGroup{" +
+               "normalReplicas=" + normalReplicas +
+               ", pendingReplicas=" + pendingReplicas +
+               '}';
     }
 }

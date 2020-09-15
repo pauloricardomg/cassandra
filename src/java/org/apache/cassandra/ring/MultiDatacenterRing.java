@@ -50,20 +50,21 @@ public class MultiDatacenterRing
             ReplicationFactor rf = dcRf.getValue();
 
             int acceptableRackRepeats = rf.allReplicas - ringSnapshot.getRackCount(dcRf.getKey());
+            System.out.printf("RF: %d. Acceptable repeats: %d%n", rf.allReplicas, acceptableRackRepeats);
             Set<String> seenRacks = new HashSet<>();
 
-            RingIterator it = ringSnapshot.iterator(dcRf.getKey());
+            RingIterator ring = ringSnapshot.iterator(dcRf.getKey());
 
-            it.advanceToToken(token);
+            ring.advanceToToken(token);
 
-            TokenState currentToken = it.next();
+            TokenState currentToken = ring.next();
 
             while (normalReplicas.size() < rf.allReplicas)
             {
                 while (currentToken.isAdding())
                 {
                     pendingReplicas.add(currentToken.owner);
-                    currentToken = it.next();
+                    currentToken = ring.next();
                 }
 
                 if (!normalReplicas.contains(currentToken.owner) &&
@@ -71,16 +72,19 @@ public class MultiDatacenterRing
                 {
                     if (currentToken.isRemoving())
                     {
-                        TokenState nextFromSameRack = it.peekNextFromRack(currentToken.rack);
+                        TokenState nextFromSameRack = ring.peekNextFromRack(currentToken.rack);
                         pendingReplicas.add(nextFromSameRack.owner);
                     }
 
-                    acceptableRackRepeats--;
-                    seenRacks.add(currentToken.rack);
+                    if (seenRacks.contains(currentToken.rack))
+                        acceptableRackRepeats--;
+                    else
+                        seenRacks.add(currentToken.rack);
+
                     normalReplicas.add(currentToken.owner);
                 }
 
-                currentToken = it.next();
+                currentToken = ring.next();
             }
         }
 
