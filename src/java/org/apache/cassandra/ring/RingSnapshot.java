@@ -115,18 +115,13 @@ public class RingSnapshot
         return null;
     }
 
-    public TokenState getPrimaryReplica(Token token)
+    public RingIterator iterator(String dcName)
     {
         return null;
     }
 
-    public RingIterator filterByDc(String key)
+    public int getRackCount(String dcName)
     {
-        return null;
-    }
-
-    public int getRackCount(String key)
-    {
-        return 0;
+        return (int)tokens.values().stream().filter(t -> dcName.equals(t.dc)).map(t -> t.rack).distinct().count();
     }
 }

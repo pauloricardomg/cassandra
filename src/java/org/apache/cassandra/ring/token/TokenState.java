@@ -168,19 +168,23 @@ public class TokenState
     }
 
     public final Token token;
+    public final String dc;
+    public final String rack;
     public final UUID owner;
-    public final String rack = null;
-    public final String dc = null;
     final Status status;
-
-    public final TokenState previous = null;
-    public final TokenState next = null;
 
     protected TokenState(Token token, Status status, UUID owner)
     {
+        this(token, null, null, owner, status);
+    }
+
+    protected TokenState(Token token, String dc, String rack, UUID owner, Status status)
+    {
         this.token = token;
-        this.status = status;
+        this.dc = dc;
+        this.rack = rack;
         this.owner = owner;
+        this.status = status;
     }
 
     public boolean isRemoved()
@@ -252,6 +256,11 @@ public class TokenState
     }
 
     public static TokenState normal(Token token, UUID owner)
+    {
+        return new TokenState(token, Status.NORMAL, owner);
+    }
+
+    public static TokenState normal(Token token, String dc, String rack, UUID owner)
     {
         return new TokenState(token, Status.NORMAL, owner);
     }

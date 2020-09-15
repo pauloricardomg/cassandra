@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.ring;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -25,7 +26,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.ReplicaLayout;
 import org.apache.cassandra.locator.ReplicationFactor;
 import org.apache.cassandra.ring.token.TokenState;
 
@@ -40,7 +40,7 @@ public class MultiDatacenterRing
         this.dcRfs = dcRfs;
     }
 
-    public ReplicaLayout.ForTokenWrite getReplicasForTokenWrite(Token token)
+    public ReplicationGroup getReplicasForTokenWrite(Token token)
     {
         LinkedHashSet<UUID> normalReplicas = new LinkedHashSet<>();
         LinkedHashSet<UUID> pendingReplicas = new LinkedHashSet<>();
@@ -52,7 +52,7 @@ public class MultiDatacenterRing
             int acceptableRackRepeats = rf.allReplicas - ringSnapshot.getRackCount(dcRf.getKey());
             Set<String> seenRacks = new HashSet<>();
 
-            RingIterator it = ringSnapshot.filterByDc(dcRf.getKey());
+            RingIterator it = ringSnapshot.iterator(dcRf.getKey());
 
             it.advanceToToken(token);
 
@@ -84,7 +84,7 @@ public class MultiDatacenterRing
             }
         }
 
-        return null;
+        return new ReplicationGroup(new ArrayList<>(normalReplicas), new ArrayList<>(pendingReplicas));
     }
 
 }
