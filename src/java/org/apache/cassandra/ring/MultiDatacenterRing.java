@@ -29,12 +29,12 @@ import org.apache.cassandra.locator.ReplicaLayout;
 import org.apache.cassandra.locator.ReplicationFactor;
 import org.apache.cassandra.ring.token.TokenState;
 
-public class ReplicatedRing
+public class MultiDatacenterRing
 {
     private final RingSnapshot ringSnapshot;
     private final Map<String, ReplicationFactor> dcRfs;
 
-    public ReplicatedRing(RingSnapshot ringSnapshot, Map<String, ReplicationFactor> dcRfs)
+    public MultiDatacenterRing(RingSnapshot ringSnapshot, Map<String, ReplicationFactor> dcRfs)
     {
         this.ringSnapshot = ringSnapshot;
         this.dcRfs = dcRfs;

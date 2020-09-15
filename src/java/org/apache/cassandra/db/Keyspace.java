@@ -45,7 +45,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.repair.KeyspaceRepairManager;
-import org.apache.cassandra.ring.ReplicatedRing;
+import org.apache.cassandra.ring.MultiDatacenterRing;
 import org.apache.cassandra.ring.RingSnapshot;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.ReplicationParams;
@@ -97,15 +97,15 @@ public class Keyspace
     private volatile ReplicationParams replicationParams;
     private final KeyspaceRepairManager repairManager;
 
-    private final AtomicReference<ReplicatedRing> ringState = new AtomicReference<>();
+    private final AtomicReference<MultiDatacenterRing> ringState = new AtomicReference<>();
 
     public synchronized void onRingChange(RingSnapshot newRing)
     {
-        ReplicatedRing newState = replicationStrategy.createReplicatedRing(newRing);
+        MultiDatacenterRing newState = replicationStrategy.createReplicatedRing(newRing);
         ringState.set(newState);
     }
 
-    public ReplicatedRing getRingSnapshot()
+    public MultiDatacenterRing getRingSnapshot()
     {
         return ringState.get();
     }

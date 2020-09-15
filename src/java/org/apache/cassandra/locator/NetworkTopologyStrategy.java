@@ -29,9 +29,8 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.TokenMetadata.Topology;
-import org.apache.cassandra.ring.ReplicatedRing;
+import org.apache.cassandra.ring.MultiDatacenterRing;
 import org.apache.cassandra.ring.RingSnapshot;
-import org.apache.cassandra.ring.RingIterator;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
@@ -311,7 +310,7 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
         return super.hasSameSettings(other) && ((NetworkTopologyStrategy) other).datacenters.equals(datacenters);
     }
 
-    public ReplicatedRing createReplicatedRing(RingSnapshot snapshot)
+    public MultiDatacenterRing createReplicatedRing(RingSnapshot snapshot)
     {
         return null;
     }
