@@ -19,9 +19,12 @@
 package org.apache.cassandra.ring;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.UUID;
 
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
@@ -29,6 +32,7 @@ import org.apache.cassandra.utils.UUIDGen;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@RunWith(Parameterized.class)
 public class MultiDatacenterRingTest
 {
     static final UUID NODE_A = UUIDGen.getTimeUUID();
@@ -36,6 +40,19 @@ public class MultiDatacenterRingTest
     static final UUID NODE_C = UUIDGen.getTimeUUID();
     static final UUID NODE_D = UUIDGen.getTimeUUID();
     static final UUID NODE_E = UUIDGen.getTimeUUID();
+
+    @Parameterized.Parameters(name = "legacy={0}")
+    public static Collection<Object[]> input()
+    {
+        return Arrays.asList(new Object[][]{{Boolean.FALSE}, {Boolean.TRUE}});
+    }
+
+    private final Boolean legacy;
+
+    public MultiDatacenterRingTest(Boolean legacy)
+    {
+        this.legacy = legacy;
+    }
 
     @Test
     public void testgetReplicasForTokenWrite_1dc_1rack_5nodes_rf3()
@@ -50,12 +67,12 @@ public class MultiDatacenterRingTest
                                          .withNode(NODE_C).withManualTokens(200L, 350L, 850L)
                                          .withNode(NODE_D).withManualTokens(300L, 450L, 950L)
                                          .withNode(NODE_E).withManualTokens(400L, 550L, 1050L)
-                                         .build();
+                                         .build(legacy);
 
         // RING LAYOUT
         // <--[0:A]--[100:B]--[150:A]--[200:C]--[250:B]--[300:D]--[350:C]-->
         // <--[400:E]--[450:D]--[550:E]--[650:A]--[750:B]--[850:C]--[950:D]--[1050:E]-->
-        MultiDatacenterRing ring = cluster.getRing();
+        RingOverlay ring = cluster.getRing();
 
         // Token 10: [100:B]--[150:A]--[200:C]
         assertThat(ring.getReplicasForTokenWrite(token(10L))).isEqualTo(normalReplicas(NODE_B, NODE_A, NODE_C));

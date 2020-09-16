@@ -45,7 +45,7 @@ public class TestCluster
         return new Builder();
     }
 
-    public MultiDatacenterRing getRing()
+    public RingOverlay getRing()
     {
         return ring;
     }
@@ -54,7 +54,7 @@ public class TestCluster
     {
         List<DatacenterBuilder> dcs = new LinkedList<>();
 
-        public TestCluster build()
+        public TestCluster build(boolean legacy)
         {
             Map<String, ReplicationFactor> dcRfs = new HashMap<>();
             RingSnapshot ringSnapshot = new RingSnapshot();
@@ -105,9 +105,9 @@ public class TestCluster
                 return nodeBuilder;
             }
 
-            public TestCluster build()
+            public TestCluster build(boolean legacy)
             {
-                return Builder.this.build();
+                return Builder.this.build(legacy);
             }
 
             class NodeBuilder

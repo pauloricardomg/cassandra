@@ -29,7 +29,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.ReplicationFactor;
 import org.apache.cassandra.ring.token.TokenState;
 
-public class MultiDatacenterRing
+public class MultiDatacenterRing implements RingOverlay
 {
     private final RingSnapshot ringSnapshot;
     private final Map<String, ReplicationFactor> dcRfs;
@@ -40,6 +40,7 @@ public class MultiDatacenterRing
         this.dcRfs = dcRfs;
     }
 
+    @Override
     public ReplicationGroup getReplicasForTokenWrite(Token token)
     {
         LinkedHashSet<UUID> normalReplicas = new LinkedHashSet<>();
