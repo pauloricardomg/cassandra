@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class ReplicationGroup
 {
@@ -78,9 +79,6 @@ public class ReplicationGroup
 
     public String toString()
     {
-        return "ReplicationGroup{" +
-               "normalReplicas=" + normalReplicas +
-               ", pendingReplicas=" + pendingReplicas +
-               '}';
+        return String.format("[%s]", normalReplicas.stream().map(r -> r.toString().substring(0, 8)).collect(Collectors.joining(", ")));
     }
 }
