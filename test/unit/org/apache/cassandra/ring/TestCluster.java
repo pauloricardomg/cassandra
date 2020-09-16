@@ -86,15 +86,19 @@ public class TestCluster
             for (DatacenterBuilder dc : dcs)
             {
                 dcRfs.put(dc.dcName, dc.rf.toString());
-                for (DatacenterBuilder.NodeBuilder node : dc.nodes)
+
+                for (DatacenterBuilder.RackBuilder rack : dc.racks)
                 {
-                    NodeInfo info = new NodeInfo(node.id, dc.dcName, "r1", Arrays.stream(node.tokens).map(t -> token(t)).collect(Collectors.toList()),
-                                                 ipAndPortGenerator.generateNext());
+                    for (DatacenterBuilder.RackBuilder.NodeBuilder node : rack.nodes)
+                    {
+                        NodeInfo info = new NodeInfo(node.id, dc.dcName, rack.rackName, Arrays.stream(node.tokens).map(t -> token(t)).collect(Collectors.toList()),
+                                                     ipAndPortGenerator.generateNext());
 
-                    logger.info("Creating test node {}", info);
+                        logger.info("Creating test node {}", info);
 
-                    nodesById.put(info.id, info);
-                    nodesByAddress.put(info.address, info);
+                        nodesById.put(info.id, info);
+                        nodesByAddress.put(info.address, info);
+                    }
                 }
             }
 
@@ -112,7 +116,7 @@ public class TestCluster
         class DatacenterBuilder
         {
             private final String dcName;
-            private final List<NodeBuilder> nodes = new LinkedList<>();
+            private final List<RackBuilder> racks = new LinkedList<>();
 
             private Integer rf = 1;
 
@@ -127,11 +131,9 @@ public class TestCluster
                 return this;
             }
 
-            public NodeBuilder withNode(UUID id)
+            public RackBuilder.NodeBuilder withNode(UUID id)
             {
-                NodeBuilder nodeBuilder = new NodeBuilder(id);
-                nodes.add(nodeBuilder);
-                return nodeBuilder;
+                return withDefaultRack().withNode(id);
             }
 
             public TestCluster build(boolean legacy)
@@ -139,25 +141,65 @@ public class TestCluster
                 return Builder.this.build(legacy);
             }
 
-            class NodeBuilder
+            public RackBuilder withDefaultRack()
             {
-                private final UUID id;
-                private Long[] tokens = new Long[0];
+                return withRack("default");
+            }
 
-                public NodeBuilder(UUID id)
+            public RackBuilder withRack(String rackName)
+            {
+                RackBuilder rackBuilder = new RackBuilder(rackName);
+                racks.add(rackBuilder);
+                return rackBuilder;
+            }
+
+            class RackBuilder
+            {
+                final String rackName;
+                private final List<NodeBuilder> nodes = new LinkedList<>();
+
+                RackBuilder(String rackName)
                 {
-                    this.id = id;
+                    this.rackName = rackName;
                 }
 
-                public DatacenterBuilder withManualTokens(Long... tokens)
+                public NodeBuilder withNode(UUID id)
                 {
-                    this.tokens = tokens;
+                    NodeBuilder nodeBuilder = new NodeBuilder(id);
+                    nodes.add(nodeBuilder);
+                    return nodeBuilder;
+                }
+
+                public TestCluster build(Boolean legacy)
+                {
+                    return Builder.this.build(legacy);
+                }
+
+                public DatacenterBuilder and()
+                {
                     return DatacenterBuilder.this;
                 }
 
-                public DatacenterBuilder withRandomTokens()
+                class NodeBuilder
                 {
-                    throw new UnsupportedOperationException();
+                    private final UUID id;
+                    private Long[] tokens = new Long[0];
+
+                    public NodeBuilder(UUID id)
+                    {
+                        this.id = id;
+                    }
+
+                    public RackBuilder withManualTokens(Long... tokens)
+                    {
+                        this.tokens = tokens;
+                        return RackBuilder.this;
+                    }
+
+                    public DatacenterBuilder withRandomTokens()
+                    {
+                        throw new UnsupportedOperationException();
+                    }
                 }
             }
         }
