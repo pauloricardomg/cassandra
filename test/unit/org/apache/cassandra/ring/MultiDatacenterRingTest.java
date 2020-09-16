@@ -32,6 +32,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.utils.UUIDGen;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,17 +47,21 @@ public class MultiDatacenterRingTest
     static final UUID NODE_E = UUIDGen.getTimeUUID();
 
     static IPartitioner originalPartitioner;
+    static IEndpointSnitch originalSnitch;
 
     @BeforeClass
     public static void beforeClass()
     {
+        DatabaseDescriptor.daemonInitialization();
         originalPartitioner = DatabaseDescriptor.getPartitioner();
+        originalSnitch = DatabaseDescriptor.getEndpointSnitch();
         DatabaseDescriptor.setPartitionerUnsafe(new Murmur3Partitioner());
     }
 
     @AfterClass
     public static void afterClass()
     {
+        /** This may be set during {@link TestCluster} initialization **/
         DatabaseDescriptor.setPartitionerUnsafe(originalPartitioner);
     }
 

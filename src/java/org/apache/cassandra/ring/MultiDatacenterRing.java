@@ -54,7 +54,6 @@ public class MultiDatacenterRing implements RingOverlay
             ReplicationFactor rf = dcRf.getValue();
 
             int acceptableRackRepeats = rf.allReplicas - ringSnapshot.getRackCount(dcRf.getKey());
-            System.out.printf("RF: %d. Acceptable repeats: %d%n", rf.allReplicas, acceptableRackRepeats);
             Set<String> seenRacks = new HashSet<>();
 
             RingIterator ring = ringSnapshot.iterator(dcRf.getKey());

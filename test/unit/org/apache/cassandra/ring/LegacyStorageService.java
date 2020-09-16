@@ -76,7 +76,12 @@ public class LegacyStorageService implements StorageServiceAdapter
     public LegacyStorageService(Map<String, String> dcRfs, Function<InetAddressAndPort, NodeInfo> nodeInfoGetter)
     {
         this.getNodeInfo = nodeInfoGetter;
-        this.nts = new NetworkTopologyStrategy(KEYSPACE_NAME, tokenMetadata, getMockSnitch(), dcRfs);
+        IEndpointSnitch mockSnitch = getMockSnitch();
+        /**
+         * Make sure to unset the snitch during test cleanup as in {@link MultiDatacenterRingTest#afterClass()}
+         */
+        DatabaseDescriptor.setEndpointSnitch(mockSnitch);
+        this.nts = new NetworkTopologyStrategy(KEYSPACE_NAME, tokenMetadata, mockSnitch, dcRfs);
     }
 
     public RingOverlay getRing()
@@ -596,8 +601,9 @@ public class LegacyStorageService implements StorageServiceAdapter
             if (replacing && ep.equals(DatabaseDescriptor.getReplaceAddress()))
                 Gossiper.instance.replacementQuarantine(ep); // quarantine locally longer than normally; see CASSANDRA-8260
         }
-        if (!tokensToUpdateInSystemKeyspace.isEmpty())
-            SystemKeyspace.updateTokens(endpoint, tokensToUpdateInSystemKeyspace);
+
+        //if (!tokensToUpdateInSystemKeyspace.isEmpty())
+        //    SystemKeyspace.updateTokens(endpoint, tokensToUpdateInSystemKeyspace);
     }
 
     private void ensureUpToDateTokenMetadata(String status, InetAddressAndPort endpoint)
