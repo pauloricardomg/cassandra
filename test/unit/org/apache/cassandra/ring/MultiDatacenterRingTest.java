@@ -22,10 +22,14 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.utils.UUIDGen;
@@ -40,6 +44,21 @@ public class MultiDatacenterRingTest
     static final UUID NODE_C = UUIDGen.getTimeUUID();
     static final UUID NODE_D = UUIDGen.getTimeUUID();
     static final UUID NODE_E = UUIDGen.getTimeUUID();
+
+    static IPartitioner originalPartitioner;
+
+    @BeforeClass
+    public static void beforeClass()
+    {
+        originalPartitioner = DatabaseDescriptor.getPartitioner();
+        DatabaseDescriptor.setPartitionerUnsafe(new Murmur3Partitioner());
+    }
+
+    @AfterClass
+    public static void afterClass()
+    {
+        DatabaseDescriptor.setPartitionerUnsafe(originalPartitioner);
+    }
 
     @Parameterized.Parameters(name = "legacy={0}")
     public static Collection<Object[]> input()

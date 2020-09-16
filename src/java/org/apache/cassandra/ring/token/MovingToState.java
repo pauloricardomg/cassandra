@@ -26,9 +26,9 @@ public class MovingToState extends TokenState
 {
     public final Token oldToken;
 
-    protected MovingToState(Token oldToken, Token newToken, UUID owner)
+    protected MovingToState(Token oldToken, Token newToken, String dc, String rack, UUID owner)
     {
-        super(newToken, Status.MOVING_TO, owner);
+        super(newToken, dc, rack, owner, Status.MOVING_TO);
         this.oldToken = oldToken;
     }
 }

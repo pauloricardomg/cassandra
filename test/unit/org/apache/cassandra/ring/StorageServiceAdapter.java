@@ -16,31 +16,13 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.ring.token;
+package org.apache.cassandra.ring;
 
-import java.util.UUID;
+import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
 
-import org.apache.cassandra.dht.Token;
-
-public class ReplacingState extends TokenState
+public interface StorageServiceAdapter extends IEndpointStateChangeSubscriber
 {
-    private final UUID previousOwner;
 
-    public ReplacingState(Token token, String dc, String rack, UUID owner, UUID previousOwner)
-    {
-        super(token, dc, rack,owner, Status.REPLACING);
-        this.previousOwner = previousOwner;
-    }
+    RingOverlay getRing();
 
-    @Override
-    public boolean canTransitionFrom(TokenState oldState)
-    {
-        return Status.REPLACING.canTransitionFrom(oldState.status);
-    }
-
-    @Override
-    public boolean canTransitionTo(TokenState newState)
-    {
-        return Status.REPLACING.canTransitionTo(newState.status);
-    }
 }

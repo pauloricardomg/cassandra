@@ -28,21 +28,28 @@ public class RingIterator
 {
     private final ArrayList<TokenState> sortedTokens;
     private int currentIndex = 0;
+    private boolean consumed = false;
 
     public RingIterator(ArrayList<TokenState> sortedTokens)
     {
         this.sortedTokens = sortedTokens;
     }
 
+    public boolean hasWrappedAround()
+    {
+        return consumed && currentIndex == 0;
+    }
+
     public void advanceToToken(Token token)
     {
-        currentIndex = firstTokenIndex(sortedTokens, TokenState.initial(token, null));
+        currentIndex = firstTokenIndex(sortedTokens, TokenState.initial(token, null, null, null));
     }
 
     public TokenState next()
     {
         int next = currentIndex;
         currentIndex = (currentIndex + 1) % sortedTokens.size();
+        consumed = true;
         return sortedTokens.get(next);
     }
 

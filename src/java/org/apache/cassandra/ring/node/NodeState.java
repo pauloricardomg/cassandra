@@ -28,6 +28,7 @@ import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.ring.NodeInfo;
 import org.apache.cassandra.ring.token.TokenState;
 
 public class NodeState
@@ -52,23 +53,23 @@ public class NodeState
         this.status = status;
     }
 
-    public Collection<TokenState> mapToTokenStates(UUID id, Token token)
+    public Collection<TokenState> mapToTokenStates(Token token, String dc, String rack, UUID owner)
     {
         switch (status)
         {
             case BOOTSTRAPPING:
-                return Collections.singleton(TokenState.adding(token, id));
+                return Collections.singleton(TokenState.adding(token, dc, rack, owner));
 
             case NORMAL:
-                return Collections.singleton(TokenState.normal(token, id));
+                return Collections.singleton(TokenState.normal(token, dc, rack, owner));
 
             case LEAVING:
             case REMOVING_TOKEN:
-                return Collections.singleton(TokenState.removing(token, id));
+                return Collections.singleton(TokenState.removing(token, dc, rack, owner));
 
             case LEFT:
             case REMOVED_TOKEN:
-                return Collections.singleton(TokenState.removed(token, id));
+                return Collections.singleton(TokenState.removed(token, dc, rack, owner));
 
             default:
                 // Must be overriden by subclasses
@@ -76,22 +77,22 @@ public class NodeState
         }
     }
 
-    public static NodeState extract(VersionedValue value, IPartitioner partitioner, UUID nodeId, Collection<Token> tokens,
-                                    Function<InetAddressAndPort, UUID> idGetter)
+    public static NodeState create(VersionedValue nodeStatus, IPartitioner partitioner, Collection<Token> tokens,
+                                   Function<InetAddressAndPort, NodeInfo> getNodeInfo)
     {
-        String[] pieces = value.value.split(VersionedValue.DELIMITER_STR, -1);
+        String[] pieces = nodeStatus.value.split(VersionedValue.DELIMITER_STR, -1);
         String moveName = pieces[0];
         switch (moveName)
         {
             case VersionedValue.STATUS_BOOTSTRAPPING_REPLACE:
                 try
                 {
-                    InetAddressAndPort originalNode = InetAddressAndPort.getByName(pieces[1]);
-                    UUID originalNodeId = idGetter.apply(originalNode);
+                    InetAddressAndPort originalNodeIp = InetAddressAndPort.getByName(pieces[1]);
+                    NodeInfo originalNode = getNodeInfo.apply(originalNodeIp);
 
-                    assert originalNodeId != null : String.format("Id missing for endpoint %s.", originalNode);
+                    assert originalNode != null : String.format("Information missing for replacing node %s.", originalNodeIp);
 
-                    return new BootReplaceState(originalNodeId, nodeId);
+                    return new BootReplaceState(originalNode.getId());
                 }
                 catch (UnknownHostException e)
                 {

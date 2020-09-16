@@ -2190,7 +2190,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    private static String[] splitValue(VersionedValue value)
+    public static String[] splitValue(VersionedValue value)
     {
         return value.value.split(VersionedValue.DELIMITER_STR, -1);
     }
@@ -2774,7 +2774,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    protected long extractExpireTime(String[] pieces)
+    public static long extractExpireTime(String[] pieces)
     {
         return Long.parseLong(pieces[2]);
     }
@@ -2918,7 +2918,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      *
      * @param endpoint the node that left
      */
-    private void restoreReplicaCount(InetAddressAndPort endpoint, final InetAddressAndPort notifyEndpoint)
+    public void restoreReplicaCount(InetAddressAndPort endpoint, final InetAddressAndPort notifyEndpoint)
     {
         Map<String, Multimap<InetAddressAndPort, FetchReplica>> replicasToFetch = new HashMap<>();
 

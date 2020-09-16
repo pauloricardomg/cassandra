@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.ring;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -29,7 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
@@ -43,48 +41,44 @@ public class RingManager implements IEndpointStateChangeSubscriber
     private static final Logger logger = LoggerFactory.getLogger(RingManager.class);
 
     private final IPartitioner partitioner;
-    private final Function<InetAddressAndPort, Collection<Token>> tokenGetter;
-    private final Function<InetAddressAndPort, UUID> idGetter;
+    private final Function<InetAddressAndPort, NodeInfo> getNodeInfo;
 
-    public final AtomicReference<RingSnapshot> ringState = new AtomicReference<>(new RingSnapshot());
+    private final AtomicReference<RingSnapshot> ringState = new AtomicReference<>(new RingSnapshot());
 
-    public RingManager(IPartitioner partitioner, Function<InetAddressAndPort, Collection<Token>> tokenGetter,
-                       Function<InetAddressAndPort, UUID> idGetter) {
+    public RingManager(IPartitioner partitioner, Function<InetAddressAndPort, NodeInfo> getNodeInfo) {
         this.partitioner = partitioner;
-        this.tokenGetter = tokenGetter;
-        this.idGetter = idGetter;
+        this.getNodeInfo = getNodeInfo;
     }
 
-    public synchronized void onChange(InetAddressAndPort endpoint, ApplicationState state, VersionedValue value)
+    public synchronized void onChange(InetAddressAndPort endpoint, ApplicationState state, VersionedValue nodeStatus)
     {
         if (state != ApplicationState.STATUS && state != ApplicationState.STATUS_WITH_PORT)
             return;
 
-        UUID id = idGetter.apply(endpoint);
-        Collection<Token> tokens = tokenGetter.apply(endpoint);
+        NodeInfo nodeInfo = getNodeInfo.apply(endpoint);
 
-        assert id != null && tokens != null && !tokens.isEmpty() : String.format("Id (%s) or tokens (%s) missing for endpoint %s.", id, tokens, endpoint);
+        assert nodeInfo != null : String.format("Information missing for host %s.", endpoint);
 
-        NodeState nodeState = NodeState.extract(value, partitioner, id, tokens, idGetter);
+        NodeState nodeState = NodeState.create(nodeStatus, partitioner, nodeInfo.tokens, getNodeInfo);
+        List<TokenState> newTokenStates = nodeInfo.tokens.stream().flatMap(t -> nodeState.mapToTokenStates(t, nodeInfo.dc, nodeInfo.rack, nodeInfo.id).stream())
+                                                                  .collect(Collectors.toList());
 
-        List<TokenState> newTokenStates = tokens.stream().flatMap(t -> nodeState.mapToTokenStates(id, t).stream()).collect(Collectors.toList());
         RingSnapshot newRing = ringState.get().withAppliedStates(newTokenStates);
-
         maybeUpdateRingState(newRing);
     }
 
     public synchronized void onDead(InetAddressAndPort endpoint, EndpointState state)
     {
         UUID hostId = state.getHostId();
-        assert hostId != null : String.format("Host id is missing for dead host %s");
+        assert hostId != null : String.format("Host id is missing for dead host %s", endpoint);
         maybeUpdateRingState(ringState.get().withDownHost(hostId));
     }
 
     public synchronized void onRemove(InetAddressAndPort endpoint)
     {
-        UUID hostId = idGetter.apply(endpoint);
-        assert hostId != null : String.format("Host id is missing for dead host %s");
-        maybeUpdateRingState(ringState.get().withRemovedHost(hostId));
+        NodeInfo nodeInfo = getNodeInfo.apply(endpoint);
+        assert nodeInfo != null : String.format("Information missing for dead host %s.", endpoint);
+        maybeUpdateRingState(ringState.get().withRemovedHost(nodeInfo.id));
     }
 
     private void maybeUpdateRingState(RingSnapshot newRing)
@@ -116,5 +110,10 @@ public class RingManager implements IEndpointStateChangeSubscriber
     public void onRestart(InetAddressAndPort endpoint, EndpointState state)
     {
 
+    }
+
+    public RingSnapshot getRingSnapshot()
+    {
+        return ringState.get();
     }
 }

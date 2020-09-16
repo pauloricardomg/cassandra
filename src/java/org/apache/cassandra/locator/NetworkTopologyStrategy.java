@@ -312,6 +312,6 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
 
     public MultiDatacenterRing createReplicatedRing(RingSnapshot snapshot)
     {
-        return null;
+        return new MultiDatacenterRing(snapshot, datacenters);
     }
 }

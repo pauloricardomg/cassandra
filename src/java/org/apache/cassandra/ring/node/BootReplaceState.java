@@ -23,24 +23,25 @@ import java.util.Collection;
 import java.util.UUID;
 import java.util.function.Function;
 
+import afu.org.checkerframework.checker.oigj.qual.O;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.ring.NodeInfo;
 import org.apache.cassandra.ring.token.TokenState;
 
 public class BootReplaceState extends NodeState
 {
     private final UUID oldId;
-    private final UUID newId;
 
-    public BootReplaceState(UUID originalNodeId, UUID newId)
+    public BootReplaceState(UUID originalNodeId)
     {
         super(Status.BOOTSTRAPPING_REPLACE);
         this.oldId = originalNodeId;
-        this.newId = newId;
     }
 
-    public Collection<TokenState> mapToTokenStates(UUID id, Token token, Function<InetAddressAndPort, UUID> idGetter)
+    @Override
+    public Collection<TokenState> mapToTokenStates(Token token, String dc, String rack, UUID owner)
     {
-        return Arrays.asList(TokenState.replacing(token, oldId, newId));
+        return Arrays.asList(TokenState.replacing(token, dc, rack, oldId, owner));
     }
 }

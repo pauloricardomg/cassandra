@@ -28,11 +28,14 @@ import java.util.UUID;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.ReplicationFactor;
 import org.apache.cassandra.ring.token.TokenState;
+import org.assertj.core.util.VisibleForTesting;
 
 public class MultiDatacenterRing implements RingOverlay
 {
-    private final RingSnapshot ringSnapshot;
-    private final Map<String, ReplicationFactor> dcRfs;
+    @VisibleForTesting
+    protected final RingSnapshot ringSnapshot;
+    @VisibleForTesting
+    protected final Map<String, ReplicationFactor> dcRfs;
 
     public MultiDatacenterRing(RingSnapshot ringSnapshot, Map<String, ReplicationFactor> dcRfs)
     {

@@ -16,34 +16,45 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.ring.node;
+package org.apache.cassandra.ring;
 
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
-import java.util.function.Function;
 
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.ring.NodeInfo;
-import org.apache.cassandra.ring.token.TokenState;
 
-public class MovingNodeState extends NodeState
+public class NodeInfo
 {
-    private final Token oldToken;
-    private final Token newToken;
+    protected final UUID id;
+    protected final String dc;
+    protected final String rack;
+    protected final Collection<Token> tokens;
+    protected final InetAddressAndPort address;
 
-    public MovingNodeState(Token oldToken, Token newToken)
+    public NodeInfo(UUID id, String dc, String rack, Collection<Token> tokens,
+                    InetAddressAndPort address)
     {
-        super(Status.MOVING);
-        this.oldToken = oldToken;
-        this.newToken = newToken;
+        this.id = id;
+        this.dc = dc;
+        this.rack = rack;
+        this.tokens = tokens;
+        this.address = address;
     }
 
-    @Override
-    public Collection<TokenState> mapToTokenStates(Token currentToken, String dc, String rack, UUID owner)
+    public UUID getId()
     {
-        assert currentToken.equals(oldToken) : String.format("Node token (%s) is different from old token (%s)", currentToken, oldToken);
-        return Arrays.asList(TokenState.movingFrom(oldToken, dc, rack, owner), TokenState.movingTo(oldToken, newToken, dc, rack, owner));
+        return id;
+    }
+
+    public String toString()
+    {
+        return "NodeInfo{" +
+               "id=" + id +
+               ", dc='" + dc + '\'' +
+               ", rack='" + rack + '\'' +
+               ", tokens=" + tokens +
+               ", address=" + address +
+               '}';
     }
 }

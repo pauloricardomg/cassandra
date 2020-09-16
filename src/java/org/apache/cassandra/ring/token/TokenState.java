@@ -146,11 +146,6 @@ public class TokenState implements Comparable<TokenState>
     public final UUID owner;
     final Status status;
 
-    protected TokenState(Token token, Status status, UUID owner)
-    {
-        this(token, null, null, owner, status);
-    }
-
     protected TokenState(Token token, String dc, String rack, UUID owner, Status status)
     {
         this.token = token;
@@ -204,7 +199,7 @@ public class TokenState implements Comparable<TokenState>
 
     private TokenState withStatus(Status newStatus)
     {
-        return new TokenState(token, newStatus, owner);
+        return new TokenState(token, dc, rack, owner, newStatus);
     }
 
     public int compareTo(TokenState tokenState)
@@ -232,19 +227,14 @@ public class TokenState implements Comparable<TokenState>
         return String.format("{\"owner\": %s, \"status\": %s}", owner, status);
     }
 
-    public static TokenState initial(Token token, UUID owner)
+    public static TokenState initial(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, Status.INITIAL, owner);
+        return new TokenState(token, dc, rack, owner, Status.INITIAL);
     }
 
-    public static TokenState adding(Token token, UUID owner)
+    public static TokenState adding(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, Status.ADDING, owner);
-    }
-
-    public static TokenState normal(Token token, UUID owner)
-    {
-        return new TokenState(token, Status.NORMAL, owner);
+        return new TokenState(token, dc, rack, owner, Status.ADDING);
     }
 
     public static TokenState normal(Token token, String dc, String rack, UUID owner)
@@ -252,28 +242,28 @@ public class TokenState implements Comparable<TokenState>
         return new TokenState(token, dc, rack, owner, Status.NORMAL);
     }
 
-    public static TokenState replacing(Token token, UUID previousOwner, UUID newOwner)
+    public static TokenState replacing(Token token, String dc, String rack, UUID previousOwner, UUID newOwner)
     {
-        return new ReplacingState(token, newOwner, previousOwner);
+        return new ReplacingState(token, dc, rack, newOwner, previousOwner);
     }
 
-    public static TokenState movingFrom(Token oldToken, UUID owner)
+    public static TokenState movingFrom(Token oldToken, String dc, String rack, UUID owner)
     {
-        return new TokenState(oldToken, Status.MOVING_FROM, owner);
+        return new TokenState(oldToken, dc, rack, owner, Status.MOVING_FROM);
     }
 
-    public static TokenState movingTo(Token oldToken, Token newToken, UUID owner)
+    public static TokenState movingTo(Token oldToken, Token newToken, String dc, String rack, UUID owner)
     {
-        return new MovingToState(oldToken, newToken, owner);
+        return new MovingToState(oldToken, newToken, dc, rack, owner);
     }
 
-    public static TokenState removing(Token token, UUID owner)
+    public static TokenState removing(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, Status.MOVING_TO, owner);
+        return new TokenState(token, dc, rack, owner, Status.REMOVING);
     }
 
-    public static TokenState removed(Token token, UUID id)
+    public static TokenState removed(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, Status.REMOVED, id);
+        return new TokenState(token, dc, rack, owner, Status.REMOVED);
     }
 }

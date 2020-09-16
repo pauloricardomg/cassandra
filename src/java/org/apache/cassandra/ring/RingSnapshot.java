@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -55,7 +56,7 @@ public class RingSnapshot
 
     public RingSnapshot withRemovedHost(UUID hostId)
     {
-        List<TokenState> removedStates = tokens.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> TokenState.removed(t.token, t.owner)).collect(Collectors.toList());
+        List<TokenState> removedStates = tokens.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> TokenState.removed(t.token, t.dc, t.rack, t.owner)).collect(Collectors.toList());
         return withAppliedStates(removedStates);
     }
 
@@ -86,7 +87,7 @@ public class RingSnapshot
     {
         TokenState oldState = newState.isRemoved() ?  removeToken(tokenMap, newState.token) : tokenMap.put(newState.token, newState);
         if (oldState == null)
-            oldState = TokenState.initial(newState.token, newState.owner);
+            oldState = TokenState.initial(newState.token, newState.dc, newState.rack, newState.owner);
 
         if (oldState.equals(newState))
             return false;

@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.ring;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -26,18 +28,38 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.ReplicationFactor;
-import org.apache.cassandra.ring.token.TokenState;
+import org.apache.cassandra.gms.ApplicationState;
+import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.locator.InetAddressAndPort;
 
 public class TestCluster
 {
-    final MultiDatacenterRing ring;
+    static Logger logger = LoggerFactory.getLogger(RingSnapshot.class);
 
-    private TestCluster(MultiDatacenterRing ring)
+    final Map<UUID, NodeInfo> nodesById;
+    final Map<InetAddressAndPort, NodeInfo> nodesByAddress;
+    final StorageServiceAdapter storageService;
+    final VersionedValue.VersionedValueFactory valueFactory;
+
+    public TestCluster(Map<UUID, NodeInfo> nodesById, Map<InetAddressAndPort, NodeInfo> nodesByAddress,
+                       StorageServiceAdapter storageService)
     {
-        this.ring = ring;
+        this.nodesById = nodesById;
+        this.nodesByAddress = nodesByAddress;
+        this.storageService = storageService;
+        this.valueFactory = new VersionedValue.VersionedValueFactory(DatabaseDescriptor.getPartitioner());
+        initialize();
+    }
+
+    public void initialize()
+    {
+        nodesByAddress.values().forEach(n -> storageService.onChange(n.address, ApplicationState.STATUS_WITH_PORT, valueFactory.normal(n.tokens)));
     }
 
     public static Builder builder()
@@ -47,30 +69,37 @@ public class TestCluster
 
     public RingOverlay getRing()
     {
-        return ring;
+        return storageService.getRing();
     }
 
     public static class Builder
     {
+        IPAndPortGenerator ipAndPortGenerator = new IPAndPortGenerator();
         List<DatacenterBuilder> dcs = new LinkedList<>();
 
         public TestCluster build(boolean legacy)
         {
-            Map<String, ReplicationFactor> dcRfs = new HashMap<>();
-            RingSnapshot ringSnapshot = new RingSnapshot();
+            Map<UUID, NodeInfo> nodesById = new HashMap<>();
+            Map<InetAddressAndPort, NodeInfo> nodesByAddress = new HashMap<>();
+            Map<String, String> dcRfs = new HashMap<>();
 
             for (DatacenterBuilder dc : dcs)
             {
-                dcRfs.put(dc.dcName, ReplicationFactor.fullOnly(dc.rf));
+                dcRfs.put(dc.dcName, dc.rf.toString());
                 for (DatacenterBuilder.NodeBuilder node : dc.nodes)
                 {
-                    List<TokenState> newStates = Arrays.stream(node.tokens).map(t -> TokenState.normal(token(t), dc.dcName, "r1", node.id))
-                                                                           .collect(Collectors.toList());
-                    ringSnapshot = ringSnapshot.withAppliedStates(newStates);
+                    NodeInfo info = new NodeInfo(node.id, dc.dcName, "r1", Arrays.stream(node.tokens).map(t -> token(t)).collect(Collectors.toList()),
+                                                 ipAndPortGenerator.generateNext());
+
+                    logger.info("Creating test node {}", info);
+
+                    nodesById.put(info.id, info);
+                    nodesByAddress.put(info.address, info);
                 }
             }
 
-            return new TestCluster(new MultiDatacenterRing(ringSnapshot, dcRfs));
+            StorageServiceAdapter storageService = legacy ? new LegacyStorageService(dcRfs, nodesByAddress::get) : new NewStorageService(dcRfs, nodesByAddress::get);
+            return new TestCluster(nodesById, nodesByAddress, storageService);
         }
 
         public DatacenterBuilder withDatacenter(String dcName)
@@ -85,7 +114,7 @@ public class TestCluster
             private final String dcName;
             private final List<NodeBuilder> nodes = new LinkedList<>();
 
-            private int rf = 1;
+            private Integer rf = 1;
 
             DatacenterBuilder(String dcName)
             {
@@ -137,5 +166,32 @@ public class TestCluster
     public static Token token(long token)
     {
         return new Murmur3Partitioner.LongToken(token);
+    }
+
+    static class IPAndPortGenerator
+    {
+
+        private final InetAddress loopbackAddress;
+        private int currentPort = 0;
+
+        IPAndPortGenerator()
+        {
+            try
+            {
+                this.loopbackAddress = InetAddress.getByName("127.0.0.1");
+            }
+            catch (UnknownHostException e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
+
+        public InetAddressAndPort generateNext()
+        {
+            if (currentPort > 65535)
+                throw new RuntimeException("Max number of ports exceeded.");
+
+            return InetAddressAndPort.getByAddressOverrideDefaults(loopbackAddress, currentPort++);
+        }
     }
 }
