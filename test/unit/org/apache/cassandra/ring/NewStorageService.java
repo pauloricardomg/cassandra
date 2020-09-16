@@ -30,7 +30,7 @@ import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.locator.SimpleSnitch;
 import org.apache.cassandra.locator.TokenMetadata;
 
-public class NewStorageService implements StorageServiceAdapter
+public class NewStorageService implements FakeStorageService
 {
     final RingManager ringManager;
     final NetworkTopologyStrategy nts;

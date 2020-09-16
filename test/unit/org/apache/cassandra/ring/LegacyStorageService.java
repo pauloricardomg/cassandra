@@ -59,7 +59,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.cassandra.service.StorageService.extractExpireTime;
 import static org.apache.cassandra.service.StorageService.splitValue;
 
-public class LegacyStorageService implements StorageServiceAdapter
+public class LegacyStorageService implements FakeStorageService
 {
     final static String KEYSPACE_NAME = "KEYSPACE1";
 

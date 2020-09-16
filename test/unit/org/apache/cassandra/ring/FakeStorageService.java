@@ -20,9 +20,7 @@ package org.apache.cassandra.ring;
 
 import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
 
-public interface StorageServiceAdapter extends IEndpointStateChangeSubscriber
+public interface FakeStorageService extends IEndpointStateChangeSubscriber
 {
-
     RingOverlay getRing();
-
 }

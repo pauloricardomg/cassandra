@@ -44,11 +44,11 @@ public class TestCluster
 
     final Map<UUID, NodeInfo> nodesById;
     final Map<InetAddressAndPort, NodeInfo> nodesByAddress;
-    final StorageServiceAdapter storageService;
+    final FakeStorageService storageService;
     final VersionedValue.VersionedValueFactory valueFactory;
 
     public TestCluster(Map<UUID, NodeInfo> nodesById, Map<InetAddressAndPort, NodeInfo> nodesByAddress,
-                       StorageServiceAdapter storageService)
+                       FakeStorageService storageService)
     {
         this.nodesById = nodesById;
         this.nodesByAddress = nodesByAddress;
@@ -98,7 +98,7 @@ public class TestCluster
                 }
             }
 
-            StorageServiceAdapter storageService = legacy ? new LegacyStorageService(dcRfs, nodesByAddress::get) : new NewStorageService(dcRfs, nodesByAddress::get);
+            FakeStorageService storageService = legacy ? new LegacyStorageService(dcRfs, nodesByAddress::get) : new NewStorageService(dcRfs, nodesByAddress::get);
             return new TestCluster(nodesById, nodesByAddress, storageService);
         }
 
