@@ -78,7 +78,7 @@ public class LegacyStorageService implements FakeStorageService
         this.getNodeInfo = nodeInfoGetter;
         IEndpointSnitch mockSnitch = getMockSnitch();
         /**
-         * Make sure to unset the snitch during test cleanup as in {@link RingOverlayTest#afterClass()}
+         * Make sure to unset the snitch during test cleanup as in {@link RingOverlayStableTest#afterClass()}
          */
         DatabaseDescriptor.setEndpointSnitch(mockSnitch);
         this.nts = new NetworkTopologyStrategy(KEYSPACE_NAME, tokenMetadata, mockSnitch, dcRfs);

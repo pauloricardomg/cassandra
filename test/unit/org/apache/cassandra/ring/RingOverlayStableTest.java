@@ -38,7 +38,7 @@ import org.apache.cassandra.utils.UUIDGen;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @RunWith(Parameterized.class)
-public class RingOverlayTest
+public class RingOverlayStableTest
 {
     static final String DC_1 = "DC_1";
     static final String DC_2 = "DC_2";
@@ -80,7 +80,7 @@ public class RingOverlayTest
 
     private final Boolean legacy;
 
-    public RingOverlayTest(Boolean legacy)
+    public RingOverlayStableTest(Boolean legacy)
     {
         this.legacy = legacy;
     }
