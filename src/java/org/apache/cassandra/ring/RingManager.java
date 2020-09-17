@@ -34,7 +34,7 @@ import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.ring.node.NodeState;
-import org.apache.cassandra.ring.token.TokenState;
+import org.apache.cassandra.ring.token.VirtualNode;
 
 public class RingManager implements IEndpointStateChangeSubscriber
 {
@@ -60,10 +60,10 @@ public class RingManager implements IEndpointStateChangeSubscriber
         assert nodeInfo != null : String.format("Information missing for host %s.", endpoint);
 
         NodeState nodeState = NodeState.create(nodeStatus, partitioner, nodeInfo.tokens, getNodeInfo);
-        List<TokenState> newTokenStates = nodeInfo.tokens.stream().flatMap(t -> nodeState.mapToTokenStates(t, nodeInfo.dc, nodeInfo.rack, nodeInfo.id).stream())
-                                                                  .collect(Collectors.toList());
+        List<VirtualNode> newVirtualNodes = nodeInfo.tokens.stream().flatMap(t -> nodeState.mapToTokenStates(t, nodeInfo.dc, nodeInfo.rack, nodeInfo.id).stream())
+                                                           .collect(Collectors.toList());
 
-        RingSnapshot newRing = ringState.get().withAppliedStates(newTokenStates);
+        RingSnapshot newRing = ringState.get().withAppliedStates(newVirtualNodes);
         maybeUpdateRingState(newRing);
     }
 

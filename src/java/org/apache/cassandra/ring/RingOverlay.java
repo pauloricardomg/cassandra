@@ -22,5 +22,5 @@ import org.apache.cassandra.dht.Token;
 
 public interface RingOverlay
 {
-    public ReplicationGroup getReplicasForTokenWrite(Token token);
+    public ReplicaSet getWriteReplicas(Token token);
 }

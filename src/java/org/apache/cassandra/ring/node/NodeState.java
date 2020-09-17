@@ -29,7 +29,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.ring.NodeInfo;
-import org.apache.cassandra.ring.token.TokenState;
+import org.apache.cassandra.ring.token.VirtualNode;
 
 public class NodeState
 {
@@ -53,23 +53,23 @@ public class NodeState
         this.status = status;
     }
 
-    public Collection<TokenState> mapToTokenStates(Token token, String dc, String rack, UUID owner)
+    public Collection<VirtualNode> mapToTokenStates(Token token, String dc, String rack, UUID owner)
     {
         switch (status)
         {
             case BOOTSTRAPPING:
-                return Collections.singleton(TokenState.adding(token, dc, rack, owner));
+                return Collections.singleton(VirtualNode.adding(token, dc, rack, owner));
 
             case NORMAL:
-                return Collections.singleton(TokenState.normal(token, dc, rack, owner));
+                return Collections.singleton(VirtualNode.normal(token, dc, rack, owner));
 
             case LEAVING:
             case REMOVING_TOKEN:
-                return Collections.singleton(TokenState.removing(token, dc, rack, owner));
+                return Collections.singleton(VirtualNode.removing(token, dc, rack, owner));
 
             case LEFT:
             case REMOVED_TOKEN:
-                return Collections.singleton(TokenState.removed(token, dc, rack, owner));
+                return Collections.singleton(VirtualNode.removed(token, dc, rack, owner));
 
             default:
                 // Must be overriden by subclasses

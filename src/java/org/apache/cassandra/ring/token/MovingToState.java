@@ -22,7 +22,7 @@ import java.util.UUID;
 
 import org.apache.cassandra.dht.Token;
 
-public class MovingToState extends TokenState
+public class MovingToState extends VirtualNode
 {
     public final Token oldToken;
 

@@ -153,6 +153,11 @@ public class TestCluster
                 return rackBuilder;
             }
 
+            public DatacenterBuilder withDataCenter(String dcName)
+            {
+                return TestCluster.Builder.this.withDatacenter(dcName);
+            }
+
             class RackBuilder
             {
                 final String rackName;

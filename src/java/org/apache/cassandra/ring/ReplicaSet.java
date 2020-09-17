@@ -25,19 +25,19 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-public class ReplicationGroup
+public class ReplicaSet
 {
     // TODO: include RingSnapshot and/or Token
     final List<UUID> normalReplicas;
     final List<UUID> pendingReplicas;
 
-    public ReplicationGroup(List<UUID> normalReplicas, List<UUID> pendingReplicas)
+    public ReplicaSet(List<UUID> normalReplicas, List<UUID> pendingReplicas)
     {
         this.normalReplicas = normalReplicas;
         this.pendingReplicas = pendingReplicas;
     }
 
-    public ReplicationGroup(List<UUID> normalReplicas)
+    public ReplicaSet(List<UUID> normalReplicas)
     {
         this(normalReplicas, Collections.EMPTY_LIST);
     }
@@ -57,9 +57,9 @@ public class ReplicationGroup
             return this;
         }
 
-        public ReplicationGroup build()
+        public ReplicaSet build()
         {
-            return new ReplicationGroup(normalReplicas);
+            return new ReplicaSet(normalReplicas);
         }
     }
 
@@ -67,7 +67,7 @@ public class ReplicationGroup
     {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        ReplicationGroup that = (ReplicationGroup) o;
+        ReplicaSet that = (ReplicaSet) o;
         return Objects.equals(normalReplicas, that.normalReplicas) &&
                Objects.equals(pendingReplicas, that.pendingReplicas);
     }

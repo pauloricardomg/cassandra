@@ -38,10 +38,10 @@ public class NetworkTopologyStrategyAdapter implements RingOverlay
         this.nts = nts;
     }
 
-    public ReplicationGroup getReplicasForTokenWrite(Token token)
+    public ReplicaSet getWriteReplicas(Token token)
     {
         EndpointsForToken naturalIps = nts.getNaturalReplicasForToken(token);
         List<UUID> naturalIds = naturalIps.endpoints().stream().map(e -> tokenMetadata.getHostId(e)).collect(Collectors.toList());
-        return new ReplicationGroup(naturalIds);
+        return new ReplicaSet(naturalIds);
     }
 }

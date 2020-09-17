@@ -23,7 +23,7 @@ import java.util.UUID;
 
 import org.apache.cassandra.dht.Token;
 
-public class TokenState implements Comparable<TokenState>
+public class VirtualNode implements Comparable<VirtualNode>
 {
     protected enum Status
     {
@@ -104,7 +104,7 @@ public class TokenState implements Comparable<TokenState>
                 return status == NORMAL;
             }
         },
-        REMOVING {
+        REMOVING(true, NORMAL) {
             boolean canTransitionFrom(Status status)
             {
                 return status == NORMAL;
@@ -116,18 +116,18 @@ public class TokenState implements Comparable<TokenState>
             }
         };
 
-        final boolean isAbortable;
+        final boolean isPending;
         final Status abortedState;
 
         Status()
         {
-            this.isAbortable = false;
+            this.isPending = false;
             this.abortedState = null;
         }
 
-        Status(boolean isAbortable, Status abortedState)
+        Status(boolean isPending, Status abortedState)
         {
-            this.isAbortable = isAbortable;
+            this.isPending = isPending;
             this.abortedState = abortedState;
         }
 
@@ -146,7 +146,7 @@ public class TokenState implements Comparable<TokenState>
     public final UUID owner;
     final Status status;
 
-    protected TokenState(Token token, String dc, String rack, UUID owner, Status status)
+    protected VirtualNode(Token token, String dc, String rack, UUID owner, Status status)
     {
         this.token = token;
         this.dc = dc;
@@ -166,52 +166,52 @@ public class TokenState implements Comparable<TokenState>
 
     public boolean isRemoved()
     {
-        return status == TokenState.Status.REMOVED;
+        return status == VirtualNode.Status.REMOVED;
     }
 
     public boolean isMovingTo()
     {
-        return status == TokenState.Status.MOVING_TO;
+        return status == VirtualNode.Status.MOVING_TO;
     }
 
-    public boolean canTransitionFrom(TokenState oldState)
+    public boolean canTransitionFrom(VirtualNode oldState)
     {
         return status.canTransitionFrom(oldState.status) && owner.equals(oldState.owner);
     }
 
-    public boolean canTransitionTo(TokenState newState)
+    public boolean canTransitionTo(VirtualNode newState)
     {
         return owner.equals(newState.owner) && status.canTransitionTo(newState.status);
     }
 
-    public boolean canMoveTo(TokenState newState)
+    public boolean canMoveTo(VirtualNode newState)
     {
         return status == Status.MOVING_FROM && newState.status == Status.NORMAL && owner.equals(newState.owner);
     }
 
-    public TokenState maybeAbort()
+    public VirtualNode maybeAbort()
     {
-        if (!status.isAbortable)
+        if (!status.isPending)
             return this;
 
         return withStatus(status.abort());
     }
 
-    private TokenState withStatus(Status newStatus)
+    private VirtualNode withStatus(Status newStatus)
     {
-        return new TokenState(token, dc, rack, owner, newStatus);
+        return new VirtualNode(token, dc, rack, owner, newStatus);
     }
 
-    public int compareTo(TokenState tokenState)
+    public int compareTo(VirtualNode virtualNode)
     {
-        return token.compareTo(tokenState.token);
+        return token.compareTo(virtualNode.token);
     }
 
     public boolean equals(Object o)
     {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        TokenState that = (TokenState) o;
+        VirtualNode that = (VirtualNode) o;
         return Objects.equals(token, that.token) &&
                status == that.status &&
                Objects.equals(owner, that.owner);
@@ -227,43 +227,48 @@ public class TokenState implements Comparable<TokenState>
         return String.format("{\"owner\": %s, \"status\": %s}", owner, status);
     }
 
-    public static TokenState initial(Token token, String dc, String rack, UUID owner)
+    public static VirtualNode initial(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, dc, rack, owner, Status.INITIAL);
+        return new VirtualNode(token, dc, rack, owner, Status.INITIAL);
     }
 
-    public static TokenState adding(Token token, String dc, String rack, UUID owner)
+    public static VirtualNode adding(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, dc, rack, owner, Status.ADDING);
+        return new VirtualNode(token, dc, rack, owner, Status.ADDING);
     }
 
-    public static TokenState normal(Token token, String dc, String rack, UUID owner)
+    public static VirtualNode normal(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, dc, rack, owner, Status.NORMAL);
+        return new VirtualNode(token, dc, rack, owner, Status.NORMAL);
     }
 
-    public static TokenState replacing(Token token, String dc, String rack, UUID previousOwner, UUID newOwner)
+    public static VirtualNode replacing(Token token, String dc, String rack, UUID previousOwner, UUID newOwner)
     {
         return new ReplacingState(token, dc, rack, newOwner, previousOwner);
     }
 
-    public static TokenState movingFrom(Token oldToken, String dc, String rack, UUID owner)
+    public static VirtualNode movingFrom(Token oldToken, String dc, String rack, UUID owner)
     {
-        return new TokenState(oldToken, dc, rack, owner, Status.MOVING_FROM);
+        return new VirtualNode(oldToken, dc, rack, owner, Status.MOVING_FROM);
     }
 
-    public static TokenState movingTo(Token oldToken, Token newToken, String dc, String rack, UUID owner)
+    public static VirtualNode movingTo(Token oldToken, Token newToken, String dc, String rack, UUID owner)
     {
         return new MovingToState(oldToken, newToken, dc, rack, owner);
     }
 
-    public static TokenState removing(Token token, String dc, String rack, UUID owner)
+    public static VirtualNode removing(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, dc, rack, owner, Status.REMOVING);
+        return new VirtualNode(token, dc, rack, owner, Status.REMOVING);
     }
 
-    public static TokenState removed(Token token, String dc, String rack, UUID owner)
+    public static VirtualNode removed(Token token, String dc, String rack, UUID owner)
     {
-        return new TokenState(token, dc, rack, owner, Status.REMOVED);
+        return new VirtualNode(token, dc, rack, owner, Status.REMOVED);
+    }
+
+    public boolean isPending()
+    {
+        return status.isPending;
     }
 }

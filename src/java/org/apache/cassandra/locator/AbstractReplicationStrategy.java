@@ -36,7 +36,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.RingPosition;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.ring.MultiDatacenterRing;
+import org.apache.cassandra.ring.MultiDatacenterRingOverlay;
 import org.apache.cassandra.ring.RingSnapshot;
 import org.apache.cassandra.service.AbstractWriteResponseHandler;
 import org.apache.cassandra.service.DatacenterSyncWriteResponseHandler;
@@ -464,7 +464,7 @@ public abstract class AbstractReplicationStrategy
         }
     }
 
-    public MultiDatacenterRing createReplicatedRing(RingSnapshot snapShot)
+    public MultiDatacenterRingOverlay createReplicatedRing(RingSnapshot snapShot)
     {
         throw new UnsupportedOperationException();
     }

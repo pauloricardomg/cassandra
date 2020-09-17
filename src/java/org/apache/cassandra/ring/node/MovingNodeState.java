@@ -21,12 +21,9 @@ package org.apache.cassandra.ring.node;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
-import java.util.function.Function;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.ring.NodeInfo;
-import org.apache.cassandra.ring.token.TokenState;
+import org.apache.cassandra.ring.token.VirtualNode;
 
 public class MovingNodeState extends NodeState
 {
@@ -41,9 +38,9 @@ public class MovingNodeState extends NodeState
     }
 
     @Override
-    public Collection<TokenState> mapToTokenStates(Token currentToken, String dc, String rack, UUID owner)
+    public Collection<VirtualNode> mapToTokenStates(Token currentToken, String dc, String rack, UUID owner)
     {
         assert currentToken.equals(oldToken) : String.format("Node token (%s) is different from old token (%s)", currentToken, oldToken);
-        return Arrays.asList(TokenState.movingFrom(oldToken, dc, rack, owner), TokenState.movingTo(oldToken, newToken, dc, rack, owner));
+        return Arrays.asList(VirtualNode.movingFrom(oldToken, dc, rack, owner), VirtualNode.movingTo(oldToken, newToken, dc, rack, owner));
     }
 }

@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -34,41 +33,41 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.ring.token.MovingToState;
-import org.apache.cassandra.ring.token.TokenState;
+import org.apache.cassandra.ring.token.VirtualNode;
 
 public class RingSnapshot
 {
     static Logger logger = LoggerFactory.getLogger(RingSnapshot.class);
 
     final long version;
-    private final SortedMap<Token, TokenState> tokens;
+    private final SortedMap<Token, VirtualNode> vnodes;
 
     public RingSnapshot()
     {
         this(0, Collections.emptySortedMap());
     }
 
-    private RingSnapshot(long version, SortedMap<Token, TokenState> tokens)
+    private RingSnapshot(long version, SortedMap<Token, VirtualNode> vnodes)
     {
         this.version = version;
-        this.tokens = tokens;
+        this.vnodes = vnodes;
     }
 
     public RingSnapshot withRemovedHost(UUID hostId)
     {
-        List<TokenState> removedStates = tokens.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> TokenState.removed(t.token, t.dc, t.rack, t.owner)).collect(Collectors.toList());
+        List<VirtualNode> removedStates = vnodes.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> VirtualNode.removed(t.token, t.dc, t.rack, t.owner)).collect(Collectors.toList());
         return withAppliedStates(removedStates);
     }
 
     public RingSnapshot withDownHost(UUID hostId)
     {
-        List<TokenState> abortedStates = tokens.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> t.maybeAbort()).collect(Collectors.toList());
+        List<VirtualNode> abortedStates = vnodes.values().stream().filter(t -> hostId.equals(t.owner)).map(t -> t.maybeAbort()).collect(Collectors.toList());
         return withAppliedStates(abortedStates);
     }
 
-    public RingSnapshot withAppliedStates(Collection<TokenState> diff)
+    public RingSnapshot withAppliedStates(Collection<VirtualNode> diff)
     {
-        TreeMap<Token, TokenState> newTokens = new TreeMap<>(tokens);
+        TreeMap<Token, VirtualNode> newTokens = new TreeMap<>(vnodes);
         AtomicBoolean updatedState = new AtomicBoolean(false);
 
         diff.forEach(newState ->
@@ -83,11 +82,11 @@ public class RingSnapshot
         return new RingSnapshot(version + 1, newTokens);
     }
 
-    private static boolean applyNewState(TreeMap<Token, TokenState> tokenMap, TokenState newState)
+    private static boolean applyNewState(TreeMap<Token, VirtualNode> tokenMap, VirtualNode newState)
     {
-        TokenState oldState = newState.isRemoved() ?  removeToken(tokenMap, newState.token) : tokenMap.put(newState.token, newState);
+        VirtualNode oldState = newState.isRemoved() ? removeToken(tokenMap, newState.token) : tokenMap.put(newState.token, newState);
         if (oldState == null)
-            oldState = TokenState.initial(newState.token, newState.dc, newState.rack, newState.owner);
+            oldState = VirtualNode.initial(newState.token, newState.dc, newState.rack, newState.owner);
 
         if (oldState.equals(newState))
             return false;
@@ -99,7 +98,7 @@ public class RingSnapshot
         if (oldState.isMovingTo())
         {
             MovingToState movingToState = (MovingToState) oldState;
-            TokenState movingFromState = removeToken(tokenMap, movingToState.oldToken);
+            VirtualNode movingFromState = removeToken(tokenMap, movingToState.oldToken);
             assert movingFromState != null && movingFromState.canMoveTo(newState) : String.format("Cannot move token %s (state %s) to token % (state %s).", movingToState.oldToken, movingFromState, newState.token, newState);
             logger.debug("Removing token {} from owner {} that moved to {}.", movingToState.oldToken, movingFromState.owner, newState.token);
         }
@@ -107,23 +106,28 @@ public class RingSnapshot
         return !newState.equals(oldState);
     }
 
-    private static TokenState removeToken(TreeMap<Token, TokenState> tokenMap, Token token)
+    private static VirtualNode removeToken(TreeMap<Token, VirtualNode> tokenMap, Token token)
     {
         return tokenMap.remove(token);
     }
 
     public RingIterator iterator()
     {
-        return null;
+        return new RingIterator(new ArrayList<>(vnodes.values()));
     }
 
     public RingIterator iterator(String dcName)
     {
-        return new RingIterator(tokens.values().stream().filter(t -> dcName.equals(t.dc)).collect(Collectors.toCollection(ArrayList::new)));
+        return new RingIterator(vnodes.values().stream().filter(t -> dcName.equals(t.dc)).collect(Collectors.toCollection(ArrayList::new)));
     }
 
     public int getRackCount(String dcName)
     {
-        return (int)tokens.values().stream().filter(t -> dcName.equals(t.dc)).map(t -> t.rack).distinct().count();
+        return (int) vnodes.values().stream().filter(t -> dcName.equals(t.dc)).map(t -> t.rack).distinct().count();
+    }
+
+    public boolean hasPendingNodes()
+    {
+        return vnodes.values().stream().anyMatch(v -> v.isPending());
     }
 }

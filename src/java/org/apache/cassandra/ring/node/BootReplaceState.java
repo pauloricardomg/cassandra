@@ -21,13 +21,9 @@ package org.apache.cassandra.ring.node;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
-import java.util.function.Function;
 
-import afu.org.checkerframework.checker.oigj.qual.O;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.ring.NodeInfo;
-import org.apache.cassandra.ring.token.TokenState;
+import org.apache.cassandra.ring.token.VirtualNode;
 
 public class BootReplaceState extends NodeState
 {
@@ -40,8 +36,8 @@ public class BootReplaceState extends NodeState
     }
 
     @Override
-    public Collection<TokenState> mapToTokenStates(Token token, String dc, String rack, UUID owner)
+    public Collection<VirtualNode> mapToTokenStates(Token token, String dc, String rack, UUID owner)
     {
-        return Arrays.asList(TokenState.replacing(token, dc, rack, oldId, owner));
+        return Arrays.asList(VirtualNode.replacing(token, dc, rack, oldId, owner));
     }
 }

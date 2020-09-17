@@ -22,7 +22,7 @@ import java.util.UUID;
 
 import org.apache.cassandra.dht.Token;
 
-public class ReplacingState extends TokenState
+public class ReplacingState extends VirtualNode
 {
     private final UUID previousOwner;
 
@@ -33,13 +33,13 @@ public class ReplacingState extends TokenState
     }
 
     @Override
-    public boolean canTransitionFrom(TokenState oldState)
+    public boolean canTransitionFrom(VirtualNode oldState)
     {
         return Status.REPLACING.canTransitionFrom(oldState.status);
     }
 
     @Override
-    public boolean canTransitionTo(TokenState newState)
+    public boolean canTransitionTo(VirtualNode newState)
     {
         return Status.REPLACING.canTransitionTo(newState.status);
     }

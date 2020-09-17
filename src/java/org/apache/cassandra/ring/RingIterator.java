@@ -20,40 +20,54 @@ package org.apache.cassandra.ring;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.ring.token.TokenState;
+import org.apache.cassandra.ring.token.VirtualNode;
 
-public class RingIterator
+public class RingIterator implements Iterator<VirtualNode>
 {
-    private final ArrayList<TokenState> sortedTokens;
+    private final ArrayList<VirtualNode> sortedTokens;
+    private int initalIndex = 0;
     private int currentIndex = 0;
     private boolean consumed = false;
+    private boolean hasNext;
 
-    public RingIterator(ArrayList<TokenState> sortedTokens)
+    public RingIterator(ArrayList<VirtualNode> sortedTokens)
     {
         this.sortedTokens = sortedTokens;
+        this.hasNext = sortedTokens.size() > 0;
     }
 
-    public boolean hasWrappedAround()
+    public boolean hasNext()
     {
-        return consumed && currentIndex == 0;
+        return hasNext;
     }
 
     public void advanceToToken(Token token)
     {
-        currentIndex = firstTokenIndex(sortedTokens, TokenState.initial(token, null, null, null));
+        currentIndex = firstTokenIndex(sortedTokens, VirtualNode.initial(token, null, null, null));
+        if (!consumed)
+            initalIndex = currentIndex;
     }
 
-    public TokenState next()
+    public VirtualNode next()
     {
+        if (!hasNext)
+            throw new NoSuchElementException();
+
+        if (!consumed)
+            consumed = true;
+
         int next = currentIndex;
         currentIndex = (currentIndex + 1) % sortedTokens.size();
-        consumed = true;
+        hasNext = currentIndex != initalIndex;
+
         return sortedTokens.get(next);
     }
 
-    public TokenState peekNextFromRack(String rack)
+    public VirtualNode peekNextFromRack(String rack)
     {
         return null;
     }
@@ -61,7 +75,7 @@ public class RingIterator
     /**
      * Copy from {@link org.apache.cassandra.locator.TokenMetadata#firstTokenIndex(ArrayList, Token, boolean)}
      */
-    private static int firstTokenIndex(final ArrayList<TokenState> ring, TokenState start)
+    private static int firstTokenIndex(final ArrayList<VirtualNode> ring, VirtualNode start)
     {
         assert ring.size() > 0;
         // insert the minimum token (at index == -1) if we were asked to include it and it isn't a member of the ring

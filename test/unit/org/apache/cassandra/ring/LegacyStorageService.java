@@ -78,7 +78,7 @@ public class LegacyStorageService implements FakeStorageService
         this.getNodeInfo = nodeInfoGetter;
         IEndpointSnitch mockSnitch = getMockSnitch();
         /**
-         * Make sure to unset the snitch during test cleanup as in {@link MultiDatacenterRingTest#afterClass()}
+         * Make sure to unset the snitch during test cleanup as in {@link RingOverlayTest#afterClass()}
          */
         DatabaseDescriptor.setEndpointSnitch(mockSnitch);
         this.nts = new NetworkTopologyStrategy(KEYSPACE_NAME, tokenMetadata, mockSnitch, dcRfs);
@@ -88,10 +88,10 @@ public class LegacyStorageService implements FakeStorageService
     {
         return new RingOverlay()
         {
-            public ReplicationGroup getReplicasForTokenWrite(Token token)
+            public ReplicaSet getWriteReplicas(Token token)
             {
                 EndpointsForToken naturalReplicasForToken = nts.getNaturalReplicasForToken(token);
-                return new ReplicationGroup(naturalReplicasForToken.endpoints().stream().map(e -> getNodeInfo.apply(e).id).collect(Collectors.toList()));
+                return new ReplicaSet(naturalReplicasForToken.endpoints().stream().map(e -> getNodeInfo.apply(e).id).collect(Collectors.toList()));
             }
         };
     }
