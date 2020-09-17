@@ -46,6 +46,7 @@ public class RingOverlayStableTest
     static final String RACK_R1 = "R1";
     static final String RACK_R2 = "R2";
     static final String RACK_R3 = "R3";
+    static final String RACK_R4 = "R3";
 
     static final UUID NODE_A = UUIDGen.getTimeUUID();
     static final UUID NODE_B = UUIDGen.getTimeUUID();
@@ -263,7 +264,7 @@ public class RingOverlayStableTest
 
         // RING LAYOUT
         // <--[0:DC1:A]--[100:DC2:B]--[150:DC1:A]--[200:DC1:C]--[250:DC2:B]--[300:DC2:D]--[350:DC1:C]-->
-        // <--[400:DC1:E]--[450:DC2:D]--[550:DC1:E]--[650:DC1:A]--[750:DC2:B]--[850:DC1:C]--[950:DC2:D]--[1050:DC1:E]-->
+        // <--[400:DC1:E]--[450:DC2:R4:D]--[550:DC1:E]--[650:DC1:A]--[750:DC2:B]--[850:DC1:C]--[950:DC2:D]--[1050:DC1:E]-->
         RingOverlay ring = cluster.getRing();
 
         // Token 10: [100:DC2:B]--[150:DC1:A]--[200:DC1:C]--[250:DC2:B]*--[300:DC2:D]
@@ -322,6 +323,102 @@ public class RingOverlayStableTest
         // * vnode [150:DC1:A] is skipped because node A already replicates this range
         assertThat(ring.getWriteReplicas(token(1060L))).isEqualTo(normalReplicas(NODE_A, NODE_B, NODE_C, NODE_D));
     }
+
+    /**
+     * Method: {@link RingOverlay#getWriteReplicas(Token)}
+     * - Data center count: 2
+     * - Rack count: 2
+     * - Nodes: 5
+     * - RF: {2, 2}
+     */
+    @Test
+    public void testGetWriteReplicas_2dc_2racks_5nodes_rf4()
+    {
+        // Node's Tokens
+        // DC1:
+        // - R1: A: [0, 150, 650]   | E: [400, 550, 1050]
+        // - R2: C: [200, 350, 850]
+        // DC2:
+        // - R1: B: [100, 250, 750]
+        // - R2: D: [300, 450, 950]
+        TestCluster cluster = TestCluster.builder()
+                                         .withDatacenter(DC_1).withReplicationFactor(2)
+                                            .withRack(RACK_R1)
+                                                .withNode(NODE_A).withManualTokens(0L, 150L, 650L)
+                                                .withNode(NODE_E).withManualTokens(400L, 550L, 1050L).and()
+                                            .withRack(RACK_R2)
+                                                .withNode(NODE_C).withManualTokens(200L, 350L, 850L).and()
+                                         .withDataCenter(DC_2).withReplicationFactor(2)
+                                            .withRack(RACK_R3).withNode(NODE_D).withManualTokens(300L, 450L, 950L).and()
+                                            .withRack(RACK_R4).withNode(NODE_B).withManualTokens(100L, 250L, 750L).build(legacy);
+
+        // RING LAYOUT
+        // <--[0:DC1:R1:A]--[100:DC2:R3:B]--[150:DC1:R1:A]--[200:DC1:R2:C]--[250:DC2:R3:B]--[300:DC2:R4:D]--[350:DC1:R2:C]-->
+        // <--[400:DC1:R1:E]--[450:DC2:R4:D]--[550:DC1:R1:E]--[650:DC1:R1:A]--[750:DC2:R3:B]--[850:DC1:R2:C]--[950:DC2:R4:D]--[1050:DC1:R1:E]-->
+        RingOverlay ring = cluster.getRing();
+
+        // Token 10: [100:DC2:R3:B]--[150:DC1:R1:A]--[200:DC1:R2:C]--[250:DC2:R3:B]*--[300:DC2:R4:D]
+        // * vnode [250:DC2:R3:B] is skipped because node B already replicates this range
+        assertThat(ring.getWriteReplicas(token(10L))).isEqualTo(normalReplicas(NODE_B, NODE_A, NODE_C, NODE_D));
+
+        // Token 110: [150:DC1:R1:A]--[200:DC1:R2:C]--[250:DC2:R3:B]--[300:DC2:R4:D]
+        assertThat(ring.getWriteReplicas(token(110L))).isEqualTo(normalReplicas(NODE_A, NODE_C, NODE_B, NODE_D));
+
+        // Token 160: [200:DC1:R2:C]--[250:DC2:R3:B]--[300:DC2:R4:D]--[350:DC1:R2:C]*--[400:DC1:R1:E]
+        // * vnode [350:DC1:R2:C] is skipped because node C already replicates this range
+        assertThat(ring.getWriteReplicas(token(160L))).isEqualTo(normalReplicas(NODE_C, NODE_B, NODE_D, NODE_E));
+
+        // Token 210: [250:DC2:R3:B]--[300:DC2:R4:D]--[350:DC1:R2:C]--[400:DC1:R1:E]
+        assertThat(ring.getWriteReplicas(token(210L))).isEqualTo(normalReplicas(NODE_B, NODE_D, NODE_C, NODE_E));
+
+        // Token 260: [300:DC2:R4:D]--[350:DC1:R2:C]--[400:DC1:R1:E]--[450:DC2:R4:D]*--[550:DC1:R1:E]*--[650:DC1:R1:A]*--[750:DC2:R3:B]
+        // * vnodes [450:DC2:R4:D], [550:DC1:R1:E] are skipped because node D and E already replicate this range
+        // * vnode [650:DC1:R1:A] is skipped because RF=2 nodes from DC1 already replicate this range
+        assertThat(ring.getWriteReplicas(token(260L))).isEqualTo(normalReplicas(NODE_D, NODE_C, NODE_E, NODE_B));
+
+        // Token 310: [350:DC1:R2:C]--[400:DC1:R1:E]--[450:DC2:R4:D]-[550:DC1:R1:E]*--[650:DC1:R1:A]*--[750:DC2:R3:B]
+        // * vnodes [550:DC1:R1:E], [650:DC1:R1:A] are skipped because RF=2 nodes from DC1 already replicate this range
+        assertThat(ring.getWriteReplicas(token(310L))).isEqualTo(normalReplicas(NODE_C, NODE_E, NODE_D, NODE_B));
+
+        // Token 360: [400:DC1:R1:E]--[450:DC2:R4:D]--[550:DC1:R1:E]*--[650:DC1:R1:A]*--[750:DC2:R3:B]--[850:DC1:R2:C]
+        // * vnode [550:DC1:R1:E] is skipped because node E already replicates this range
+        // * vnode [650:DC1:R1:A] is skipped because rack R1 already replicates this range
+        assertThat(ring.getWriteReplicas(token(360L))).isEqualTo(normalReplicas(NODE_E, NODE_D, NODE_B, NODE_C));
+
+        // Token 410: [450:DC2:R4:D]--[550:DC1:R1:E]--[650:DC1:R1:A]*--[750:DC2:R3:B]--[850:DC1:R2:C]
+        // * vnode [650:DC1:R1:A] is skipped because rack R1 already replicates this range
+        assertThat(ring.getWriteReplicas(token(410L))).isEqualTo(normalReplicas(NODE_D, NODE_E, NODE_B, NODE_C));
+
+        // Token 460: [550:DC1:R1:E]--[650:DC1:R1:A]*--[750:DC2:R3:B]--[850:DC1:R2:C]--[950:DC2:R4:D]
+        // * vnode [850:DC1:R2:C] is skipped because RF=2 nodes from DC1 already replicate this range
+        assertThat(ring.getWriteReplicas(token(460L))).isEqualTo(normalReplicas(NODE_E, NODE_B, NODE_C, NODE_D));
+
+        // Token 560: [650:DC1:R1:A]--[750:DC2:R3:B]--[850:DC1:R2:C]--[950:DC2:R4:D]
+        assertThat(ring.getWriteReplicas(token(560L))).isEqualTo(normalReplicas(NODE_A, NODE_B, NODE_C, NODE_D));
+
+        // Token 660: [750:DC2:R3:B]--[850:DC1:R2:C]--[950:DC2:R4:D]--[1050:DC1:R1:E]
+        assertThat(ring.getWriteReplicas(token(660L))).isEqualTo(normalReplicas(NODE_B, NODE_C, NODE_D, NODE_E));
+
+        // Token 760: [850:DC1:R2:C]--[950:DC2:R4:D]--[1050:DC1:R1:E]--[0:DC1:R1:A]*--[100:DC2:R3:B]
+        // * vnode [0:DC1:R1:A] is skipped because RF=2 nodes from DC1 already replicate this range
+        assertThat(ring.getWriteReplicas(token(760L))).isEqualTo(normalReplicas(NODE_C, NODE_D, NODE_E, NODE_B));
+
+        // Token 860: [950:DC2:R4:D]--[1050:DC1:R1:E]--[0:DC1:R1:A]*--[100:DC2:R3:B]--[150:DC1:R1:A]*--[200:DC1:R2:C]
+        // * vnodes [0:DC1:R1:A], [150:DC1:R1:A] are skipped because rack R1 already replicates this range
+        assertThat(ring.getWriteReplicas(token(860L))).isEqualTo(normalReplicas(NODE_D, NODE_E, NODE_B, NODE_C));
+
+        // Token 960: [1050:DC1:R1:E]--[0:DC1:R1:A]*--[100:DC2:R3:B]--[150:DC1:R1:A]*--[200:DC1:R2:C]--[250:DC2:R3:B]*--[300:DC2:R4:D]
+        // * vnodes [0:DC1:R1:A], [150:DC1:R1:A] are skipped because rack R1 already replicates this range
+        // * vnode [250:DC2:R3:B] is skipped because node A already replicates this range
+        assertThat(ring.getWriteReplicas(token(960L))).isEqualTo(normalReplicas(NODE_E, NODE_B, NODE_C, NODE_D));
+
+        // Token 1060: [0:DC1:R1:A]--[100:DC2:R3:B]--[150:DC1:R1:A]*--[200:DC1:R2:C]--[250:DC2:R3:B]*--[300:DC2:R4:D]
+        // * vnode [150:DC1:R1:A] is skipped because node A already replicates this range
+        // * vnode [250:DC2:R3:B] is skipped because node B already replicates this range
+        assertThat(ring.getWriteReplicas(token(1060L))).isEqualTo(normalReplicas(NODE_A, NODE_B, NODE_C, NODE_D));
+    }
+
+    //TODO: N=5, RF=3, RACKS=2 (uneven rack)
 
     private ReplicaSet normalReplicas(UUID... normalReplicas)
     {
