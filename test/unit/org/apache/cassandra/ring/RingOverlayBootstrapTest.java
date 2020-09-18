@@ -20,6 +20,9 @@ package org.apache.cassandra.ring;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.Test;
@@ -29,6 +32,7 @@ import org.junit.runners.Parameterized;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.utils.UUIDGen;
 
+import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @RunWith(Parameterized.class)
@@ -52,7 +56,7 @@ public class RingOverlayBootstrapTest extends AbstractRingOverlayTest
     @Parameterized.Parameters(name = "legacy={0}")
     public static Collection<Object[]> input()
     {
-        return Arrays.asList(new Object[][]{{Boolean.FALSE}, {Boolean.TRUE}});
+        return asList(new Object[][]{{Boolean.FALSE}, {Boolean.TRUE}});
     }
 
     private final Boolean legacy;
@@ -86,21 +90,28 @@ public class RingOverlayBootstrapTest extends AbstractRingOverlayTest
                                          .build(legacy);
 
         // Start bootstrap of node F: [165, 363, 561, 759, 957]
-        cluster.startBootstrap(NODE_E, 165L, 363L, 561L, 759L, 957L);
+        cluster.startBootstrap(NODE_F, 165L, 363L, 561L, 759L, 957L);
 
         // RING LAYOUT DURING BOOTSTRAP
         /**
-         *   0:A | 198:A | 396:A | 594:A | 792:A
-         *  33:B | 231:B | 429:B | 627:B | 825:B
-         *  66:C | 264:C | 462:C | 660:C | 858:C
-         *  99:D | 297:D | 495:D | 693:D | 891:D
-         * 132:E | 330:E | 528:E | 726:E | 924:E
-         * 165:F | 363:F | 561:F | 759:F | 957:F
+         *   0:A  | 198:A  | 396:A  | 594:A  | 792:A
+         *  33:B  | 231:B  | 429:B  | 627:B  | 825:B
+         *  66:C  | 264:C  | 462:C  | 660:C  | 858:C
+         *  99:D  | 297:D  | 495:D  | 693:D  | 891:D
+         * 132:E  | 330:E  | 528:E  | 726:E  | 924:E
+         * 165:F* | 363:F* | 561:F* | 759:F* | 957:F*
          */
         RingOverlay ring = cluster.getRing();
 
-        // Token 20: [33:B]--[66:C]--[99:D]
-        assertThat(ring.getWriteReplicas(token(10L))).isEqualTo(normalReplicas(NODE_B, NODE_C, NODE_D));
+        Map<Token, ReplicaSet> expectedReplicasByToken = new HashMap<>();
+        expectedReplicasByToken.put(token(10L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(40L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(80L), replicas(asList(NODE_D, NODE_E, NODE_A), asList(NODE_F)));
+
+        for (Map.Entry<Token, ReplicaSet> expected : expectedReplicasByToken.entrySet())
+        {
+            assertThat(ring.getWriteReplicas(expected.getKey())).isEqualTo(expected.getValue());
+        }
     }
 
 //    /**

@@ -20,6 +20,7 @@ package org.apache.cassandra.ring;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -90,10 +91,16 @@ public class LegacyStorageService implements FakeStorageService
         {
             public ReplicaSet getWriteReplicas(Token token)
             {
-                EndpointsForToken naturalReplicasForToken = nts.getNaturalReplicasForToken(token);
-                return new ReplicaSet(naturalReplicasForToken.endpoints().stream().map(e -> getNodeInfo.apply(e).id).collect(Collectors.toList()));
+                EndpointsForToken replicas = nts.getNaturalReplicasForToken(token);
+                EndpointsForToken pendingReplicas = tokenMetadata.pendingEndpointsForToken(token, KEYSPACE_NAME);
+                return new ReplicaSet(mapToIds(replicas), mapToIds(pendingReplicas));
             }
         };
+    }
+
+    private List<UUID> mapToIds(EndpointsForToken naturalReplicasForToken)
+    {
+        return naturalReplicasForToken.endpoints().stream().map(e -> getNodeInfo.apply(e).id).collect(Collectors.toList());
     }
 
     public void onJoin(InetAddressAndPort endpoint, EndpointState epState)
@@ -257,7 +264,7 @@ public class LegacyStorageService implements FakeStorageService
         }
 
         tokenMetadata.addBootstrapTokens(tokens, endpoint);
-        PendingRangeCalculatorService.instance.update();
+        tokenMetadata.calculatePendingRanges(nts, KEYSPACE_NAME);
 
         tokenMetadata.updateHostId(getNodeInfo.apply(endpoint).id, endpoint);
     }

@@ -156,7 +156,7 @@ public class VirtualNode implements Comparable<VirtualNode>
     }
     public boolean isAdding()
     {
-        return false;
+        return status == Status.ADDING;
     }
 
     public boolean isRemoving()

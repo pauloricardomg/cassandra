@@ -28,18 +28,18 @@ import java.util.stream.Collectors;
 public class ReplicaSet
 {
     // TODO: include RingSnapshot and/or Token
-    final List<UUID> normalReplicas;
+    final List<UUID> replicas;
     final List<UUID> pendingReplicas;
 
-    public ReplicaSet(List<UUID> normalReplicas, List<UUID> pendingReplicas)
+    public ReplicaSet(List<UUID> replicas, List<UUID> pendingReplicas)
     {
-        this.normalReplicas = normalReplicas;
+        this.replicas = replicas;
         this.pendingReplicas = pendingReplicas;
     }
 
-    public ReplicaSet(List<UUID> normalReplicas)
+    public ReplicaSet(List<UUID> replicas)
     {
-        this(normalReplicas, Collections.EMPTY_LIST);
+        this(replicas, Collections.EMPTY_LIST);
     }
 
     public static Builder builder()
@@ -68,17 +68,23 @@ public class ReplicaSet
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ReplicaSet that = (ReplicaSet) o;
-        return Objects.equals(normalReplicas, that.normalReplicas) &&
+        return Objects.equals(replicas, that.replicas) &&
                Objects.equals(pendingReplicas, that.pendingReplicas);
     }
 
     public int hashCode()
     {
-        return Objects.hash(normalReplicas, pendingReplicas);
+        return Objects.hash(replicas, pendingReplicas);
     }
 
     public String toString()
     {
-        return String.format("[%s]", normalReplicas.stream().map(r -> r.toString().substring(0, 8)).collect(Collectors.joining(", ")));
+        return String.format("[%s%s]", replicasAsString(replicas),
+                                          pendingReplicas.isEmpty() ? "" : String.format("|%s", replicasAsString(pendingReplicas)));
+    }
+
+    private static String replicasAsString(List<UUID> replicas)
+    {
+        return replicas.stream().map(r -> r.toString().substring(0, 8)).collect(Collectors.joining(", "));
     }
 }

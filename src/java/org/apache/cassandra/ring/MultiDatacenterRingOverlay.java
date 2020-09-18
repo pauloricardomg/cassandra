@@ -91,30 +91,31 @@ public class MultiDatacenterRingOverlay implements RingOverlay
             if (satisfiesRF)
                 return false;
 
-            if (!vnode.isPending())
+            if (vnode.isAdding())
             {
-                // Do not allow multiple VNodes per host
-                if (replicas.contains(vnode.owner))
-                    return false;
-
-                // Maximum RF replicas per DC
-                Integer dcReplicas = replicasByDc.getOrDefault(vnode.dc, 0);
-                if (dcReplicas == dcRfs.getOrDefault(vnode.dc, ReplicationFactor.ZERO).fullReplicas)
-                    return false;
-
-                // Maximum (1 + MAX_REPEATS_PER_RACK) replicas per rack
-                Integer rackReplicas = replicasByRack.getOrDefault(vnode.dc, Collections.emptyMap()).getOrDefault(vnode.rack, 0);
-                if (rackReplicas > maxRepeatsPerRack.getOrDefault(vnode.dc, 0))
-                    return false;
-
-                replicasByDc.compute(vnode.dc, (k, v) -> v == null ? 1 : v + 1);
-                replicasByRack.compute(vnode.dc, (k, v) -> v == null ? new HashMap<>() : v).compute(vnode.rack, (k, v) -> v == null ? 1 : v + 1);
-                replicas.add(vnode.owner);
-
-                satisfiesRF = replicasByDc.values().stream().mapToInt(v -> v).sum() == aggregateRf.fullReplicas;
+                pendingReplicas.add(vnode.owner);
                 return true;
             }
 
+            // Do not allow multiple VNodes per host
+            if (replicas.contains(vnode.owner))
+                return false;
+
+            // Maximum RF replicas per DC
+            Integer dcReplicas = replicasByDc.getOrDefault(vnode.dc, 0);
+            if (dcReplicas == dcRfs.getOrDefault(vnode.dc, ReplicationFactor.ZERO).fullReplicas)
+                return false;
+
+            // Maximum (1 + MAX_REPEATS_PER_RACK) replicas per rack
+            Integer rackReplicas = replicasByRack.getOrDefault(vnode.dc, Collections.emptyMap()).getOrDefault(vnode.rack, 0);
+            if (rackReplicas > maxRepeatsPerRack.getOrDefault(vnode.dc, 0))
+                return false;
+
+            replicasByDc.compute(vnode.dc, (k, v) -> v == null ? 1 : v + 1);
+            replicasByRack.compute(vnode.dc, (k, v) -> v == null ? new HashMap<>() : v).compute(vnode.rack, (k, v) -> v == null ? 1 : v + 1);
+            replicas.add(vnode.owner);
+
+            satisfiesRF = replicasByDc.values().stream().mapToInt(v -> v).sum() == aggregateRf.fullReplicas;
             return true;
         }
 

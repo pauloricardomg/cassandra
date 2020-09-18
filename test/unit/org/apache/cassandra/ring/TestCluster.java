@@ -79,6 +79,7 @@ public class TestCluster
 
     public void startBootstrap(UUID nodeId, Long... tokens)
     {
+        logger.info("Bootstrapping node {}", nodeId);
         List<Token> nodeTokens = Arrays.stream(tokens).map(t -> token(t)).collect(Collectors.toList());
         NodeInfo node = new NodeInfo(nodeId, DEFAULT_DC, DEFAULT_RACK, nodeTokens, ipAndPortGenerator.generateNext());
 

@@ -20,6 +20,7 @@ package org.apache.cassandra.ring;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.AfterClass;
@@ -61,6 +62,11 @@ public class AbstractRingOverlayTest
     protected static ReplicaSet normalReplicas(UUID... normalReplicas)
     {
         return new ReplicaSet(Arrays.asList(normalReplicas));
+    }
+
+    protected static ReplicaSet replicas(List<UUID> normal, List<UUID> pending)
+    {
+        return new ReplicaSet(normal, pending);
     }
 
     protected static Token token(long token)

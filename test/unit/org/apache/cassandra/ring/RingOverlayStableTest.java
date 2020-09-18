@@ -22,17 +22,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.UUID;
 
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.utils.UUIDGen;
 
 import static org.assertj.core.api.Assertions.assertThat;
