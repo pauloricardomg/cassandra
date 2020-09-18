@@ -18,9 +18,7 @@
 
 package org.apache.cassandra.ring;
 
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -74,7 +72,7 @@ public class RingOverlayBootstrapTest extends AbstractRingOverlayTest
      * - RF: 3
      */
     @Test
-    public void testGetWriteReplicas_1dc_1rack_5nodes_rf3()
+    public void testGetWriteReplicas_1dc_1rack_5nodes_rf3_1pending()
     {
         // Node's Tokens
         // | A: [0, 198, 396, 594, 792]  | D:  [99, 297, 495, 693, 891]
@@ -92,27 +90,134 @@ public class RingOverlayBootstrapTest extends AbstractRingOverlayTest
         // Start bootstrap of node F: [165, 363, 561, 759, 957]
         cluster.startBootstrap(NODE_F, 165L, 363L, 561L, 759L, 957L);
 
-        // RING LAYOUT DURING BOOTSTRAP
         /**
+         * RING LAYOUT DURING BOOTSTRAP
          *   0:A  | 198:A  | 396:A  | 594:A  | 792:A
          *  33:B  | 231:B  | 429:B  | 627:B  | 825:B
          *  66:C  | 264:C  | 462:C  | 660:C  | 858:C
          *  99:D  | 297:D  | 495:D  | 693:D  | 891:D
          * 132:E  | 330:E  | 528:E  | 726:E  | 924:E
-         * 165:F* | 363:F* | 561:F* | 759:F* | 957:F*
+         * 165:F* | 363:F* | 561:F* | 759:F* | 957:F*  <--- PENDING VNODES
          */
-        RingOverlay ring = cluster.getRing();
 
         Map<Token, ReplicaSet> expectedReplicasByToken = new HashMap<>();
         expectedReplicasByToken.put(token(10L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
         expectedReplicasByToken.put(token(40L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
         expectedReplicasByToken.put(token(80L), replicas(asList(NODE_D, NODE_E, NODE_A), asList(NODE_F)));
+        expectedReplicasByToken.put(token(100L), replicas(asList(NODE_E, NODE_A, NODE_B), asList(NODE_F)));
+        expectedReplicasByToken.put(token(140L), replicas(asList(NODE_A, NODE_B, NODE_C), asList(NODE_F)));
+        expectedReplicasByToken.put(token(180L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(200L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(240L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(280L), replicas(asList(NODE_D, NODE_E, NODE_A), asList(NODE_F)));
+        expectedReplicasByToken.put(token(300L), replicas(asList(NODE_E, NODE_A, NODE_B), asList(NODE_F)));
+        expectedReplicasByToken.put(token(340L), replicas(asList(NODE_A, NODE_B, NODE_C), asList(NODE_F)));
+        expectedReplicasByToken.put(token(380L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(400L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(440L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(480L), replicas(asList(NODE_D, NODE_E, NODE_A), asList(NODE_F)));
+        expectedReplicasByToken.put(token(500L), replicas(asList(NODE_E, NODE_A, NODE_B), asList(NODE_F)));
+        expectedReplicasByToken.put(token(540L), replicas(asList(NODE_A, NODE_B, NODE_C), asList(NODE_F)));
 
+        /**
+         * RING LAYOUT DURING BOOTSTRAP
+         *   0:A  | 198:A  | 396:A  | 594:A  | 792:A
+         *  33:B  | 231:B  | 429:B  | 627:B  | 825:B
+         *  66:C  | 264:C  | 462:C  | 660:C  | 858:C
+         *  99:D  | 297:D  | 495:D  | 693:D  | 891:D
+         * 132:E  | 330:E  | 528:E  | 726:E  | 924:E
+         * 165:F* | 363:F* | 561:F* | 759:F* | 957:F*  <--- PENDING VNODES
+         */
+
+        expectedReplicasByToken.put(token(580L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(600L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(640L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(680L), replicas(asList(NODE_D, NODE_E, NODE_A), asList(NODE_F)));
+        expectedReplicasByToken.put(token(700L), replicas(asList(NODE_E, NODE_A, NODE_B), asList(NODE_F)));
+        expectedReplicasByToken.put(token(740L), replicas(asList(NODE_A, NODE_B, NODE_C), asList(NODE_F)));
+        expectedReplicasByToken.put(token(780L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(800L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(840L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(880L), replicas(asList(NODE_D, NODE_E, NODE_A), asList(NODE_F)));
+        expectedReplicasByToken.put(token(900L), replicas(asList(NODE_E, NODE_A, NODE_B), asList(NODE_F)));
+        expectedReplicasByToken.put(token(940L), replicas(asList(NODE_A, NODE_B, NODE_C), asList(NODE_F)));
+        expectedReplicasByToken.put(token(980L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(1000L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+
+        // Verify expected replicas by token during bootstrap
+        assertExpectedReplicasByToken(cluster.getRing(), expectedReplicasByToken);
+
+        // Finish bootstrap of node F: [165, 363, 561, 759, 957]
+        cluster.finishBootstrap(NODE_F);
+
+        /**
+         * RING LAYOUT AFTER BOOTSTRAP
+         *   0:A | 198:A | 396:A | 594:A | 792:A
+         *  33:B | 231:B | 429:B | 627:B | 825:B
+         *  66:C | 264:C | 462:C | 660:C | 858:C
+         *  99:D | 297:D | 495:D | 693:D | 891:D
+         * 132:E | 330:E | 528:E | 726:E | 924:E
+         * 165:F | 363:F | 561:F | 759:F | 957:F  <--- ADDED VNODES
+         */
+
+        expectedReplicasByToken = new HashMap<>();
+        expectedReplicasByToken.put(token(10L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(40L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(80L), replicas(asList(NODE_D, NODE_E, NODE_F), asList()));
+        expectedReplicasByToken.put(token(100L), replicas(asList(NODE_E, NODE_F, NODE_A), asList()));
+        expectedReplicasByToken.put(token(140L), replicas(asList(NODE_F, NODE_A, NODE_B), asList()));
+        expectedReplicasByToken.put(token(180L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(200L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(240L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(280L), replicas(asList(NODE_D, NODE_E, NODE_F), asList()));
+        expectedReplicasByToken.put(token(300L), replicas(asList(NODE_E, NODE_F, NODE_A), asList()));
+        expectedReplicasByToken.put(token(340L), replicas(asList(NODE_F, NODE_A, NODE_B), asList()));
+        expectedReplicasByToken.put(token(380L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(400L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(440L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(480L), replicas(asList(NODE_D, NODE_E, NODE_F), asList()));
+        expectedReplicasByToken.put(token(500L), replicas(asList(NODE_E, NODE_F, NODE_A), asList()));
+        expectedReplicasByToken.put(token(540L), replicas(asList(NODE_F, NODE_A, NODE_B), asList()));
+
+        /**
+         * RING LAYOUT AFTER BOOTSTRAP
+         *   0:A | 198:A | 396:A | 594:A | 792:A
+         *  33:B | 231:B | 429:B | 627:B | 825:B
+         *  66:C | 264:C | 462:C | 660:C | 858:C
+         *  99:D | 297:D | 495:D | 693:D | 891:D
+         * 132:E | 330:E | 528:E | 726:E | 924:E
+         * 165:F | 363:F | 561:F | 759:F | 957:F  <--- ADDED VNODES
+         */
+
+        expectedReplicasByToken.put(token(580L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(600L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(640L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(680L), replicas(asList(NODE_D, NODE_E, NODE_F), asList()));
+        expectedReplicasByToken.put(token(700L), replicas(asList(NODE_E, NODE_F, NODE_A), asList()));
+        expectedReplicasByToken.put(token(740L), replicas(asList(NODE_F, NODE_A, NODE_B), asList()));
+        expectedReplicasByToken.put(token(780L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(800L), replicas(asList(NODE_B, NODE_C, NODE_D), asList()));
+        expectedReplicasByToken.put(token(840L), replicas(asList(NODE_C, NODE_D, NODE_E), asList()));
+        expectedReplicasByToken.put(token(880L), replicas(asList(NODE_D, NODE_E, NODE_F), asList()));
+        expectedReplicasByToken.put(token(900L), replicas(asList(NODE_E, NODE_F, NODE_A), asList()));
+        expectedReplicasByToken.put(token(940L), replicas(asList(NODE_F, NODE_A, NODE_B), asList()));
+        expectedReplicasByToken.put(token(980L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+        expectedReplicasByToken.put(token(1000L), replicas(asList(NODE_A, NODE_B, NODE_C), asList()));
+
+        // Verify expected replicas by token during bootstrap
+        assertExpectedReplicasByToken(cluster.getRing(), expectedReplicasByToken);
+    }
+
+    private void assertExpectedReplicasByToken(RingOverlay ring, Map<Token, ReplicaSet> expectedReplicasByToken)
+    {
         for (Map.Entry<Token, ReplicaSet> expected : expectedReplicasByToken.entrySet())
         {
             assertThat(ring.getWriteReplicas(expected.getKey())).isEqualTo(expected.getValue());
         }
     }
+
+    // TODO TESTS:
+    // - Aborted
 
 //    /**
 //     * Method: {@link RingOverlay#getWriteReplicas(Token)}

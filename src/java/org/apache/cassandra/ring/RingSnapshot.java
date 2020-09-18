@@ -103,7 +103,7 @@ public class RingSnapshot
             logger.debug("Removing token {} from owner {} that moved to {}.", movingToState.oldToken, movingFromState.owner, newState.token);
         }
 
-        return !newState.equals(oldState);
+        return true;
     }
 
     private static VirtualNode removeToken(TreeMap<Token, VirtualNode> tokenMap, Token token)

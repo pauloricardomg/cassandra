@@ -89,6 +89,12 @@ public class TestCluster
         storageService.onChange(node.address, ApplicationState.STATUS_WITH_PORT, valueFactory.bootstrapping(nodeTokens));
     }
 
+    public void finishBootstrap(UUID nodeId)
+    {
+        NodeInfo node = nodesById.get(nodeId);
+        storageService.onChange(node.address, ApplicationState.STATUS_WITH_PORT, valueFactory.normal(node.tokens));
+    }
+
     public static class Builder
     {
         IPAndPortGenerator ipAndPortGenerator = new IPAndPortGenerator();
