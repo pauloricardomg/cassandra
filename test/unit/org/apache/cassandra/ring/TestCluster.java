@@ -40,18 +40,23 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 
 public class TestCluster
 {
+    static final String DEFAULT_DC = "DEFAULT_DC";
+    static final String DEFAULT_RACK = "DEFAULT_RACK";
+
     static Logger logger = LoggerFactory.getLogger(RingSnapshot.class);
 
     final Map<UUID, NodeInfo> nodesById;
     final Map<InetAddressAndPort, NodeInfo> nodesByAddress;
     final FakeStorageService storageService;
     final VersionedValue.VersionedValueFactory valueFactory;
+    final IPAndPortGenerator ipAndPortGenerator;
 
     public TestCluster(Map<UUID, NodeInfo> nodesById, Map<InetAddressAndPort, NodeInfo> nodesByAddress,
-                       FakeStorageService storageService)
+                       IPAndPortGenerator ipAndPortGenerator, FakeStorageService storageService)
     {
         this.nodesById = nodesById;
         this.nodesByAddress = nodesByAddress;
+        this.ipAndPortGenerator = ipAndPortGenerator;
         this.storageService = storageService;
         this.valueFactory = new VersionedValue.VersionedValueFactory(DatabaseDescriptor.getPartitioner());
         initialize();
@@ -70,6 +75,17 @@ public class TestCluster
     public RingOverlay getRing()
     {
         return storageService.getRing();
+    }
+
+    public void startBootstrap(UUID nodeId, Long... tokens)
+    {
+        List<Token> nodeTokens = Arrays.stream(tokens).map(t -> token(t)).collect(Collectors.toList());
+        NodeInfo node = new NodeInfo(nodeId, DEFAULT_DC, DEFAULT_RACK, nodeTokens, ipAndPortGenerator.generateNext());
+
+        nodesById.put(node.id, node);
+        nodesByAddress.put(node.address, node);
+
+        storageService.onChange(node.address, ApplicationState.STATUS_WITH_PORT, valueFactory.bootstrapping(nodeTokens));
     }
 
     public static class Builder
@@ -103,7 +119,7 @@ public class TestCluster
             }
 
             FakeStorageService storageService = legacy ? new LegacyStorageService(dcRfs, nodesByAddress::get) : new NewStorageService(dcRfs, nodesByAddress::get);
-            return new TestCluster(nodesById, nodesByAddress, storageService);
+            return new TestCluster(nodesById, nodesByAddress, ipAndPortGenerator, storageService);
         }
 
         public DatacenterBuilder withDatacenter(String dcName)
@@ -111,6 +127,11 @@ public class TestCluster
             DatacenterBuilder dcBuilder = new DatacenterBuilder(dcName);
             dcs.add(dcBuilder);
             return dcBuilder;
+        }
+
+        public DatacenterBuilder withReplicationFactor(int rf)
+        {
+            return withDatacenter(DEFAULT_DC).withReplicationFactor(rf);
         }
 
         class DatacenterBuilder
@@ -133,17 +154,12 @@ public class TestCluster
 
             public RackBuilder.NodeBuilder withNode(UUID id)
             {
-                return withDefaultRack().withNode(id);
+                return withRack(DEFAULT_RACK).withNode(id);
             }
 
             public TestCluster build(boolean legacy)
             {
                 return Builder.this.build(legacy);
-            }
-
-            public RackBuilder withDefaultRack()
-            {
-                return withRack("default");
             }
 
             public RackBuilder withRack(String rackName)

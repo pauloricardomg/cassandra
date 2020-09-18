@@ -259,7 +259,7 @@ public class LegacyStorageService implements FakeStorageService
         tokenMetadata.addBootstrapTokens(tokens, endpoint);
         PendingRangeCalculatorService.instance.update();
 
-        tokenMetadata.updateHostId(Gossiper.instance.getHostId(endpoint), endpoint);
+        tokenMetadata.updateHostId(getNodeInfo.apply(endpoint).id, endpoint);
     }
 
     private void handleStateBootreplacing(InetAddressAndPort newNode, String[] pieces)

@@ -35,7 +35,7 @@ public class VirtualNode implements Comparable<VirtualNode>
 
             boolean canTransitionTo(Status status)
             {
-                return status == NORMAL || status == REMOVED || status == MOVING_TO;
+                return status == ADDING || status == NORMAL || status == REMOVED || status == MOVING_TO;
             }
         },
         NORMAL {
@@ -224,7 +224,7 @@ public class VirtualNode implements Comparable<VirtualNode>
 
     public String toString()
     {
-        return String.format("{\"owner\": %s, \"status\": %s}", owner, status);
+        return String.format("{\"dc\": %s, \"rack\": %s, \"owner\": %s, \"status\": %s}", dc, rack, owner.toString().substring(0, 8), status);
     }
 
     public static VirtualNode initial(Token token, String dc, String rack, UUID owner)
