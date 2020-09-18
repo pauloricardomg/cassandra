@@ -38,7 +38,7 @@ import org.apache.cassandra.utils.UUIDGen;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @RunWith(Parameterized.class)
-public class RingOverlayStableTest
+public class RingOverlayStableTest extends AbstractRingOverlayTest
 {
     static final String DC_1 = "DC_1";
     static final String DC_2 = "DC_2";
@@ -53,25 +53,6 @@ public class RingOverlayStableTest
     static final UUID NODE_C = UUIDGen.getTimeUUID();
     static final UUID NODE_D = UUIDGen.getTimeUUID();
     static final UUID NODE_E = UUIDGen.getTimeUUID();
-
-    static IPartitioner originalPartitioner;
-    static IEndpointSnitch originalSnitch;
-
-    @BeforeClass
-    public static void beforeClass()
-    {
-        DatabaseDescriptor.daemonInitialization();
-        originalPartitioner = DatabaseDescriptor.getPartitioner();
-        originalSnitch = DatabaseDescriptor.getEndpointSnitch();
-        DatabaseDescriptor.setPartitionerUnsafe(new Murmur3Partitioner());
-    }
-
-    @AfterClass
-    public static void afterClass()
-    {
-        /** This may be set during {@link TestCluster} initialization **/
-        DatabaseDescriptor.setPartitionerUnsafe(originalPartitioner);
-    }
 
     @Parameterized.Parameters(name = "legacy={0}")
     public static Collection<Object[]> input()
@@ -496,15 +477,5 @@ public class RingOverlayStableTest
         // * vnode [150:DC1:R1:A] is skipped because node A already replicates this range
         // * vnode [250:DC2:R3:B] is skipped because node B already replicates this range
         assertThat(ring.getWriteReplicas(token(1060L))).isEqualTo(normalReplicas(NODE_A, NODE_B, NODE_C, NODE_D));
-    }
-
-    private ReplicaSet normalReplicas(UUID... normalReplicas)
-    {
-        return new ReplicaSet(Arrays.asList(normalReplicas));
-    }
-
-    private static Token token(long token)
-    {
-        return new Murmur3Partitioner.LongToken(token);
     }
 }
