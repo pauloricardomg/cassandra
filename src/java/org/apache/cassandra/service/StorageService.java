@@ -117,6 +117,7 @@ import static java.util.Arrays.stream;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
@@ -678,6 +679,22 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             JVMStabilityInspector.inspectThrowable(t);
             logger.warn("Error loading counter cache", t);
+        }
+
+        if (Integer.getInteger("cassandra.init.wait_for_live_members", -1) > 0)
+        {
+            int requiredLiveMembers = Integer.getInteger("cassandra.init.wait_for_live_members");
+            int MAX_ATTEMPTS = 120;
+            int attempts = 0;
+            logger.info("Option \"cassandra.init.wait_for_live_members\" specified. Will wait up to {} seconds for {} live members.",
+                        MAX_ATTEMPTS, requiredLiveMembers);
+            while (getLiveRingMembers().size() < requiredLiveMembers)
+            {
+                if (attempts++ > MAX_ATTEMPTS)
+                    throw new IllegalStateException(String.format("Haven't seen %d live members after %d seconds.", requiredLiveMembers, MAX_ATTEMPTS));
+                Uninterruptibles.sleepUninterruptibly(1, SECONDS);
+            }
+            logger.debug("Saw {} live members after {} seconds.", getLiveRingMembers().size(), attempts);
         }
 
         if (joinRing)
