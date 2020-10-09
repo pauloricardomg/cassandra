@@ -17,8 +17,10 @@
  */
 package org.apache.cassandra.dht.tokenallocator;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -33,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
@@ -165,6 +168,88 @@ public class TokenAllocation
         return TokenAllocatorFactory.createTokenAllocator(sortedTokens, strategy, tokenMetadata.partitioner);
     }
 
+    /**
+     * Creates a token generator to use by the generate-tokens standalone tool.
+     *
+     * @param rf replication factor
+     * @param idToRack map between node id and the rack it belongs to. Note that the number of distinct values in this
+     *                 map defines the number of racks in the cluster.
+     * @param partitioner
+     */
+    public static TokenAllocator<Integer> createTokenGenerator(int rf, int[] idToRack, IPartitioner partitioner)
+    {
+        int rackCount = idToRack != null && idToRack.length > 0 ? (int) Arrays.stream(idToRack).distinct().count() : 1;
+        if (rf == 1 || rackCount == 1)
+        {
+            // Simple case, single racks or single replication.
+            return TokenAllocatorFactory.createTokenAllocator(new TreeMap<>(),
+                                                              new ReplicationStrategy<Integer>()
+                                                              {
+                                                                  public int replicas()
+                                                                  {
+                                                                      return rf;
+                                                                  }
+
+                                                                  public Integer getGroup(Integer integer)
+                                                                  {
+                                                                      return integer;
+                                                                  }
+                                                              },
+                                                              partitioner);
+        }
+
+        if (rackCount > rf)
+        {
+            // Use replication-aware allocation.
+            return TokenAllocatorFactory.createTokenAllocator(new TreeMap<>(),
+                                                              new ReplicationStrategy<Integer>()
+                                                              {
+                                                                  public int replicas()
+                                                                  {
+                                                                      return rf;
+                                                                  }
+
+                                                                  public Integer getGroup(Integer integer)
+                                                                  {
+                                                                      return idToRack[integer];
+                                                                  }
+                                                              },
+                                                              partitioner);
+        }
+
+        if (rackCount < rf)
+            throw new AssertionError("Cannot use token allocation when there are fewer racks than RF.");
+
+        // RF==racks case, do independent allocation in racks.
+        ReplicationStrategy<Integer> strategy = new ReplicationStrategy<Integer>()
+        {
+            public int replicas()
+            {
+                return 1;
+            }
+
+            public Object getGroup(Integer integer)
+            {
+                return integer;
+            }
+        };
+
+        Map<Integer, TokenAllocator<Integer>> allocators = new HashMap<>();
+
+        return (newUnit, numTokens) ->
+        {
+            TokenAllocator<Integer> allocator = allocators.get(idToRack[newUnit]);
+            if (allocator == null)
+            {
+                allocator = TokenAllocatorFactory.createTokenAllocator(new TreeMap<>(),
+                                                                       strategy,
+                                                                       partitioner);
+                allocators.put(idToRack[newUnit], allocator);
+            }
+            return allocator.addUnit(newUnit, numTokens);
+        };
+    }
+
     interface StrategyAdapter extends ReplicationStrategy<InetAddressAndPort>
     {
         // return true iff the provided endpoint occurs in the same virtual token-ring we are allocating for
@@ -195,7 +280,7 @@ public class TokenAllocation
             }
 
             @Override
-            public Object getGroup(InetAddressAndPort unit)
+            public InetAddressAndPort getGroup(InetAddressAndPort unit)
             {
                 return unit;
             }
@@ -235,7 +320,7 @@ public class TokenAllocation
                 }
 
                 @Override
-                public Object getGroup(InetAddressAndPort unit)
+                public InetAddressAndPort getGroup(InetAddressAndPort unit)
                 {
                     return unit;
                 }
@@ -292,7 +377,7 @@ public class TokenAllocation
                 }
 
                 @Override
-                public Object getGroup(InetAddressAndPort unit)
+                public InetAddressAndPort getGroup(InetAddressAndPort unit)
                 {
                     return unit;
                 }
@@ -316,7 +401,7 @@ public class TokenAllocation
                 }
 
                 @Override
-                public Object getGroup(InetAddressAndPort unit)
+                public InetAddressAndPort getGroup(InetAddressAndPort unit)
                 {
                     return unit;
                 }

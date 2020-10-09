@@ -1,4 +1,5 @@
 4.0-beta3
+ * Add generate-tokens script for offline token allocation strategy generation (CASSANDRA-16205)
  * Use unsigned short in ValueAccessor.sliceWithShortLength (CASSANDRA-16147)
  * Abort repairs when getting a truncation request (CASSANDRA-15854)
  * Remove bad assert when getting active compactions for an sstable (CASSANDRA-15457)

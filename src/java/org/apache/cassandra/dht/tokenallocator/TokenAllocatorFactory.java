@@ -30,19 +30,20 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 public class TokenAllocatorFactory
 {
     private static final Logger logger = LoggerFactory.getLogger(TokenAllocatorFactory.class);
-    public static TokenAllocator<InetAddressAndPort> createTokenAllocator(NavigableMap<Token, InetAddressAndPort> sortedTokens,
-                                                                          ReplicationStrategy<InetAddressAndPort> strategy,
-                                                                          IPartitioner partitioner)
+
+    public static <Unit> TokenAllocator<Unit> createTokenAllocator(NavigableMap<Token, Unit> sortedTokens,
+                                                                   ReplicationStrategy<Unit> strategy,
+                                                                   IPartitioner partitioner)
     {
         if(strategy.replicas() == 1)
         {
             logger.info("Using NoReplicationTokenAllocator.");
-            NoReplicationTokenAllocator<InetAddressAndPort> allocator = new NoReplicationTokenAllocator<>(sortedTokens, strategy, partitioner);
+            NoReplicationTokenAllocator<Unit> allocator = new NoReplicationTokenAllocator<>(sortedTokens, strategy, partitioner);
             TokenAllocatorDiagnostics.noReplicationTokenAllocatorInstanciated(allocator);
             return allocator;
         }
         logger.info("Using ReplicationAwareTokenAllocator.");
-        ReplicationAwareTokenAllocator<InetAddressAndPort> allocator = new ReplicationAwareTokenAllocator<>(sortedTokens, strategy, partitioner);
+        ReplicationAwareTokenAllocator<Unit> allocator = new ReplicationAwareTokenAllocator<>(sortedTokens, strategy, partitioner);
         TokenAllocatorDiagnostics.replicationTokenAllocatorInstanciated(allocator);
         return allocator;
     }
