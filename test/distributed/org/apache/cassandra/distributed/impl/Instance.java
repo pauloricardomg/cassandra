@@ -427,6 +427,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 SystemKeyspace.persistLocalMetadata();
                 SystemKeyspaceMigrator40.migrate();
 
+                // Populate token metadata before flushing, for token-aware sstable partitioning (#6696)
+                StorageService.instance.populateTokenMetadata();
+
                 try
                 {
                     // load schema from disk
@@ -451,6 +454,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 {
                     throw new RuntimeException(e);
                 }
+
+                // Re-populate token metadata after commit log recover (new peers might be loaded onto system keyspace #10293)
+                StorageService.instance.populateTokenMetadata();
 
                 Verb.REQUEST_RSP.unsafeSetSerializer(() -> ReadResponse.serializer);
 

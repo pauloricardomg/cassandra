@@ -107,7 +107,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     private volatile ScheduledFuture<?> scheduledGossipTask;
     private static final ReentrantLock taskLock = new ReentrantLock();
     public final static int intervalInMillis = 1000;
-    public final static int QUARANTINE_DELAY = StorageService.RING_DELAY * 2;
+    public final static int QUARANTINE_DELAY = Integer.parseInt(System.getProperty("cassandra.gossip_quarantine_delay", Integer.toString(StorageService.RING_DELAY * 2)));
     private static final Logger logger = LoggerFactory.getLogger(Gossiper.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 15L, TimeUnit.MINUTES);
 
@@ -1494,7 +1494,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             logger.debug("Shadow request received, adding all states");
             for (Map.Entry<InetAddressAndPort, EndpointState> entry : endpointStateMap.entrySet())
             {
-                gDigestList.add(new GossipDigest(entry.getKey(), 0, 0));
+                // use -1 as addSavedEndpoint uses (0, 0) for downed nodes; if we used (0, 0) we could not
+                // do host replacements of downed hosts
+                gDigestList.add(new GossipDigest(entry.getKey(), -1, -1));
             }
         }
         for ( GossipDigest gDigest : gDigestList )
@@ -1523,8 +1525,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                 }
                 else if (remoteGeneration < localGeneration)
                 {
-                    /* send all data with generation = localgeneration and version > 0 */
-                    sendAll(gDigest, deltaEpStateMap, 0);
+                    /* send all data with generation = localgeneration and version > -1 */
+                    sendAll(gDigest, deltaEpStateMap, -1);
                 }
                 else if (remoteGeneration == localGeneration)
                 {
@@ -1765,7 +1767,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     /**
      * Add an endpoint we knew about previously, but whose state is unknown
      */
-    public void addSavedEndpoint(InetAddressAndPort ep)
+    public void addSavedEndpoint(InetAddressAndPort ep, UUID hostId, Collection<Token> tokens)
     {
         checkProperThreadForStateMutation();
         if (ep.equals(FBUtilities.getBroadcastAddressAndPort()))
@@ -1784,11 +1786,20 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         else
         {
             epState = new EndpointState(new HeartBeatState(0));
+            // if the host_id and/or tokens are known, populate the state to include it
+            // mark the node status as UNKNOWN to indicate that this state came from peers and
+            // not a live node gossiping itself.
+            if (hostId != null)
+                epState.addApplicationState(ApplicationState.HOST_ID, StorageService.instance.valueFactory.hostId(hostId));
+            if (tokens != null && !tokens.isEmpty())
+                epState.addApplicationState(ApplicationState.TOKENS, StorageService.instance.valueFactory.tokens(tokens));
+            epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.unknown());
+            epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.unknown());
         }
 
         epState.markDead();
         endpointStateMap.put(ep, epState);
-        unreachableEndpoints.put(ep, System.nanoTime());
+        markDead(ep, epState);
         if (logger.isTraceEnabled())
             logger.trace("Adding saved endpoint {} {}", ep, epState.getHeartBeatState().getGeneration());
     }

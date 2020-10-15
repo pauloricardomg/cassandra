@@ -77,7 +77,7 @@ public class GoogleCloudSnitchTest
         InetAddressAndPort local = InetAddressAndPort.getByName("127.0.0.1");
         InetAddressAndPort nonlocal = InetAddressAndPort.getByName("127.0.0.7");
 
-        Gossiper.instance.addSavedEndpoint(nonlocal);
+        Gossiper.instance.addSavedEndpoint(nonlocal, null, null);
         Map<ApplicationState, VersionedValue> stateMap = new EnumMap<>(ApplicationState.class);
         stateMap.put(ApplicationState.DC, StorageService.instance.valueFactory.datacenter("europe-west1"));
         stateMap.put(ApplicationState.RACK, StorageService.instance.valueFactory.datacenter("a"));

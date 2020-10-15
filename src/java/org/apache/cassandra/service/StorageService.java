@@ -736,7 +736,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 {
                     if (loadedHostIds.containsKey(ep))
                         tokenMetadata.updateHostId(loadedHostIds.get(ep), ep);
-                    Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.addSavedEndpoint(ep));
+                    Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.addSavedEndpoint(ep, loadedHostIds.get(ep), loadedTokens.get(ep)));
                 }
             }
         }
@@ -2166,6 +2166,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 case VersionedValue.STATUS_MOVING:
                     handleStateMoving(endpoint, pieces);
                     break;
+                case VersionedValue.STATUS_UNKNOWN:
+                    handleStateUnknown(endpoint);
+                    break;
             }
         }
         else
@@ -2563,6 +2566,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (!tokensToUpdateInSystemKeyspace.isEmpty())
             SystemKeyspace.updateTokens(endpoint, tokensToUpdateInSystemKeyspace);
     }
+
+    /**
+     * If the cluster shuts down and a node can not come back, then the state isn't known other than what
+     * was in the peers table; this status exits to allow replacing a host in these cases.
+     *
+     * @param endpoint moving endpoint address
+     */
+    private void handleStateUnknown(InetAddressAndPort endpoint)
+    {
+        handleStateNormal(endpoint, VersionedValue.STATUS_NORMAL);
+    }
+
     /**
      * Handle node move to normal state. That is, node is entering token ring and participating
      * in reads.

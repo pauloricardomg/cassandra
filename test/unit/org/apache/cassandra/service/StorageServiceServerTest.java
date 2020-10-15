@@ -650,7 +650,7 @@ public class StorageServiceServerTest
     {
         String internalAddressString = "127.0.0.2:666";
         InetAddressAndPort internalAddress = InetAddressAndPort.getByName(internalAddressString);
-        Gossiper.instance.addSavedEndpoint(internalAddress);
+        Gossiper.instance.addSavedEndpoint(internalAddress, null, null);
         //Default to using the provided address with the configured port
         assertEquals("127.0.0.2:" + DatabaseDescriptor.getNativeTransportPort(), StorageService.instance.getNativeaddress(internalAddress, true));
 

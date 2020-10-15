@@ -72,6 +72,12 @@ public class VersionedValue implements Comparable<VersionedValue>
     public final static String STATUS_LEFT = "LEFT";
     public final static String STATUS_MOVING = "MOVING";
 
+    /**
+     * Represents status of a node that wasn't removed from the cluster, but doesn't have enough state to do
+     * much with it...
+     */
+    public final static String STATUS_UNKNOWN = "UNKNOWN";
+
     public final static String REMOVING_TOKEN = "removing";
     public final static String REMOVED_TOKEN = "removed";
 
@@ -161,6 +167,11 @@ public class VersionedValue implements Comparable<VersionedValue>
         {
             return new VersionedValue(versionString(VersionedValue.STATUS_NORMAL,
                                                     makeTokenString(tokens)));
+        }
+
+        public VersionedValue unknown()
+        {
+            return new VersionedValue(versionString(VersionedValue.STATUS_UNKNOWN));
         }
 
         private String makeTokenString(Collection<Token> tokens)
