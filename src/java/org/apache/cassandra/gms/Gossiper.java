@@ -1795,6 +1795,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                 epState.addApplicationState(ApplicationState.TOKENS, StorageService.instance.valueFactory.tokens(tokens));
             epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.unknown());
             epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.unknown());
+            logger.info("Adding {} as there was no previous epState; new state is {}", ep, epState);
         }
 
         epState.markDead();

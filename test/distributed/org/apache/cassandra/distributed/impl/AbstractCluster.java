@@ -66,6 +66,7 @@ import org.apache.cassandra.distributed.api.LogAction;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.InstanceClassLoader;
+import org.apache.cassandra.distributed.shared.Isolated;
 import org.apache.cassandra.distributed.shared.MessageFilters;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
 import org.apache.cassandra.distributed.shared.Shared;
@@ -115,10 +116,15 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
     // include byteman so tests can use
     private static final Set<String> SHARED_CLASSES = findClassesMarkedForSharedClassLoader();
-    private static final Predicate<String> SHARED_PREDICATE = s ->
-                                                              SHARED_CLASSES.contains(s) ||
-                                                              InstanceClassLoader.getDefaultLoadSharedFilter().test(s) ||
-                                                              s.startsWith("org.jboss.byteman");
+    private static final Set<String> ISOLATED_CLASSES = findClassesMarkedForInstanceClassLoader();
+    private static final Predicate<String> SHARED_PREDICATE = s -> {
+        if (ISOLATED_CLASSES.contains(s))
+            return false;
+
+        return SHARED_CLASSES.contains(s) ||
+               InstanceClassLoader.getDefaultLoadSharedFilter().test(s) ||
+               s.startsWith("org.jboss.byteman");
+    };
 
     private final UUID clusterId = UUID.randomUUID();
     private final File root;
@@ -847,6 +853,13 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         return new Reflections("org.apache.cassandra").getTypesAnnotatedWith(Shared.class).stream()
                                 .map(Class::getName)
                                 .collect(Collectors.toSet());
+    }
+
+    private static Set<String> findClassesMarkedForInstanceClassLoader()
+    {
+        return new Reflections("org.apache.cassandra").getTypesAnnotatedWith(Isolated.class).stream()
+                                                      .map(Class::getName)
+                                                      .collect(Collectors.toSet());
     }
 }
 
