@@ -134,8 +134,7 @@ public class ClusterUtils
         InstanceConfig config = cluster.newInstanceConfig();
         //TODO host replacements should be easier
         // this is very hidden, so should be more explicit
-        NetworkTopology.DcAndRack dcAndRack = NetworkTopology.dcAndRack(dc, rack);
-        config.networkTopology().put(config.broadcastAddress(), dcAndRack);
+        config.networkTopology().put(config.broadcastAddress(), NetworkTopology.dcAndRack(dc, rack));
 
         fn.accept(config);
 
