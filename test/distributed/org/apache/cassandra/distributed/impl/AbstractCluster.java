@@ -231,9 +231,9 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             if (cluster != AbstractCluster.this)
                 throw new IllegalArgumentException("Only the owning cluster can be used for startup");
             if (!isShutdown)
-                throw new IllegalStateException();
+                throw new IllegalStateException("Can not start a instance that is already running");
+            isShutdown = false; // if startup fails, still mark it as running
             delegateForStartup().startup(cluster);
-            isShutdown = false;
             updateMessagingVersions();
         }
 
@@ -247,7 +247,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         public synchronized Future<Void> shutdown(boolean graceful)
         {
             if (isShutdown)
-                throw new IllegalStateException();
+                throw new IllegalStateException("Instance is not running, so can not be shutdown");
             isShutdown = true;
             Future<Void> future = delegate.shutdown(graceful);
             delegate = null;

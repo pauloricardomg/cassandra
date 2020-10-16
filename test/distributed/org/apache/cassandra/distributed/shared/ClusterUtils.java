@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -37,6 +36,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Table;
+import com.google.common.util.concurrent.Futures;
 import org.junit.Assert;
 
 import org.apache.cassandra.distributed.api.ICluster;
@@ -80,25 +80,23 @@ public class ClusterUtils
     }
 
     /**
+     * Stop an instance in a blocking manner.
+     *
+     * The main difference between this and {@link IInstance#shutdown()} is that the wait on the future will catch
+     * the exceptions and throw as runtime.
+     */
+    public static void stopUnchecked(IInstance i)
+    {
+        Futures.getUnchecked(i.shutdown());
+    }
+
+    /**
      * Stop all the instances in the cluster.  This function is differe than {@link ICluster#close()} as it doesn't
      * clean up the cluster state, it only stops all the instances.
      */
     public static <I extends IInstance> void stopAll(ICluster<I> cluster)
     {
-        cluster.stream().forEach(i -> {
-            try
-            {
-                i.shutdown().get();
-            }
-            catch (InterruptedException e)
-            {
-                throw new RuntimeException(e);
-            }
-            catch (ExecutionException e)
-            {
-                throw new RuntimeException(e.getCause());
-            }
-        });
+        cluster.stream().forEach(ClusterUtils::stopUnchecked);
     }
 
     /**
@@ -190,6 +188,15 @@ public class ClusterUtils
         NodeToolResult results = inst.nodetoolResult("ring");
         results.asserts().success();
         return parseRing(results.getStdout());
+    }
+
+    public static List<RingInstanceDetails> assertInRing(IInvokableInstance src, IInvokableInstance target)
+    {
+        String targetAddress = target.config().broadcastAddress().getAddress().getHostAddress();
+        List<RingInstanceDetails> ring = ring(src);
+        Optional<RingInstanceDetails> match = ring.stream().filter(d -> d.address.equals(targetAddress)).findFirst();
+        Assertions.assertThat(match).as("Not expected to find %s but was found", targetAddress).isPresent();
+        return ring;
     }
 
     /**
