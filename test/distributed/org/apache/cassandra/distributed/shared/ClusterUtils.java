@@ -270,7 +270,20 @@ public class ClusterUtils
      */
     public static List<RingInstanceDetails> assertRingIs(IInvokableInstance src, IInvokableInstance... expectedInsts)
     {
-        Set<String> expectedRingAddresses = Stream.of(expectedInsts)
+        return assertRingIs(src, Arrays.asList(expectedInsts));
+    }
+
+    /**
+     * Make sure the ring is only the expected instances.  The source instance may not be in the ring, so this function
+     * only relies on the expectedInsts param.
+     *
+     * @param src instance to check on
+     * @param expectedInsts expected instances in the ring
+     * @return the ring (if condition is true)
+     */
+    public static List<RingInstanceDetails> assertRingIs(IInvokableInstance src, List<IInvokableInstance> expectedInsts)
+    {
+        Set<String> expectedRingAddresses = expectedInsts.stream()
                                                   .map(i -> i.config().broadcastAddress().getAddress().getHostAddress())
                                                   .collect(Collectors.toSet());
         List<RingInstanceDetails> ring = ring(src);

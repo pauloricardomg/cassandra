@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
@@ -192,16 +193,17 @@ public class HostReplacementTest extends TestBaseImpl
             // now create a new node to replace the other node
             IInvokableInstance replacingNode = replaceHostAndStart(cluster, nodeToRemove);
 
+            List<IInvokableInstance> expectedRing = Arrays.asList(seed, replacingNode, nodeToStayAlive);
+
             // wait till the replacing node is in the ring
             awaitJoinRing(seed, replacingNode);
             awaitJoinRing(replacingNode, seed);
+            awaitJoinRing(nodeToStayAlive, replacingNode);
 
             // make sure all nodes are healthy
-            awaitHealthyRing(seed);
+            logger.info("Current ring is {}", awaitHealthyRing(seed));
 
-            assertRingIs(seed, seed, replacingNode, nodeToStayAlive);
-            assertRingIs(replacingNode, seed, replacingNode, nodeToStayAlive);
-            logger.info("Current ring is {}", assertRingIs(nodeToStayAlive, seed, replacingNode, nodeToStayAlive));
+            expectedRing.forEach(i -> assertRingIs(i, expectedRing));
 
             validateRows(seed.coordinator(), expectedState);
             validateRows(replacingNode.coordinator(), expectedState);
