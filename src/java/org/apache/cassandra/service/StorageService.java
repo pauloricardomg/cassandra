@@ -501,6 +501,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (epStates.get(replaceAddress) == null)
             throw new RuntimeException(String.format("Cannot replace_address %s because it doesn't exist in gossip", replaceAddress));
 
+        // add shadow round into gossip state... see what happens
+        Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.applyStateLocally(epStates));
+
         validateEndpointSnitch(epStates.values().iterator());
 
         try
@@ -798,6 +801,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             UUID localHostId = SystemKeyspace.getLocalHostId();
 
+            Gossiper.instance.register(this);
             if (replacing)
             {
                 localHostId = prepareForReplacement();
@@ -851,7 +855,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             loadRingState();
 
             logger.info("Starting up server gossip");
-            Gossiper.instance.register(this);
             Gossiper.instance.start(SystemKeyspace.incrementAndGetGeneration(), appStates); // needed for node-ring gathering.
             gossipActive = true;
             // gossip snitch infos (local DC and rack)
@@ -1540,6 +1543,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     }
                     else
                     {
+
                         throw new UnsupportedOperationException("Cannot replace token " + token + " which does not exist!");
                     }
                 }
@@ -2166,9 +2170,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 case VersionedValue.STATUS_MOVING:
                     handleStateMoving(endpoint, pieces);
                     break;
-                case VersionedValue.STATUS_UNKNOWN:
-                    handleStateUnknown(endpoint);
-                    break;
             }
         }
         else
@@ -2565,17 +2566,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
         if (!tokensToUpdateInSystemKeyspace.isEmpty())
             SystemKeyspace.updateTokens(endpoint, tokensToUpdateInSystemKeyspace);
-    }
-
-    /**
-     * If the cluster shuts down and a node can not come back, then the state isn't known other than what
-     * was in the peers table; this status exits to allow replacing a host in these cases.
-     *
-     * @param endpoint moving endpoint address
-     */
-    private void handleStateUnknown(InetAddressAndPort endpoint)
-    {
-        handleStateNormal(endpoint, VersionedValue.STATUS_NORMAL);
     }
 
     /**

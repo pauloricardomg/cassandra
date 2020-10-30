@@ -1480,25 +1480,30 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             deltaEpStateMap.put(gDigest.getEndpoint(), localEpStatePtr);
     }
 
+    /**
+     * Used during a gossip shadow round to collect the current state. This method clones the current state, no filtering
+     * is done.
+     *
+     * The EndpointState may be "empty" (generation=0 and no application state), which is different than {@link #examineGossiper(List, List, Map)}.
+     */
+    Map<InetAddressAndPort, EndpointState> examineShadowState()
+    {
+        logger.debug("Shadow request received, adding all states");
+        Map<InetAddressAndPort, EndpointState> map = new HashMap<>();
+        for (Entry<InetAddressAndPort, EndpointState> e : endpointStateMap.entrySet())
+        {
+            map.put(e.getKey(), new EndpointState(e.getValue()));
+        }
+        return map;
+    }
+
     /*
         This method is used to figure the state that the Gossiper has but Gossipee doesn't. The delta digests
         and the delta state are built up.
     */
     void examineGossiper(List<GossipDigest> gDigestList, List<GossipDigest> deltaGossipDigestList, Map<InetAddressAndPort, EndpointState> deltaEpStateMap)
     {
-        if (gDigestList.size() == 0)
-        {
-           /* we've been sent a *completely* empty syn, which should normally never happen since an endpoint will at least send a syn with itself.
-              If this is happening then the node is attempting shadow gossip, and we should respond with everything we know.
-            */
-            logger.debug("Shadow request received, adding all states");
-            for (Map.Entry<InetAddressAndPort, EndpointState> entry : endpointStateMap.entrySet())
-            {
-                // use -1 as addSavedEndpoint uses (0, 0) for downed nodes; if we used (0, 0) we could not
-                // do host replacements of downed hosts
-                gDigestList.add(new GossipDigest(entry.getKey(), -1, -1));
-            }
-        }
+        assert !gDigestList.isEmpty() : "examineGossiper called with empty digest list";
         for ( GossipDigest gDigest : gDigestList )
         {
             int remoteGeneration = gDigest.getGeneration();
@@ -1512,6 +1517,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             */
             if (epStatePtr != null)
             {
+                if (epStatePtr.isEmpty())
+                    continue;
+
                 int localGeneration = epStatePtr.getHeartBeatState().getGeneration();
                 /* get the max version of all keys in the state associated with this endpoint */
                 int maxLocalVersion = getMaxEndpointStateVersion(epStatePtr);
@@ -1781,20 +1789,22 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         if (epState != null)
         {
             logger.debug("not replacing a previous epState for {}, but reusing it: {}", ep, epState);
-            epState.setHeartBeatState(new HeartBeatState(0));
+            epState.setHeartBeatState(HeartBeatState.empty());
         }
         else
         {
-            epState = new EndpointState(new HeartBeatState(0));
+            epState = new EndpointState(HeartBeatState.empty());
             // if the host_id and/or tokens are known, populate the state to include it
             // mark the node status as UNKNOWN to indicate that this state came from peers and
             // not a live node gossiping itself.
             if (hostId != null)
                 epState.addApplicationState(ApplicationState.HOST_ID, StorageService.instance.valueFactory.hostId(hostId));
             if (tokens != null && !tokens.isEmpty())
+            {
                 epState.addApplicationState(ApplicationState.TOKENS, StorageService.instance.valueFactory.tokens(tokens));
-            epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.unknown());
-            epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.unknown());
+                epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.normal(tokens));
+                epState.addApplicationState(ApplicationState.STATUS_WITH_PORT, StorageService.instance.valueFactory.normal(tokens));
+            }
             logger.info("Adding {} as there was no previous epState; new state is {}", ep, epState);
         }
 

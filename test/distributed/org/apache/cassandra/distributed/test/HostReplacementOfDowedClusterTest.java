@@ -85,7 +85,7 @@ public class HostReplacementOfDowedClusterTest extends TestBaseImpl
             seed.startup();
 
             // at this point node2 should be known in gossip, but with generation/version of 0
-            assertGossipInfo(seed, addressToReplace, 0, 0);
+            assertGossipInfo(seed, addressToReplace, 0, -1);
 
             // make sure node1 still has node2's tokens
             List<String> currentTokens = getTokenMetadataTokens(seed);
@@ -149,7 +149,7 @@ public class HostReplacementOfDowedClusterTest extends TestBaseImpl
             seed.startup();
 
             // at this point node2 should be known in gossip, but with generation/version of 0
-            assertGossipInfo(seed, addressToReplace, 0, 0);
+            assertGossipInfo(seed, addressToReplace, 0, -1);
 
             // make sure node1 still has node2's tokens
             List<String> currentTokens = getTokenMetadataTokens(seed);
