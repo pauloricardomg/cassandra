@@ -32,7 +32,6 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Table;
@@ -54,6 +53,8 @@ import org.assertj.core.api.Assertions;
  *
  * This class is marked as Isolated as it relies on lambdas, which are in a package that is marked as shared, so need to
  * tell jvm-dtest to not share this class.
+ *
+ * This class should never be called from within the cluster, always in the App ClassLoader.
  */
 @Isolated
 public class ClusterUtils
@@ -182,14 +183,14 @@ public class ClusterUtils
     /**
      * Get the ring from the perspective of the instance.
      */
-    public static List<RingInstanceDetails> ring(IInvokableInstance inst)
+    public static List<RingInstanceDetails> ring(IInstance inst)
     {
         NodeToolResult results = inst.nodetoolResult("ring");
         results.asserts().success();
         return parseRing(results.getStdout());
     }
 
-    public static List<RingInstanceDetails> assertInRing(IInvokableInstance src, IInvokableInstance target)
+    public static List<RingInstanceDetails> assertInRing(IInstance src, IInstance target)
     {
         String targetAddress = target.config().broadcastAddress().getAddress().getHostAddress();
         List<RingInstanceDetails> ring = ring(src);
@@ -205,7 +206,7 @@ public class ClusterUtils
      * @param target instance not expected in the ring
      * @return the ring (if target is not present)
      */
-    public static List<RingInstanceDetails> assertNotInRing(IInvokableInstance src, IInvokableInstance target)
+    public static List<RingInstanceDetails> assertNotInRing(IInstance src, IInstance target)
     {
         String targetAddress = target.config().broadcastAddress().getAddress().getHostAddress();
         List<RingInstanceDetails> ring = ring(src);
@@ -221,7 +222,7 @@ public class ClusterUtils
      * @param target instance to wait for
      * @return the ring
      */
-    public static List<RingInstanceDetails> awaitJoinRing(IInvokableInstance src, IInstance target) throws InterruptedException
+    public static List<RingInstanceDetails> awaitJoinRing(IInstance src, IInstance target) throws InterruptedException
     {
         String targetAddress = target.broadcastAddress().getAddress().getHostAddress();
         for (int i = 0; i < 100; i++)
@@ -245,7 +246,7 @@ public class ClusterUtils
      * @param src instance to check on
      * @return the ring
      */
-    public static List<RingInstanceDetails> awaitHealthyRing(IInvokableInstance src) throws InterruptedException
+    public static List<RingInstanceDetails> awaitHealthyRing(IInstance src) throws InterruptedException
     {
         for (int i = 0; i < 100; i++)
         {
@@ -268,7 +269,7 @@ public class ClusterUtils
      * @param expectedInsts expected instances in the ring
      * @return the ring (if condition is true)
      */
-    public static List<RingInstanceDetails> assertRingIs(IInvokableInstance src, IInvokableInstance... expectedInsts)
+    public static List<RingInstanceDetails> assertRingIs(IInstance src, IInstance... expectedInsts)
     {
         return assertRingIs(src, Arrays.asList(expectedInsts));
     }
@@ -281,7 +282,7 @@ public class ClusterUtils
      * @param expectedInsts expected instances in the ring
      * @return the ring (if condition is true)
      */
-    public static List<RingInstanceDetails> assertRingIs(IInvokableInstance src, List<IInvokableInstance> expectedInsts)
+    public static List<RingInstanceDetails> assertRingIs(IInstance src, List<? extends IInstance> expectedInsts)
     {
         Set<String> expectedRingAddresses = expectedInsts.stream()
                                                   .map(i -> i.config().broadcastAddress().getAddress().getHostAddress())
@@ -324,7 +325,7 @@ public class ClusterUtils
      * @param inst to check on
      * @return gossip info
      */
-    public static Table<String, String, String> gossipInfo(IInvokableInstance inst)
+    public static Table<String, String, String> gossipInfo(IInstance inst)
     {
         NodeToolResult results = inst.nodetoolResult("gossipinfo");
         results.asserts().success();
@@ -339,7 +340,7 @@ public class ClusterUtils
      * @param expectedGeneration expected generation
      * @param expectedHeartbeat expected heartbeat
      */
-    public static void assertGossipInfo(IInvokableInstance inst,
+    public static void assertGossipInfo(IInstance inst,
                                         InetSocketAddress target, int expectedGeneration, int expectedHeartbeat)
     {
         String targetAddress = target.getAddress().toString();
