@@ -33,7 +33,6 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Table;
@@ -192,6 +191,13 @@ public class ClusterUtils
         return parseRing(results.getStdout());
     }
 
+    /**
+     * Make sure the target instance is in the ring.
+     *
+     * @param src instance to check on
+     * @param target instance expected in the ring
+     * @return the ring (if target is present)
+     */
     public static List<RingInstanceDetails> assertInRing(IInstance src, IInstance target)
     {
         String targetAddress = target.config().broadcastAddress().getAddress().getHostAddress();
@@ -400,6 +406,12 @@ public class ClusterUtils
         return table;
     }
 
+    /**
+     * Get all data directories for the given instance.
+     *
+     * @param instance to get data directories for
+     * @return data directories
+     */
     public static List<File> getDataDirectories(IInstance instance)
     {
         IInstanceConfig conf = instance.config();
@@ -412,6 +424,12 @@ public class ClusterUtils
         return files;
     }
 
+    /**
+     * Get the commit log directory for the given instance.
+     *
+     * @param instance to get the commit log directory for
+     * @return commit log directory
+     */
     public static File getCommitLogDirectory(IInstance instance)
     {
         IInstanceConfig conf = instance.config();
@@ -421,6 +439,12 @@ public class ClusterUtils
         return new File(d);
     }
 
+    /**
+     * Get the hints directory for the given instance.
+     *
+     * @param instance to get the hints directory for
+     * @return hints directory
+     */
     public static File getHintsDirectory(IInstance instance)
     {
         IInstanceConfig conf = instance.config();
@@ -430,6 +454,12 @@ public class ClusterUtils
         return new File(d);
     }
 
+    /**
+     * Get the saved caches directory for the given instance.
+     *
+     * @param instance to get the saved caches directory for
+     * @return saved caches directory
+     */
     public static File getSavedCachesDirectory(IInstance instance)
     {
         IInstanceConfig conf = instance.config();
@@ -439,6 +469,12 @@ public class ClusterUtils
         return new File(d);
     }
 
+    /**
+     * Get all writable directories for the given instance.
+     *
+     * @param instance to get directories for
+     * @return all writable directories
+     */
     public static List<File> getDirectories(IInstance instance)
     {
         List<File> out = new ArrayList<>();
@@ -449,6 +485,13 @@ public class ClusterUtils
         return out;
     }
 
+    /**
+     * Changes the instance's address to the new address.  This method should only be called while the instance is
+     * down, else has undefined behavior.
+     *
+     * @param instance to update address for
+     * @param address to set
+     */
     public static void updateAddress(IInstance instance, String address)
     {
         IInstanceConfig conf = instance.config();
@@ -460,11 +503,17 @@ public class ClusterUtils
         conf.networkTopology().put(conf.broadcastAddress(), NetworkTopology.dcAndRack(conf.localDatacenter(), conf.localRack()));
     }
 
+    /**
+     * Changes the instance's address to the new address.  This method should only be called while the instance is
+     * down, else has undefined behavior.
+     *
+     * @param conf to update address for
+     * @param address to set
+     */
     public static void updateAddress(IInstanceConfig conf, String address)
     {
         for (String key : Arrays.asList("broadcast_address", "listen_address", "broadcast_rpc_address", "rpc_address"))
             conf.set(key, address);
-        conf.set("broadcast_address", address);
     }
 
     public static final class RingInstanceDetails
