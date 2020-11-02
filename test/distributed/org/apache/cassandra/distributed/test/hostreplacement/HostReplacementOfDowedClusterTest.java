@@ -225,7 +225,7 @@ public class HostReplacementOfDowedClusterTest extends TestBaseImpl
 
             // now create a new node to replace the other node
             Assertions.assertThatThrownBy(() -> replaceHostAndStart(cluster, nodeToRemove))
-                      .hasMessage("Cannot replace_address /127.0.0.2:7012 because it's status is not normal, status is left");
+                      .hasMessage("Cannot replace_address /127.0.0.2:7012 because it's status is not in [NORMAL, shutdown], status is LEFT");
         }
     }
 
