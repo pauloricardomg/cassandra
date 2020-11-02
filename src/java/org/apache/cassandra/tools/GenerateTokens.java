@@ -66,15 +66,12 @@ public class GenerateTokens
 
             partitioner = FBUtilities.newPartitioner(cmd.getOptionValue(PARTITIONER, Murmur3Partitioner.class.getSimpleName()));
 
-            if (cmd.hasOption(RACKS))
+            racksDef = getRacks(cmd.getOptionValue(RACKS, cmd.getOptionValue(NODES)));
+            if (Arrays.stream(racksDef).sum() != nodes)
             {
-                racksDef = getRacks(cmd.getOptionValue(RACKS, null));
-                if (Arrays.stream(racksDef).sum() != nodes)
-                {
-                    throw new AssertionError(String.format("The sum of nodes in each rack %s must equal total node count %s.",
-                                                           cmd.getOptionValue(RACKS),
-                                                           cmd.getOptionValue(NODES)));
-                }
+                throw new AssertionError(String.format("The sum of nodes in each rack %s must equal total node count %s.",
+                                                       cmd.getOptionValue(RACKS),
+                                                       cmd.getOptionValue(NODES)));
             }
         }
         catch (NumberFormatException e)
@@ -94,20 +91,17 @@ public class GenerateTokens
 
         try
         {
-            int[] idToRack = null;
             System.out.println(String.format("Generating tokens for %d nodes with %d vnodes each for replication factor %d and partitioner %s",
                                              nodes, tokens, rf, partitioner.getClass().getSimpleName()));
-            if (racksDef != null)
-            {
-                idToRack = makeIdToRackMap(nodes, racksDef);
-                System.out.println("Node to rack map: " + Arrays.toString(idToRack));
-            }
+
+            int[] idToRack = makeIdToRackMap(nodes, racksDef);
+            System.out.println("Node to rack map: " + Arrays.toString(idToRack));
 
             TokenAllocator<Integer> allocator = TokenAllocation.createTokenGenerator(rf, idToRack, partitioner);
             for (int i = 0; i < nodes; ++i)
             {
                 Collection<Token> allocatedTokens = allocator.addUnit(i, tokens);
-                if (idToRack != null)
+                if (racksDef.length > 1)
                     System.out.println(String.format("Node %d rack %d:", i, idToRack[i]));
                 System.out.println(allocatedTokens);
             }

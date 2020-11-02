@@ -178,29 +178,11 @@ public class TokenAllocation
      */
     public static TokenAllocator<Integer> createTokenGenerator(int rf, int[] idToRack, IPartitioner partitioner)
     {
-        int rackCount = idToRack != null && idToRack.length > 0 ? (int) Arrays.stream(idToRack).distinct().count() : 1;
-        if (rf == 1 || rackCount == 1)
-        {
-            // Simple case, single racks or single replication.
-            return TokenAllocatorFactory.createTokenAllocator(new TreeMap<>(),
-                                                              new ReplicationStrategy<Integer>()
-                                                              {
-                                                                  public int replicas()
-                                                                  {
-                                                                      return rf;
-                                                                  }
+        int rackCount = (int) Arrays.stream(idToRack).distinct().count();
 
-                                                                  public Integer getGroup(Integer integer)
-                                                                  {
-                                                                      return integer;
-                                                                  }
-                                                              },
-                                                              partitioner);
-        }
-
-        if (rackCount > rf)
+        if (rf == 1 || rackCount == 1 || rackCount > rf)
         {
-            // Use replication-aware allocation.
+            // Simple case, single racks, single replication or rackCount > rf.
             return TokenAllocatorFactory.createTokenAllocator(new TreeMap<>(),
                                                               new ReplicationStrategy<Integer>()
                                                               {
