@@ -1482,10 +1482,15 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     }
 
     /**
-     * Used during a gossip shadow round to collect the current state. This method clones the current state, no filtering
+     * Used during a shadow round to collect the current state; this method clones the current state, no filtering
      * is done.
      *
-     * The EndpointState may be "empty" (generation=0 and no application state), which is different than {@link #examineGossiper(List, List, Map)}.
+     * Durning the shadow round its desirable to return gossip state for remote instances that were created by this
+     * process also known as "empty", this is done for host replacement to be able to replace downed hosts that are
+     * in the ring but have no state in gossip (see CASSANDRA-16213).
+     *
+     * This method is different than {@link #examineGossiper(List, List, Map)} with respect to how "empty" states are
+     * dealt with; they are kept.
      */
     Map<InetAddressAndPort, EndpointState> examineShadowState()
     {
@@ -1498,10 +1503,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return map;
     }
 
-    /*
-        This method is used to figure the state that the Gossiper has but Gossipee doesn't. The delta digests
-        and the delta state are built up.
-    */
+    /**
+     * This method is used to figure the state that the Gossiper has but Gossipee doesn't. The delta digests
+     * and the delta state are built up.
+     *
+     * When a {@link EndpointState} is "empty" then it is filtered out and not added to the delta state (see CASSANDRA-16213).
+     */
     void examineGossiper(List<GossipDigest> gDigestList, List<GossipDigest> deltaGossipDigestList, Map<InetAddressAndPort, EndpointState> deltaEpStateMap)
     {
         assert !gDigestList.isEmpty() : "examineGossiper called with empty digest list";
