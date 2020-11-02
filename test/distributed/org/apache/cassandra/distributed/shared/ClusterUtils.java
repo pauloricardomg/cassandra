@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.distributed.shared;
 
+import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +33,7 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Table;
@@ -224,7 +226,18 @@ public class ClusterUtils
      */
     public static List<RingInstanceDetails> awaitJoinRing(IInstance src, IInstance target) throws InterruptedException
     {
-        String targetAddress = target.broadcastAddress().getAddress().getHostAddress();
+        return awaitJoinRing(src, target.broadcastAddress().getAddress().getHostAddress());
+    }
+
+    /**
+     * Wait for the target to be in the ring as seen by the source instance.
+     *
+     * @param src instance to check on
+     * @param targetAddress instance address to wait for
+     * @return the ring
+     */
+    public static List<RingInstanceDetails> awaitJoinRing(IInstance src, String targetAddress) throws InterruptedException
+    {
         for (int i = 0; i < 100; i++)
         {
             List<RingInstanceDetails> ring = ring(src);
@@ -237,7 +250,7 @@ public class ClusterUtils
             }
             TimeUnit.SECONDS.sleep(1);
         }
-        throw new AssertionError("Node " + target.broadcastAddress() + " did not join the ring...");
+        throw new AssertionError("Node " + targetAddress + " did not join the ring...");
     }
 
     /**
@@ -287,10 +300,23 @@ public class ClusterUtils
         Set<String> expectedRingAddresses = expectedInsts.stream()
                                                   .map(i -> i.config().broadcastAddress().getAddress().getHostAddress())
                                                   .collect(Collectors.toSet());
+        return assertRingIs(src, expectedRingAddresses);
+    }
+
+    /**
+     * Make sure the ring is only the expected instances.  The source instance may not be in the ring, so this function
+     * only relies on the expectedInsts param.
+     *
+     * @param src instance to check on
+     * @param expectedRingAddresses expected instances addresses in the ring
+     * @return the ring (if condition is true)
+     */
+    public static List<RingInstanceDetails> assertRingIs(IInstance src, Set<String> expectedRingAddresses)
+    {
         List<RingInstanceDetails> ring = ring(src);
         Set<String> ringAddresses = ring.stream().map(d -> d.address).collect(Collectors.toSet());
         Assertions.assertThat(ringAddresses)
-                  .as("Ring addreses did not match")
+                  .as("Ring addreses did not match for instance %s", src)
                   .isEqualTo(expectedRingAddresses);
         return ring;
     }
@@ -372,6 +398,73 @@ public class ClusterUtils
         }
 
         return table;
+    }
+
+    public static List<File> getDataDirectories(IInstance instance)
+    {
+        IInstanceConfig conf = instance.config();
+        // this isn't safe as it assumes the implementation of InstanceConfig
+        // might need to get smarter... some day...
+        String[] ds = (String[]) conf.get("data_file_directories");
+        List<File> files = new ArrayList<>(ds.length);
+        for (int i = 0; i < ds.length; i++)
+            files.add(new File(ds[i]));
+        return files;
+    }
+
+    public static File getCommitLogDirectory(IInstance instance)
+    {
+        IInstanceConfig conf = instance.config();
+        // this isn't safe as it assumes the implementation of InstanceConfig
+        // might need to get smarter... some day...
+        String d = (String) conf.get("commitlog_directory");
+        return new File(d);
+    }
+
+    public static File getHintsDirectory(IInstance instance)
+    {
+        IInstanceConfig conf = instance.config();
+        // this isn't safe as it assumes the implementation of InstanceConfig
+        // might need to get smarter... some day...
+        String d = (String) conf.get("hints_directory");
+        return new File(d);
+    }
+
+    public static File getSavedCachesDirectory(IInstance instance)
+    {
+        IInstanceConfig conf = instance.config();
+        // this isn't safe as it assumes the implementation of InstanceConfig
+        // might need to get smarter... some day...
+        String d = (String) conf.get("saved_caches_directory");
+        return new File(d);
+    }
+
+    public static List<File> getDirectories(IInstance instance)
+    {
+        List<File> out = new ArrayList<>();
+        out.addAll(getDataDirectories(instance));
+        out.add(getCommitLogDirectory(instance));
+        out.add(getHintsDirectory(instance));
+        out.add(getSavedCachesDirectory(instance));
+        return out;
+    }
+
+    public static void updateAddress(IInstance instance, String address)
+    {
+        IInstanceConfig conf = instance.config();
+        updateAddress(conf, address);
+
+        // InstanceConfig caches InetSocketAddress -> InetAddressAndPort
+        // this causes issues as startup now ignores config, so force reset it to pull from conf.
+        ((InstanceConfig) conf).unsetBroadcastAddressAndPort(); //TODO remove the need to null out the cache...
+        conf.networkTopology().put(conf.broadcastAddress(), NetworkTopology.dcAndRack(conf.localDatacenter(), conf.localRack()));
+    }
+
+    public static void updateAddress(IInstanceConfig conf, String address)
+    {
+        for (String key : Arrays.asList("broadcast_address", "listen_address", "broadcast_rpc_address", "rpc_address"))
+            conf.set(key, address);
+        conf.set("broadcast_address", address);
     }
 
     public static final class RingInstanceDetails
