@@ -1800,11 +1800,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             if (hostId != null)
                 epState.addApplicationState(ApplicationState.HOST_ID, StorageService.instance.valueFactory.hostId(hostId));
             if (tokens != null && !tokens.isEmpty())
-            {
                 epState.addApplicationState(ApplicationState.TOKENS, StorageService.instance.valueFactory.tokens(tokens));
-                epState.addApplicationState(ApplicationState.STATUS, StorageService.instance.valueFactory.normal(tokens));
-                epState.addApplicationState(ApplicationState.STATUS_WITH_PORT, StorageService.instance.valueFactory.normal(tokens));
-            }
             logger.info("Adding {} as there was no previous epState; new state is {}", ep, epState);
         }
 

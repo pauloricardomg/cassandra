@@ -18,6 +18,12 @@
 
 package org.apache.cassandra.config;
 
+import java.util.Collections;
+import java.util.Set;
+
+import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableSet;
+
 import org.apache.cassandra.exceptions.ConfigurationException;
 
 /** A class that extracts system properties for the cassandra node it runs within. */
@@ -136,6 +142,27 @@ public enum CassandraRelevantProperties
     /** mx4jport */
     MX4JPORT ("mx4jport"),
 
+    /**
+     * When doing a host replacement gossip status is checked to make sure the endpoint is only in a allowd set of
+     * states, these states are controled via this property.
+     */
+    REPLACEMENT_ALLOWED_GOSSIP_STATUSES("cassandra.replacement_allowed_gossip_statuses", "NORMAL,shutdown"),
+
+    /**
+     * When doing a host replacement its possible that the gossip state is "empty" meaning that the endpoint is known
+     * but the current state isn't known.  If the host replacement is needed to repair this state, this property must
+     * be true.
+     */
+    REPLACEMENT_ALLOW_EMPTY("cassandra.allow_empty_replace_address", "false"),
+
+    /**
+     * When doing a host replacement a check is done to make sure the targeted host to replace is in a known
+     * allowed set of gossip status, else it will reject the host replacement.
+     *
+     * This property allows to ignore this check.
+     */
+    REPLACEMENT_ALLOW_NON_NORMAL("cassandra.allow_non_normal_replace_address", "false"),
+
     //cassandra properties (without the "cassandra." prefix)
 
     /**
@@ -205,6 +232,14 @@ public enum CassandraRelevantProperties
         String value = System.getProperty(key);
 
         return INTEGER_CONVERTER.convert(value == null ? defaultVal : value);
+    }
+
+    public Set<String> getSet()
+    {
+        String value = System.getProperty(key, defaultVal);
+        if (value == null || value.isEmpty())
+            return Collections.emptySet();
+        return ImmutableSet.copyOf(Splitter.on(",").trimResults().split(value));
     }
 
     private interface PropertyConverter<T>

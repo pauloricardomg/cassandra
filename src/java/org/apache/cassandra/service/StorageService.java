@@ -47,6 +47,7 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.dht.RangeStreamer.FetchReplica;
 import org.apache.cassandra.fql.FullQueryLogger;
@@ -119,6 +120,9 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
+import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOWED_GOSSIP_STATUSES;
+import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_EMPTY;
+import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_NON_NORMAL;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
 import static org.apache.cassandra.index.SecondaryIndexManager.isIndexColumnFamily;
 import static org.apache.cassandra.net.NoPayload.noPayload;
@@ -498,17 +502,34 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("Gathering node replacement information for {}", replaceAddress);
         Map<InetAddressAndPort, EndpointState> epStates = Gossiper.instance.doShadowRound();
         // as we've completed the shadow round of gossip, we should be able to find the node we're replacing
-        if (epStates.get(replaceAddress) == null)
+        EndpointState state = epStates.get(replaceAddress);
+        if (state == null)
             throw new RuntimeException(String.format("Cannot replace_address %s because it doesn't exist in gossip", replaceAddress));
 
-        // add shadow round into gossip state... see what happens
-        Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.applyStateLocally(epStates));
+        Set<String> allowedGossipStatusesSet = REPLACEMENT_ALLOWED_GOSSIP_STATUSES.getSet();
+        if (!allowedGossipStatusesSet.contains(state.getStatus()))
+        {
+            if (state.isEmpty() && REPLACEMENT_ALLOW_EMPTY.getBoolean())
+            {
+                logger.warn("Gossip state is-empty for node {}. Injecting normal state.", replaceAddress);
+                Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.applyStateLocally(ImmutableMap.of(replaceAddress, state)));
+                // fake normal
+                handleStateNormal(replaceAddress, VersionedValue.STATUS_NORMAL);
+            }
+            else if (!REPLACEMENT_ALLOW_NON_NORMAL.getBoolean())
+            {
+                String msg = String.format("Cannot replace_address %s because it's status is not in %s, status is %s", replaceAddress, allowedGossipStatusesSet, state.getStatus().toLowerCase());
+                if (state.isEmpty())
+                    msg += "; if the node is known to be safe to replace, restart with -D" + REPLACEMENT_ALLOW_EMPTY.getKey() + "=true to override this check";
+                throw new RuntimeException(msg);
+            }
+        }
 
         validateEndpointSnitch(epStates.values().iterator());
 
         try
         {
-            VersionedValue tokensVersionedValue = epStates.get(replaceAddress).getApplicationState(ApplicationState.TOKENS);
+            VersionedValue tokensVersionedValue = state.getApplicationState(ApplicationState.TOKENS);
             if (tokensVersionedValue == null)
                 throw new RuntimeException(String.format("Could not find tokens for %s to replace", replaceAddress));
 
@@ -801,7 +822,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             UUID localHostId = SystemKeyspace.getLocalHostId();
 
-            Gossiper.instance.register(this);
             if (replacing)
             {
                 localHostId = prepareForReplacement();
@@ -855,6 +875,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             loadRingState();
 
             logger.info("Starting up server gossip");
+            Gossiper.instance.register(this);
             Gossiper.instance.start(SystemKeyspace.incrementAndGetGeneration(), appStates); // needed for node-ring gathering.
             gossipActive = true;
             // gossip snitch infos (local DC and rack)
@@ -1543,7 +1564,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     }
                     else
                     {
-
                         throw new UnsupportedOperationException("Cannot replace token " + token + " which does not exist!");
                     }
                 }

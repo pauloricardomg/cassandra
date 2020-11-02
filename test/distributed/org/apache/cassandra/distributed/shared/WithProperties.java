@@ -25,10 +25,19 @@ public final class WithProperties implements AutoCloseable
 {
     private final List<State> properties = new ArrayList<>();
 
+    public WithProperties()
+    {
+    }
+
+    public WithProperties(String... kvs)
+    {
+        with(kvs);
+    }
+
     public void with(String... kvs)
     {
         assert kvs.length % 2 == 0 : "Input must have an even amount of inputs but given " + kvs.length;
-        for (int i = 0; i < kvs.length - 2; i = i + 2)
+        for (int i = 0; i <= kvs.length - 2; i = i + 2)
         {
             with(kvs[i], kvs[i + 1]);
         }

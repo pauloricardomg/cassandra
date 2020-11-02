@@ -145,7 +145,8 @@ public class EndpointState
 
     public boolean isEmpty()
     {
-        return hbState.isEmpty();
+        Map<ApplicationState, VersionedValue> state = applicationState.get();
+        return hbState.isEmpty() && !(state.containsKey(ApplicationState.STATUS_WITH_PORT) || state.containsKey(ApplicationState.STATUS));
     }
 
     public boolean isRpcReady()

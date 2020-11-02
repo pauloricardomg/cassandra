@@ -16,16 +16,18 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.test;
+package org.apache.cassandra.distributed.test.hostreplacement;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
@@ -34,10 +36,13 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.AssertUtils;
+import org.apache.cassandra.distributed.shared.WithProperties;
+import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.assertj.core.api.Assertions;
 
-import static org.apache.cassandra.distributed.shared.ClusterUtils.assertGossipInfo;
-import static org.apache.cassandra.distributed.shared.ClusterUtils.assertNotInRing;
+import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOWED_GOSSIP_STATUSES;
+import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_EMPTY;
+import static org.apache.cassandra.distributed.shared.ClusterUtils.assertInRing;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.assertRingIs;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.awaitHealthyRing;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.awaitJoinRing;
@@ -45,22 +50,25 @@ import static org.apache.cassandra.distributed.shared.ClusterUtils.getTokenMetad
 import static org.apache.cassandra.distributed.shared.ClusterUtils.replaceHostAndStart;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.stopAll;
 
-public class HostReplacementOfDowedClusterTest extends TestBaseImpl
+public class HostReplacementTest extends TestBaseImpl
 {
-    private static final Logger logger = LoggerFactory.getLogger(HostReplacementOfDowedClusterTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(HostReplacementTest.class);
 
-    /**
-     * When the full cluster crashes, make sure that we can replace a dead node after recovery.  This can happen
-     * with DC outages (assuming single DC setup) where the recovery isn't able to recover a specific node.
-     */
-    @Test
-    public void hostReplacementOfDeadNode() throws IOException, InterruptedException
+    static
     {
         // Gossip has a notiion of quarantine, which is used to remove "fat clients" and "gossip only members"
         // from the ring if not updated recently (recently is defined by this config).
         // The reason for setting to 0 is to make sure even under such an aggressive environment, we do NOT remove
         // nodes from the peers table
         System.setProperty("cassandra.gossip_quarantine_delay", "0");
+    }
+
+    /**
+     * Attempt to do a host replacement on a alive host
+     */
+    @Test
+    public void replaceDownedHost() throws IOException, InterruptedException, ExecutionException
+    {
         // start with 2 nodes, stop both nodes, start the seed, host replace the down node)
         TokenSupplier even = TokenSupplier.evenlyDistributedTokens(2);
         try (Cluster cluster = Cluster.build(2)
@@ -70,92 +78,13 @@ public class HostReplacementOfDowedClusterTest extends TestBaseImpl
         {
             IInvokableInstance seed = cluster.get(1);
             IInvokableInstance nodeToRemove = cluster.get(2);
-            InetSocketAddress addressToReplace = nodeToRemove.broadcastAddress();
 
             setupCluster(cluster);
 
-            // collect rows/tokens to detect issues later on if the state doesn't match
+            // collect rows to detect issues later on if the state doesn't match
             SimpleQueryResult expectedState = nodeToRemove.coordinator().executeWithResult("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL);
-            List<String> beforeCrashTokens = getTokenMetadataTokens(seed);
 
-            // now stop all nodes
-            stopAll(cluster);
-
-            // with all nodes down, now start the seed (should be first node)
-            seed.startup();
-
-            // at this point node2 should be known in gossip, but with generation/version of 0
-            assertGossipInfo(seed, addressToReplace, 0, -1);
-
-            // make sure node1 still has node2's tokens
-            List<String> currentTokens = getTokenMetadataTokens(seed);
-            Assertions.assertThat(currentTokens)
-                      .as("Tokens no longer match after restarting")
-                      .isEqualTo(beforeCrashTokens);
-
-            // now create a new node to replace the other node
-            IInvokableInstance replacingNode = replaceHostAndStart(cluster, nodeToRemove);
-
-            awaitJoinRing(seed, replacingNode);
-            awaitJoinRing(replacingNode, seed);
-            assertNotInRing(seed, nodeToRemove);
-            logger.info("Current ring is {}", assertNotInRing(replacingNode, nodeToRemove));
-
-            validateRows(seed.coordinator(), expectedState);
-            validateRows(replacingNode.coordinator(), expectedState);
-        }
-        finally
-        {
-            System.getProperties().remove("cassandra.gossip_quarantine_delay");
-        }
-    }
-
-    /**
-     * Cluster stops completely, then start seed, then host replace node2; after all complete start node3 to make sure
-     * it comes up correctly with the new host in the ring.
-     */
-    @Test
-    public void hostReplacementOfDeadNodeAndOtherNodeStartsAfter() throws IOException, InterruptedException
-    {
-        // Gossip has a notiion of quarantine, which is used to remove "fat clients" and "gossip only members"
-        // from the ring if not updated recently (recently is defined by this config).
-        // The reason for setting to 0 is to make sure even under such an aggressive environment, we do NOT remove
-        // nodes from the peers table
-        System.setProperty("cassandra.gossip_quarantine_delay", "0");
-        // start with 3 nodes, stop both nodes, start the seed, host replace the down node)
-        int numStartNodes = 3;
-        TokenSupplier even = TokenSupplier.evenlyDistributedTokens(numStartNodes);
-        try (Cluster cluster = Cluster.build(numStartNodes)
-                                      .withConfig(c -> c.with(Feature.GOSSIP, Feature.NETWORK))
-                                      .withTokenSupplier(node -> even.token(node == (numStartNodes + 1) ? 2 : node))
-                                      .start())
-        {
-            // call early as this can't be touched on a down node
-            IInvokableInstance seed = cluster.get(1);
-            IInvokableInstance nodeToRemove = cluster.get(2);
-            IInvokableInstance nodeToStartAfterReplace = cluster.get(3);
-            InetSocketAddress addressToReplace = nodeToRemove.broadcastAddress();
-
-            setupCluster(cluster);
-
-            // collect rows/tokens to detect issues later on if the state doesn't match
-            SimpleQueryResult expectedState = nodeToRemove.coordinator().executeWithResult("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL);
-            List<String> beforeCrashTokens = getTokenMetadataTokens(seed);
-
-            // now stop all nodes
-            stopAll(cluster);
-
-            // with all nodes down, now start the seed (should be first node)
-            seed.startup();
-
-            // at this point node2 should be known in gossip, but with generation/version of 0
-            assertGossipInfo(seed, addressToReplace, 0, -1);
-
-            // make sure node1 still has node2's tokens
-            List<String> currentTokens = getTokenMetadataTokens(seed);
-            Assertions.assertThat(currentTokens)
-                      .as("Tokens no longer match after restarting")
-                      .isEqualTo(beforeCrashTokens);
+            nodeToRemove.shutdown().get();
 
             // now create a new node to replace the other node
             IInvokableInstance replacingNode = replaceHostAndStart(cluster, nodeToRemove);
@@ -164,25 +93,150 @@ public class HostReplacementOfDowedClusterTest extends TestBaseImpl
             awaitJoinRing(seed, replacingNode);
             awaitJoinRing(replacingNode, seed);
 
-            // we see that the replaced node is properly in the ring, now lets add the other node back
-            nodeToStartAfterReplace.startup();
-
-            awaitJoinRing(seed, nodeToStartAfterReplace);
-            awaitJoinRing(replacingNode, nodeToStartAfterReplace);
-
             // make sure all nodes are healthy
             awaitHealthyRing(seed);
 
-            assertRingIs(seed, seed, replacingNode, nodeToStartAfterReplace);
-            assertRingIs(replacingNode, seed, replacingNode, nodeToStartAfterReplace);
-            logger.info("Current ring is {}", assertRingIs(nodeToStartAfterReplace, seed, replacingNode, nodeToStartAfterReplace));
+            assertRingIs(seed, seed, replacingNode);
+            logger.info("Current ring is {}", assertRingIs(replacingNode, seed, replacingNode));
 
             validateRows(seed.coordinator(), expectedState);
             validateRows(replacingNode.coordinator(), expectedState);
         }
-        finally
+    }
+
+    /**
+     * Attempt to do a host replacement on a alive host
+     */
+    @Test
+    public void replaceAliveHost() throws IOException, InterruptedException
+    {
+        // start with 2 nodes, stop both nodes, start the seed, host replace the down node)
+        TokenSupplier even = TokenSupplier.evenlyDistributedTokens(2);
+        try (Cluster cluster = Cluster.build(2)
+                                      .withConfig(c -> c.with(Feature.GOSSIP, Feature.NETWORK))
+                                      .withTokenSupplier(node -> even.token(node == 3 ? 2 : node))
+                                      .start())
         {
-            System.getProperties().remove("cassandra.gossip_quarantine_delay");
+            IInvokableInstance seed = cluster.get(1);
+            IInvokableInstance nodeToRemove = cluster.get(2);
+
+            setupCluster(cluster);
+
+            // collect rows to detect issues later on if the state doesn't match
+            SimpleQueryResult expectedState = nodeToRemove.coordinator().executeWithResult("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL);
+
+            // now create a new node to replace the other node
+            Assertions.assertThatThrownBy(() -> replaceHostAndStart(cluster, nodeToRemove))
+                      .as("Startup of instance should have failed as you can not replace a alive node")
+                      .hasMessageContaining("Cannot replace a live node")
+                      .isInstanceOf(UnsupportedOperationException.class);
+
+            // make sure all nodes are healthy
+            awaitHealthyRing(seed);
+
+            assertRingIs(seed, seed, nodeToRemove);
+            logger.info("Current ring is {}", assertRingIs(nodeToRemove, seed, nodeToRemove));
+
+            validateRows(seed.coordinator(), expectedState);
+            validateRows(nodeToRemove.coordinator(), expectedState);
+        }
+    }
+
+    /**
+     * If the seed goes down, then another node, once the seed comes back, make sure host replacements still work.
+     */
+    @Test
+    public void seedGoesDownBeforeDownHost() throws IOException, ExecutionException, InterruptedException
+    {
+        // start with 3 nodes, stop both nodes, start the seed, host replace the down node)
+        TokenSupplier even = TokenSupplier.evenlyDistributedTokens(3);
+        try (Cluster cluster = Cluster.build(3)
+                                      .withConfig(c -> c.with(Feature.GOSSIP, Feature.NETWORK))
+                                      .withTokenSupplier(node -> even.token(node == 4 ? 2 : node))
+                                      .start())
+        {
+            // call early as this can't be touched on a down node
+            IInvokableInstance seed = cluster.get(1);
+            IInvokableInstance nodeToRemove = cluster.get(2);
+            IInvokableInstance nodeToStayAlive = cluster.get(3);
+
+            setupCluster(cluster);
+
+            // collect rows/tokens to detect issues later on if the state doesn't match
+            SimpleQueryResult expectedState = nodeToRemove.coordinator().executeWithResult("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL);
+            List<String> beforeCrashTokens = getTokenMetadataTokens(seed);
+
+            // shutdown the seed, then the node to remove
+            seed.shutdown().get();
+            nodeToRemove.shutdown().get();
+
+            // restart the seed
+            seed.startup();
+
+            // make sure the node to remove is still in the ring
+            assertInRing(seed, nodeToRemove);
+
+            // make sure node1 still has node2's tokens
+            List<String> currentTokens = getTokenMetadataTokens(seed);
+            Assertions.assertThat(currentTokens)
+                      .as("Tokens no longer match after restarting")
+                      .isEqualTo(beforeCrashTokens);
+
+            // now create a new node to replace the other node
+            IInvokableInstance replacingNode = replaceHostAndStart(cluster, nodeToRemove);
+
+            List<IInvokableInstance> expectedRing = Arrays.asList(seed, replacingNode, nodeToStayAlive);
+
+            // wait till the replacing node is in the ring
+            awaitJoinRing(seed, replacingNode);
+            awaitJoinRing(replacingNode, seed);
+            awaitJoinRing(nodeToStayAlive, replacingNode);
+
+            // make sure all nodes are healthy
+            logger.info("Current ring is {}", awaitHealthyRing(seed));
+
+            expectedRing.forEach(i -> assertRingIs(i, expectedRing));
+
+            validateRows(seed.coordinator(), expectedState);
+            validateRows(replacingNode.coordinator(), expectedState);
+        }
+    }
+
+    @Test
+    public void replaceMessageNotAllowed() throws IOException
+    {
+        TokenSupplier tokenSupplier = TokenSupplier.evenlyDistributedTokens(2);
+        try (WithProperties ignore = new WithProperties(REPLACEMENT_ALLOWED_GOSSIP_STATUSES.getKey(), "");
+             Cluster cluster = Cluster.build(2)
+                                      .withConfig(c -> c.with(Feature.GOSSIP, Feature.NETWORK))
+                                      .withTokenSupplier(node -> {
+                                          int n = node;
+                                          if (n == 3)
+                                              n = 1;
+                                          if (n == 4)
+                                              n = 2;
+                                          return tokenSupplier.token(n);
+                                      })
+                                      .start())
+        {
+            IInvokableInstance seed = cluster.get(1);
+            IInvokableInstance nodeToRemove = cluster.get(2);
+
+            setupCluster(cluster);
+
+            stopAll(cluster);
+
+            // restart the seed
+            seed.startup();
+
+            // make sure the node to remove is still in the ring
+            assertInRing(seed, nodeToRemove);
+
+            Assertions.assertThatThrownBy(() -> replaceHostAndStart(cluster, seed))
+                      .hasMessage("Cannot replace_address /127.0.0.1:7012 because it's status is not in [], status is normal");
+
+            Assertions.assertThatThrownBy(() -> replaceHostAndStart(cluster, nodeToRemove))
+                      .hasMessage("Cannot replace_address /127.0.0.2:7012 because it's status is not in [], status is ; if the node is known to be safe to replace, restart with -D" + REPLACEMENT_ALLOW_EMPTY.getKey() + "=true to override this check");
         }
     }
 
