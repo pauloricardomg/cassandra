@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed.shared;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public final class WithProperties implements AutoCloseable
@@ -58,12 +59,14 @@ public final class WithProperties implements AutoCloseable
     @Override
     public void close()
     {
+        Collections.reverse(properties);
         properties.forEach(s -> {
             if (s.value == null)
                 System.getProperties().remove(s.key);
             else
                 System.setProperty(s.key, s.value);
         });
+        properties.clear();
     }
 
     private static final class State
