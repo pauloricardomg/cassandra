@@ -134,7 +134,8 @@ public class ClusterUtils
         Objects.requireNonNull(rack, "rack");
 
         InstanceConfig config = cluster.newInstanceConfig();
-        //TODO host replacements should be easier
+        //TODO adding new instances should be cleaner, currently requires you create the cluster with all
+        // instances known about (at least to NetworkTopology and TokenStategy)
         // this is very hidden, so should be more explicit
         config.networkTopology().put(config.broadcastAddress(), NetworkTopology.dcAndRack(dc, rack));
 
@@ -494,13 +495,7 @@ public class ClusterUtils
      */
     public static void updateAddress(IInstance instance, String address)
     {
-        IInstanceConfig conf = instance.config();
-        updateAddress(conf, address);
-
-        // InstanceConfig caches InetSocketAddress -> InetAddressAndPort
-        // this causes issues as startup now ignores config, so force reset it to pull from conf.
-        ((InstanceConfig) conf).unsetBroadcastAddressAndPort(); //TODO remove the need to null out the cache...
-        conf.networkTopology().put(conf.broadcastAddress(), NetworkTopology.dcAndRack(conf.localDatacenter(), conf.localRack()));
+        updateAddress(instance.config(), address);
     }
 
     /**
@@ -510,10 +505,15 @@ public class ClusterUtils
      * @param conf to update address for
      * @param address to set
      */
-    public static void updateAddress(IInstanceConfig conf, String address)
+    private static void updateAddress(IInstanceConfig conf, String address)
     {
         for (String key : Arrays.asList("broadcast_address", "listen_address", "broadcast_rpc_address", "rpc_address"))
             conf.set(key, address);
+
+        // InstanceConfig caches InetSocketAddress -> InetAddressAndPort
+        // this causes issues as startup now ignores config, so force reset it to pull from conf.
+        ((InstanceConfig) conf).unsetBroadcastAddressAndPort(); //TODO remove the need to null out the cache...
+        conf.networkTopology().put(conf.broadcastAddress(), NetworkTopology.dcAndRack(conf.localDatacenter(), conf.localRack()));
     }
 
     public static final class RingInstanceDetails
