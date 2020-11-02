@@ -24,14 +24,11 @@ import java.util.Set;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.stress.Stress;
 import org.apache.cassandra.tools.ToolRunner;
 import org.assertj.core.api.Assertions;
 
@@ -43,8 +40,6 @@ import static org.apache.cassandra.distributed.shared.ClusterUtils.updateAddress
 
 public class IPMembershipTest extends TestBaseImpl
 {
-    private static final Logger logger = LoggerFactory.getLogger(IPMembershipTest.class);
-
     /**
      * Port of replace_address_test.py::fail_without_replace_test to jvm-dtest
      */
@@ -57,7 +52,7 @@ public class IPMembershipTest extends TestBaseImpl
         {
             IInvokableInstance nodeToReplace = cluster.get(3);
 
-            ToolRunner.invokeClass(Stress.class, "write", "n=10000", "-schema", "replication(factor=3)").assertOnExitCode();
+            ToolRunner.invokeCassandraStress("write", "n=10000", "-schema", "replication(factor=3)", "-port", "native=9042").assertOnExitCode();
 
             for (boolean auto_bootstrap : Arrays.asList(true, false))
             {
@@ -86,7 +81,7 @@ public class IPMembershipTest extends TestBaseImpl
         {
             IInvokableInstance nodeToReplace = cluster.get(3);
 
-            ToolRunner.invokeClass(Stress.class, "write", "n=10000", "-schema", "replication(factor=3)").assertOnExitCode();
+            ToolRunner.invokeCassandraStress("write", "n=10000", "-schema", "replication(factor=3)", "-port", "native=9042").assertOnExitCode();
 
             stopUnchecked(nodeToReplace);
 
@@ -102,7 +97,7 @@ public class IPMembershipTest extends TestBaseImpl
             Set<String> expected = ImmutableSet.of("127.0.0.1", "127.0.0.2", "127.0.0.4");
             cluster.forEach(i -> assertRingIs(i, expected));
 
-            ToolRunner.invokeClass(Stress.class, "read", "n=10000", "no-warmup").assertOnExitCode();
+            ToolRunner.invokeCassandraStress("read", "n=10000", "no-warmup", "-port", "native=9042").assertOnExitCode();
         }
     }
 }
