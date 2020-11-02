@@ -512,13 +512,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             if (state.isEmpty() && REPLACEMENT_ALLOW_EMPTY.getBoolean())
             {
                 logger.warn("Gossip state is-empty for node {}. Injecting normal state.", replaceAddress);
+                // apply the empty state locally in order for the host replacement to know about the instance
+                // since the state is empty it wont be gossiped to other nodes
                 Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.applyStateLocally(ImmutableMap.of(replaceAddress, state)));
-                // fake normal
+                // fake normal to populate TokenMetadata
                 handleStateNormal(replaceAddress, VersionedValue.STATUS_NORMAL);
             }
             else if (!REPLACEMENT_ALLOW_NON_NORMAL.getBoolean())
             {
-                String msg = String.format("Cannot replace_address %s because it's status is not in %s, status is %s", replaceAddress, allowedGossipStatusesSet, state.getStatus().toLowerCase());
+                String msg = String.format("Cannot replace_address %s because it's status is not in %s, status is %s", replaceAddress, allowedGossipStatusesSet, state.getStatus());
                 if (state.isEmpty())
                     msg += "; if the node is known to be safe to replace, restart with -D" + REPLACEMENT_ALLOW_EMPTY.getKey() + "=true to override this check";
                 throw new RuntimeException(msg);

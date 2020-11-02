@@ -233,7 +233,7 @@ public class HostReplacementTest extends TestBaseImpl
             assertInRing(seed, nodeToRemove);
 
             Assertions.assertThatThrownBy(() -> replaceHostAndStart(cluster, seed))
-                      .hasMessage("Cannot replace_address /127.0.0.1:7012 because it's status is not in [], status is normal");
+                      .hasMessage("Cannot replace_address /127.0.0.1:7012 because it's status is not in [], status is NORMAL");
 
             Assertions.assertThatThrownBy(() -> replaceHostAndStart(cluster, nodeToRemove))
                       .hasMessage("Cannot replace_address /127.0.0.2:7012 because it's status is not in [], status is ; if the node is known to be safe to replace, restart with -D" + REPLACEMENT_ALLOW_EMPTY.getKey() + "=true to override this check");
