@@ -252,7 +252,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         MessagingService.instance().outboundSink.add((message, to) -> {
             InetSocketAddress toAddr = fromCassandraInetAddressAndPort(to);
-            cluster.get(toAddr).receiveMessage(serializeMessage(message.from(), to, message));
+            IInstance toInstance = cluster.get(toAddr);
+            if (toInstance != null)
+                toInstance.receiveMessage(serializeMessage(message.from(), to, message));
             return false;
         });
     }
