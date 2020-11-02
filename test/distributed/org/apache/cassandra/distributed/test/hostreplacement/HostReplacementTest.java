@@ -27,7 +27,6 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
@@ -40,6 +39,7 @@ import org.apache.cassandra.distributed.shared.WithProperties;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.assertj.core.api.Assertions;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.GOSSIPER_QUARANTINE_DELAY;
 import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOWED_GOSSIP_STATUSES;
 import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_EMPTY;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.assertInRing;
@@ -60,7 +60,7 @@ public class HostReplacementTest extends TestBaseImpl
         // from the ring if not updated recently (recently is defined by this config).
         // The reason for setting to 0 is to make sure even under such an aggressive environment, we do NOT remove
         // nodes from the peers table
-        System.setProperty("cassandra.gossip_quarantine_delay", "0");
+        GOSSIPER_QUARANTINE_DELAY.setInt(0);
     }
 
     /**

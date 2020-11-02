@@ -143,6 +143,11 @@ public enum CassandraRelevantProperties
     MX4JPORT ("mx4jport"),
 
     /**
+     * Gossip quarantine delay is used while evaluating membership changes and should only be changed with extreme care.
+     */
+    GOSSIPER_QUARANTINE_DELAY("cassandra.gossip_quarantine_delay_ms"),
+
+    /**
      * When doing a host replacement gossip status is checked to make sure the endpoint is only in a allowd set of
      * states, these states are controled via this property.
      */
@@ -232,6 +237,24 @@ public enum CassandraRelevantProperties
         String value = System.getProperty(key);
 
         return INTEGER_CONVERTER.convert(value == null ? defaultVal : value);
+    }
+
+    /**
+     * Gets the value of a system property as a int.
+     * @return system property int value if it exists, overrideDefaultValue otherwise.
+     */
+    public int getInt(int overrideDefaultValue)
+    {
+        String value = System.getProperty(key);
+        if (value == null)
+            return overrideDefaultValue;
+
+        return INTEGER_CONVERTER.convert(value);
+    }
+
+    public void setInt(int value)
+    {
+        System.setProperty(key, Integer.toString(value));
     }
 
     public Set<String> getSet()

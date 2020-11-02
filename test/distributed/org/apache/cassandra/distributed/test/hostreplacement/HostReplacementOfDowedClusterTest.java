@@ -37,6 +37,7 @@ import org.apache.cassandra.distributed.shared.AssertUtils;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.assertj.core.api.Assertions;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.GOSSIPER_QUARANTINE_DELAY;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.assertGossipInfo;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.assertNotInRing;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.assertRingIs;
@@ -59,7 +60,7 @@ public class HostReplacementOfDowedClusterTest extends TestBaseImpl
         // from the ring if not updated recently (recently is defined by this config).
         // The reason for setting to 0 is to make sure even under such an aggressive environment, we do NOT remove
         // nodes from the peers table
-        System.setProperty("cassandra.gossip_quarantine_delay", "0");
+        GOSSIPER_QUARANTINE_DELAY.setInt(0);
     }
 
     /**
