@@ -160,14 +160,6 @@ public enum CassandraRelevantProperties
      */
     REPLACEMENT_ALLOW_EMPTY("cassandra.allow_empty_replace_address", "false"),
 
-    /**
-     * When doing a host replacement a check is done to make sure the targeted host to replace is in a known
-     * allowed set of gossip status, else it will reject the host replacement.
-     *
-     * This property allows to ignore this check.
-     */
-    REPLACEMENT_ALLOW_NON_NORMAL("cassandra.allow_non_normal_replace_address", "false"),
-
     //cassandra properties (without the "cassandra." prefix)
 
     /**

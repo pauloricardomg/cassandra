@@ -122,7 +122,6 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOWED_GOSSIP_STATUSES;
 import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_EMPTY;
-import static org.apache.cassandra.config.CassandraRelevantProperties.REPLACEMENT_ALLOW_NON_NORMAL;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
 import static org.apache.cassandra.index.SecondaryIndexManager.isIndexColumnFamily;
 import static org.apache.cassandra.net.NoPayload.noPayload;
@@ -518,7 +517,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 // fake normal to populate TokenMetadata
                 handleStateNormal(replaceAddress, VersionedValue.STATUS_NORMAL);
             }
-            else if (!REPLACEMENT_ALLOW_NON_NORMAL.getBoolean())
+            else
             {
                 String msg = String.format("Cannot replace_address %s because it's status is not in %s, status is %s", replaceAddress, allowedGossipStatusesSet, state.getStatus());
                 if (state.getStatus().isEmpty())
