@@ -58,7 +58,7 @@ public class ReplicaUtils
         return transientReplica(endpoint, new Range<>(token, token));
     }
 
-    static final InetAddressAndPort EP1, EP2, EP3, EP4, EP5, EP6, EP7, EP8, EP9, BROADCAST_EP, NULL_EP;
+    static final InetAddressAndPort EP1, EP2, EP3, EP4, EP5, EP6, EP7, EP8, EP9, EP10, EP11, EP12, BROADCAST_EP, NULL_EP;
     static final Range<Token> R1, R2, R3, R4, R5, R6, R7, R8, R9, BROADCAST_RANGE, NULL_RANGE, WRAP_RANGE;
     static final List<InetAddressAndPort> ALL_EP;
     static final List<Range<Token>> ALL_R;
@@ -67,15 +67,18 @@ public class ReplicaUtils
     {
         try
         {
-            EP1 = InetAddressAndPort.getByName("127.0.0.1");
-            EP2 = InetAddressAndPort.getByName("127.0.0.2");
-            EP3 = InetAddressAndPort.getByName("127.0.0.3");
-            EP4 = InetAddressAndPort.getByName("127.0.0.4");
-            EP5 = InetAddressAndPort.getByName("127.0.0.5");
-            EP6 = InetAddressAndPort.getByName("127.0.0.6");
-            EP7 = InetAddressAndPort.getByName("127.0.0.7");
-            EP8 = InetAddressAndPort.getByName("127.0.0.8");
-            EP9 = InetAddressAndPort.getByName("127.0.0.9");
+            EP1  = InetAddressAndPort.getByName("127.0.0.1");
+            EP2  = InetAddressAndPort.getByName("127.0.0.2");
+            EP3  = InetAddressAndPort.getByName("127.0.0.3");
+            EP4  = InetAddressAndPort.getByName("127.0.0.4");
+            EP5  = InetAddressAndPort.getByName("127.0.0.5");
+            EP6  = InetAddressAndPort.getByName("127.0.0.6");
+            EP7  = InetAddressAndPort.getByName("127.0.0.7");
+            EP8  = InetAddressAndPort.getByName("127.0.0.8");
+            EP9  = InetAddressAndPort.getByName("127.0.0.9");
+            EP10 = InetAddressAndPort.getByName("127.0.0.10");
+            EP11 = InetAddressAndPort.getByName("127.0.0.11");
+            EP12 = InetAddressAndPort.getByName("127.0.0.12");
             BROADCAST_EP = FBUtilities.getBroadcastAddressAndPort();
             NULL_EP = InetAddressAndPort.getByName("127.255.255.255");
             R1 = range(0, 1);

@@ -19,6 +19,7 @@
 package org.apache.cassandra.locator;
 
 import com.carrotsearch.hppc.ObjectIntHashMap;
+import com.carrotsearch.hppc.ObjectObjectHashMap;
 import com.carrotsearch.hppc.cursors.ObjectIntCursor;
 import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
 import com.google.common.annotations.VisibleForTesting;
@@ -106,13 +107,13 @@ public class ReplicaPlans
 
     static void assureSufficientLiveReplicasForRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> liveReplicas) throws UnavailableException
     {
-        assureSufficientLiveReplicas(keyspace, consistencyLevel, liveReplicas, consistencyLevel.blockFor(keyspace), 1);
+        assureSufficientLiveReplicas(keyspace, consistencyLevel, liveReplicas, null, consistencyLevel.blockFor(keyspace), 1);
     }
     static void assureSufficientLiveReplicasForWrite(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> allLive, Endpoints<?> pendingWithDown) throws UnavailableException
     {
-        assureSufficientLiveReplicas(keyspace, consistencyLevel, allLive, consistencyLevel.blockForWrite(keyspace, pendingWithDown), 0);
+        assureSufficientLiveReplicas(keyspace, consistencyLevel, allLive, pendingWithDown, consistencyLevel.blockForWrite(keyspace, pendingWithDown), 0);
     }
-    static void assureSufficientLiveReplicas(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> allLive, int blockFor, int blockForFullReplicas) throws UnavailableException
+    static void assureSufficientLiveReplicas(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> allLive, Endpoints<?> pending, int blockFor, int blockForFullReplicas) throws UnavailableException
     {
         switch (consistencyLevel)
         {
@@ -146,9 +147,16 @@ public class ReplicaPlans
                     int total = 0;
                     int totalFull = 0;
                     Collection<String> dcs = ((NetworkTopologyStrategy) keyspace.getReplicationStrategy()).getDatacenters();
+                    // for writes only, the per-dc blockFor must be increased to include all pending replicas in the dc
+                    // To identify writes (and because it isn't relevant), the set of pending endpoints supplied for
+                    // reads will be null.
+                    ObjectObjectHashMap<String, Replicas.ReplicaCount> pendingPerDc =  pending == null ? null : countPerDc(dcs, pending);
                     for (ObjectObjectCursor<String, Replicas.ReplicaCount> entry : countPerDc(dcs, allLive))
                     {
                         int dcBlockFor = localQuorumFor(keyspace, entry.key);
+                        if (null != pendingPerDc)
+                            dcBlockFor += pendingPerDc.get(entry.key).fullReplicas();
+
                         Replicas.ReplicaCount dcCount = entry.value;
                         if (!dcCount.hasAtleast(dcBlockFor, 0))
                             throw UnavailableException.create(consistencyLevel, entry.key, dcBlockFor, dcCount.allReplicas(), 0, dcCount.fullReplicas());
