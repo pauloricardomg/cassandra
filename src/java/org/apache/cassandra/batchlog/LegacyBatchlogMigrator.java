@@ -34,6 +34,7 @@ import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.exceptions.WriteFailureException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
+import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.net.MessagingService;
@@ -141,12 +142,13 @@ public final class LegacyBatchlogMigrator
     public static void asyncRemoveFromBatchlog(Collection<InetAddress> endpoints, UUID uuid, long queryStartNanoTime)
     {
         AbstractWriteResponseHandler<IMutation> handler = new WriteResponseHandler<>(endpoints,
-                                                                                     Collections.<InetAddress>emptyList(),
+                                                                                     Collections.emptyList(),
                                                                                      ConsistencyLevel.ANY,
                                                                                      Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME),
                                                                                      null,
                                                                                      WriteType.SIMPLE,
-                                                                                     queryStartNanoTime);
+                                                                                     queryStartNanoTime,
+                                                                                     FailureDetector.isAlivePredicate);
         Mutation mutation = getRemoveMutation(uuid);
 
         for (InetAddress target : endpoints)

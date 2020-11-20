@@ -20,6 +20,8 @@ package org.apache.cassandra.service;
 import java.net.InetAddress;
 import java.util.Collection;
 
+import com.google.common.base.Predicate;
+
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -36,9 +38,10 @@ public class DatacenterWriteResponseHandler<T> extends WriteResponseHandler<T>
                                           Keyspace keyspace,
                                           Runnable callback,
                                           WriteType writeType,
-                                          long queryStartNanoTime)
+                                          long queryStartNanoTime,
+                                          Predicate<InetAddress> isAlive)
     {
-        super(naturalEndpoints, pendingEndpoints, consistencyLevel, keyspace, callback, writeType, queryStartNanoTime);
+        super(naturalEndpoints, pendingEndpoints, consistencyLevel, keyspace, callback, writeType, queryStartNanoTime, isAlive);
         assert consistencyLevel.isDatacenterLocal();
     }
 

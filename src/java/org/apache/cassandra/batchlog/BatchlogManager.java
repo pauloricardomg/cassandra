@@ -481,7 +481,14 @@ public class BatchlogManager implements BatchlogManagerMBean
 
             ReplayWriteResponseHandler(Collection<InetAddress> writeEndpoints, long queryStartNanoTime)
             {
-                super(writeEndpoints, Collections.<InetAddress>emptySet(), null, null, null, WriteType.UNLOGGED_BATCH, queryStartNanoTime);
+                super(writeEndpoints,
+                      Collections.emptySet(),
+                      null,
+                      null,
+                      null,
+                      WriteType.UNLOGGED_BATCH,
+                      queryStartNanoTime,
+                      FailureDetector.isAlivePredicate);
                 undelivered.addAll(writeEndpoints);
             }
 

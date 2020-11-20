@@ -23,10 +23,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
+import com.google.common.base.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.WriteType;
@@ -48,15 +50,16 @@ public class WriteResponseHandler<T> extends AbstractWriteResponseHandler<T>
                                 Keyspace keyspace,
                                 Runnable callback,
                                 WriteType writeType,
-                                long queryStartNanoTime)
+                                long queryStartNanoTime,
+                                Predicate<InetAddress> isAlive)
     {
-        super(keyspace, writeEndpoints, pendingEndpoints, consistencyLevel, callback, writeType, queryStartNanoTime);
+        super(keyspace, writeEndpoints, pendingEndpoints, consistencyLevel, callback, writeType, queryStartNanoTime, isAlive);
         responses = totalBlockFor();
     }
 
     public WriteResponseHandler(InetAddress endpoint, WriteType writeType, Runnable callback, long queryStartNanoTime)
     {
-        this(Arrays.asList(endpoint), Collections.<InetAddress>emptyList(), ConsistencyLevel.ONE, null, callback, writeType, queryStartNanoTime);
+        this(Arrays.asList(endpoint), Collections.emptyList(), ConsistencyLevel.ONE, null, callback, writeType, queryStartNanoTime, FailureDetector.isAlivePredicate);
     }
 
     public WriteResponseHandler(InetAddress endpoint, WriteType writeType, long queryStartNanoTime)

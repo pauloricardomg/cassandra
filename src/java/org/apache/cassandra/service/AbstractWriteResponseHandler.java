@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
+import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 
 import org.slf4j.Logger;
@@ -56,6 +57,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
     private final long queryStartNanoTime;
     private volatile boolean supportsBackPressure = true;
 
+    protected final Predicate<InetAddress> isAlive;
+
     /**
      * @param callback A callback to be called when the write is successful.
      * @param queryStartNanoTime
@@ -66,7 +69,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
                                            ConsistencyLevel consistencyLevel,
                                            Runnable callback,
                                            WriteType writeType,
-                                           long queryStartNanoTime)
+                                           long queryStartNanoTime,
+                                           Predicate<InetAddress> isAlive)
     {
         this.keyspace = keyspace;
         this.pendingEndpoints = pendingEndpoints;
@@ -76,6 +80,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         this.writeType = writeType;
         this.failureReasonByEndpoint = new ConcurrentHashMap<>();
         this.queryStartNanoTime = queryStartNanoTime;
+        this.isAlive = isAlive;
     }
 
     public void get() throws WriteTimeoutException, WriteFailureException
@@ -154,7 +159,12 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
 
     public void assureSufficientLiveNodes() throws UnavailableException
     {
-        consistencyLevel.assureSufficientLiveNodes(keyspace, Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), isAlive));
+        // For writes we use totalBlockFor as any pending endpoints should also be considered
+        // The exception is for EACH_QUORUM where the calculation has to be per-dc. See the
+        // override in DatacenterSyncWriteResponseHandler for that.
+        consistencyLevel.assureSufficientLiveNodes(keyspace,
+                                                   Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), isAlive),
+                                                   totalBlockFor());
     }
 
     protected void signal()
