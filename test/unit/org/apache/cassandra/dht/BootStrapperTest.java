@@ -193,11 +193,15 @@ public class BootStrapperTest
 
     public void testAllocateTokensNetworkStrategy(int rackCount, int replicas) throws UnknownHostException
     {
+        testAllocateTokensNetworkStrategy(rackCount, replicas, 16, 10, 1);
+    }
+
+    public void testAllocateTokensNetworkStrategy(int rackCount, int replicas, int vn, int numOldNodes, int nodesToAllocate) throws UnknownHostException
+    {
         IEndpointSnitch oldSnitch = DatabaseDescriptor.getEndpointSnitch();
         try
         {
             DatabaseDescriptor.setEndpointSnitch(new RackInferringSnitch());
-            int vn = 16;
             String ks = "BootStrapperTestNTSKeyspace" + rackCount + replicas;
             String dc = "1";
 
@@ -211,9 +215,13 @@ public class BootStrapperTest
             TokenMetadata tm = StorageService.instance.getTokenMetadata();
             tm.clearUnsafe();
             for (int i = 0; i < rackCount; ++i)
-                generateFakeEndpoints(tm, 10, vn, dc, Integer.toString(i));
-            InetAddressAndPort addr = InetAddressAndPort.getByName("127." + dc + ".0.99");
-            allocateTokensForNode(vn, ks, tm, addr);
+                generateFakeEndpoints(tm, numOldNodes, vn, dc, Integer.toString(i));
+            int lastId = numOldNodes + 2;
+            for (int i = lastId; i < lastId + nodesToAllocate; i++)
+            {
+                InetAddressAndPort addr = InetAddressAndPort.getByName("127." + dc + ".0." + i);
+                allocateTokensForNode(vn, ks, tm, addr);
+            }
             // Note: Not matching replication factor in second datacentre, but this should not affect us.
         } finally {
             DatabaseDescriptor.setEndpointSnitch(oldSnitch);
@@ -250,6 +258,12 @@ public class BootStrapperTest
         testAllocateTokensNetworkStrategy(1, 1);
     }
 
+    @Test
+    public void testAllocateTokensNetworkStrategyRf38VnodesNoOldNodes() throws UnknownHostException
+    {
+        testAllocateTokensNetworkStrategy(1, 3, 8, 0, 10);
+    }
+
     private void allocateTokensForNode(int vn, String ks, TokenMetadata tm, InetAddressAndPort addr)
     {
         SummaryStatistics os = TokenAllocation.replicatedOwnershipStats(tm.cloneOnlyTokenMap(), Keyspace.open(ks).getReplicationStrategy(), addr);
@@ -270,7 +284,7 @@ public class BootStrapperTest
 
     private void verifyImprovement(SummaryStatistics os, SummaryStatistics ns)
     {
-        if (ns.getStandardDeviation() > os.getStandardDeviation())
+        if (os.getStandardDeviation() != 0.0 && ns.getStandardDeviation() > os.getStandardDeviation())
         {
             fail(String.format("Token allocation unexpectedly increased standard deviation.\nStats before:\n%s\nStats after:\n%s", os, ns));
         }

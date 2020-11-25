@@ -111,6 +111,8 @@ public class TokenAllocation
     {
         Map<InetAddressAndPort, Double> ownership = Maps.newHashMap();
         List<Token> sortedTokens = tokenMetadata.sortedTokens();
+        if (sortedTokens.isEmpty())
+            return ownership;
         Iterator<Token> it = sortedTokens.iterator();
         Token current = it.next();
         while (it.hasNext())
