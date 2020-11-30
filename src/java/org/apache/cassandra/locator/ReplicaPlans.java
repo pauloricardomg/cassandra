@@ -19,8 +19,6 @@
 package org.apache.cassandra.locator;
 
 import com.carrotsearch.hppc.ObjectIntHashMap;
-import com.carrotsearch.hppc.ObjectObjectHashMap;
-import com.carrotsearch.hppc.cursors.ObjectIntCursor;
 import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ArrayListMultimap;
@@ -105,15 +103,15 @@ public class ReplicaPlans
         }
     }
 
-    static void assureSufficientLiveReplicasForRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> liveReplicas) throws UnavailableException
+    static void assureSufficientLiveNaturalReplicasForRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> naturalLive) throws UnavailableException
     {
-        assureSufficientLiveReplicas(keyspace, consistencyLevel, liveReplicas, null, consistencyLevel.blockFor(keyspace), 1);
+        assureSufficientLiveNaturalReplicas(keyspace, consistencyLevel, naturalLive, consistencyLevel.blockFor(keyspace), 1);
     }
-    static void assureSufficientLiveReplicasForWrite(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> allLive, Endpoints<?> pendingWithDown) throws UnavailableException
+    static void assureSufficientLiveNaturalReplicasForWrite(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> naturalLive) throws UnavailableException
     {
-        assureSufficientLiveReplicas(keyspace, consistencyLevel, allLive, pendingWithDown, consistencyLevel.blockForWrite(keyspace, pendingWithDown), 0);
+        assureSufficientLiveNaturalReplicas(keyspace, consistencyLevel, naturalLive, consistencyLevel.blockFor(keyspace), 0);
     }
-    static void assureSufficientLiveReplicas(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> allLive, Endpoints<?> pending, int blockFor, int blockForFullReplicas) throws UnavailableException
+    static void assureSufficientLiveNaturalReplicas(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> naturalLive, int blockFor, int blockForFullReplicas) throws UnavailableException
     {
         switch (consistencyLevel)
         {
@@ -122,20 +120,20 @@ public class ReplicaPlans
                 break;
             case LOCAL_ONE:
             {
-                Replicas.ReplicaCount localLive = countInOurDc(allLive);
+                Replicas.ReplicaCount localLive = countInOurDc(naturalLive);
                 if (!localLive.hasAtleast(blockFor, blockForFullReplicas))
                     throw UnavailableException.create(consistencyLevel, 1, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas());
                 break;
             }
             case LOCAL_QUORUM:
             {
-                Replicas.ReplicaCount localLive = countInOurDc(allLive);
+                Replicas.ReplicaCount localLive = countInOurDc(naturalLive);
                 if (!localLive.hasAtleast(blockFor, blockForFullReplicas))
                 {
                     if (logger.isTraceEnabled())
                     {
                         logger.trace(String.format("Local replicas %s are insufficient to satisfy LOCAL_QUORUM requirement of %d live replicas and %d full replicas in '%s'",
-                                allLive.filter(InOurDcTester.replicas()), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
+                                naturalLive.filter(InOurDcTester.replicas()), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
                     }
                     throw UnavailableException.create(consistencyLevel, blockFor, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas());
                 }
@@ -147,16 +145,9 @@ public class ReplicaPlans
                     int total = 0;
                     int totalFull = 0;
                     Collection<String> dcs = ((NetworkTopologyStrategy) keyspace.getReplicationStrategy()).getDatacenters();
-                    // for writes only, the per-dc blockFor must be increased to include all pending replicas in the dc
-                    // To identify writes (and because it isn't relevant), the set of pending endpoints supplied for
-                    // reads will be null.
-                    ObjectObjectHashMap<String, Replicas.ReplicaCount> pendingPerDc =  pending == null ? null : countPerDc(dcs, pending);
-                    for (ObjectObjectCursor<String, Replicas.ReplicaCount> entry : countPerDc(dcs, allLive))
+                    for (ObjectObjectCursor<String, Replicas.ReplicaCount> entry : countPerDc(dcs, naturalLive))
                     {
                         int dcBlockFor = localQuorumFor(keyspace, entry.key);
-                        if (null != pendingPerDc)
-                            dcBlockFor += pendingPerDc.get(entry.key).fullReplicas();
-
                         Replicas.ReplicaCount dcCount = entry.value;
                         if (!dcCount.hasAtleast(dcBlockFor, 0))
                             throw UnavailableException.create(consistencyLevel, entry.key, dcBlockFor, dcCount.allReplicas(), 0, dcCount.fullReplicas());
@@ -169,12 +160,12 @@ public class ReplicaPlans
                 }
                 // Fallthough on purpose for SimpleStrategy
             default:
-                int live = allLive.size();
-                int full = Replicas.countFull(allLive);
+                int live = naturalLive.size();
+                int full = Replicas.countFull(naturalLive);
                 if (live < blockFor || full < blockForFullReplicas)
                 {
                     if (logger.isTraceEnabled())
-                        logger.trace("Live nodes {} do not satisfy ConsistencyLevel ({} required)", Iterables.toString(allLive), blockFor);
+                        logger.trace("Live nodes {} do not satisfy ConsistencyLevel ({} required)", Iterables.toString(naturalLive), blockFor);
                     throw UnavailableException.create(consistencyLevel, blockFor, blockForFullReplicas, live, full);
                 }
                 break;
@@ -359,7 +350,7 @@ public class ReplicaPlans
     public static ReplicaPlan.ForTokenWrite forWrite(Keyspace keyspace, ConsistencyLevel consistencyLevel, ReplicaLayout.ForTokenWrite liveAndDown, ReplicaLayout.ForTokenWrite live, Selector selector) throws UnavailableException
     {
         EndpointsForToken contacts = selector.select(keyspace, consistencyLevel, liveAndDown, live);
-        assureSufficientLiveReplicasForWrite(keyspace, consistencyLevel, live.all(), liveAndDown.pending());
+        assureSufficientLiveNaturalReplicasForWrite(keyspace, consistencyLevel, live.natural());
         return new ReplicaPlan.ForTokenWrite(keyspace, consistencyLevel, liveAndDown.pending(), liveAndDown.all(), live.all(), contacts);
     }
 
@@ -598,7 +589,7 @@ public class ReplicaPlans
         EndpointsForToken candidates = candidatesForRead(consistencyLevel, ReplicaLayout.forTokenReadLiveSorted(keyspace, token).natural());
         EndpointsForToken contacts = contactForRead(keyspace, consistencyLevel, retry.equals(AlwaysSpeculativeRetryPolicy.INSTANCE), candidates);
 
-        assureSufficientLiveReplicasForRead(keyspace, consistencyLevel, contacts);
+        assureSufficientLiveNaturalReplicasForRead(keyspace, consistencyLevel, contacts);
         return new ReplicaPlan.ForTokenRead(keyspace, consistencyLevel, candidates, contacts);
     }
 
@@ -614,7 +605,7 @@ public class ReplicaPlans
         EndpointsForRange candidates = candidatesForRead(consistencyLevel, ReplicaLayout.forRangeReadLiveSorted(keyspace, range).natural());
         EndpointsForRange contacts = contactForRead(keyspace, consistencyLevel, false, candidates);
 
-        assureSufficientLiveReplicasForRead(keyspace, consistencyLevel, contacts);
+        assureSufficientLiveNaturalReplicasForRead(keyspace, consistencyLevel, contacts);
         return new ReplicaPlan.ForRangeRead(keyspace, consistencyLevel, range, candidates, contacts, vnodeCount);
     }
 
