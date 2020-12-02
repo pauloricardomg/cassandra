@@ -40,7 +40,9 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.tools.Util;
 import org.apache.cassandra.utils.OutputHandler;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
+import static org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocator.allocate;
 
 public class OfflineTokenAllocatorTest
 {
@@ -56,7 +58,7 @@ public class OfflineTokenAllocatorTest
     @Test(expected = UnsupportedOperationException.class)
     public void testUnsupportedPartitioner()
     {
-        List<OfflineTokenAllocator.FakeNode> nodes = OfflineTokenAllocator.allocate(3, 4, new int[]{1,1,1}, FAIL_ON_WARN_OUTPUT, ByteOrderedPartitioner.instance);
+        List<OfflineTokenAllocator.FakeNode> nodes = allocate(3, 4, new int[]{1,1,1}, FAIL_ON_WARN_OUTPUT, ByteOrderedPartitioner.instance);
         Assert.assertEquals(3, nodes.size());
     }
 
@@ -78,23 +80,26 @@ public class OfflineTokenAllocatorTest
                     {
                         logger.info("Testing offline token allocator for numTokens={}, rf={}, racks={}, nodeToRack={}, partitioner={}",
                                     numTokens, rf, racks, nodeToRack, partitioner);
-
-                        List<OfflineTokenAllocator.FakeNode> nodes = OfflineTokenAllocator.allocate(rf,
-                                                                                                    numTokens,
-                                                                                                    nodeToRack,
-                                                                                                    new SystemOutputImpl(rf, racks),
-                                                                                                    partitioner);
-
-                        Collection<Token> allTokens = Lists.newArrayList();
-                        for (OfflineTokenAllocator.FakeNode node : nodes)
-                        {
-                            Assertions.assertThat(node.tokens()).hasSize(numTokens);
-                            Assertions.assertThat(allTokens).doesNotContainAnyElementsOf(node.tokens());
-                            allTokens.addAll(node.tokens());
-                        }
+                        assertTokensAndNodeCount(numTokens, nodeCount, allocate(rf,
+                                                                                numTokens,
+                                                                                nodeToRack,
+                                                                                new SystemOutputImpl(rf, racks),
+                                                                                partitioner));
                     }
                 }
             }
+        }
+    }
+
+    private void assertTokensAndNodeCount(int numTokens, int nodeCount, List<OfflineTokenAllocator.FakeNode> nodes)
+    {
+        assertEquals(nodeCount, nodes.size());
+        Collection<Token> allTokens = Lists.newArrayList();
+        for (OfflineTokenAllocator.FakeNode node : nodes)
+        {
+            Assertions.assertThat(node.tokens()).hasSize(numTokens);
+            Assertions.assertThat(allTokens).doesNotContainAnyElementsOf(node.tokens());
+            allTokens.addAll(node.tokens());
         }
     }
 
@@ -130,19 +135,50 @@ public class OfflineTokenAllocatorTest
     @Test
     public void testTokenGenerator_single_rack_or_single_rf()
     {
+        int numTokens = 16;
         // Simple cases, single rack or single replication.
-        OfflineTokenAllocator.allocate(1, 16, new int[]{1}, FAIL_ON_WARN_OUTPUT, Murmur3Partitioner.instance);
-        OfflineTokenAllocator.allocate(1, 16, new int[]{1, 1}, FAIL_ON_WARN_OUTPUT, Murmur3Partitioner.instance);
-        OfflineTokenAllocator.allocate(2, 16, new int[]{2}, FAIL_ON_WARN_OUTPUT, Murmur3Partitioner.instance);
+        assertTokensAndNodeCount(numTokens, 1, allocate(1,
+                                                                numTokens,
+                                                                new int[]{1},
+                                                                FAIL_ON_WARN_OUTPUT,
+                                                                Murmur3Partitioner.instance));
+        assertTokensAndNodeCount(numTokens, 2, allocate(1,
+                                                                numTokens,
+                                                                new int[]{1, 1},
+                                                                FAIL_ON_WARN_OUTPUT,
+                                                                Murmur3Partitioner.instance));
+        assertTokensAndNodeCount(numTokens, 2, allocate(1,
+                                                                numTokens,
+                                                                new int[]{2},
+                                                                FAIL_ON_WARN_OUTPUT,
+                                                                Murmur3Partitioner.instance));
     }
 
     @Test
     public void testTokenGenerator_unbalanced_racks()
     {
-        OfflineTokenAllocator.allocate(1, 16, new int[]{5, 1}, FAIL_ON_WARN_OUTPUT, Murmur3Partitioner.instance);
-        OfflineTokenAllocator.allocate(1, 16, new int[]{5, 1, 1}, FAIL_ON_WARN_OUTPUT, Murmur3Partitioner.instance);
-        OfflineTokenAllocator.allocate(3, 16, new int[]{5, 1}, FAIL_ON_WARN_OUTPUT, Murmur3Partitioner.instance);
-        OfflineTokenAllocator.allocate(3, 16, new int[]{5, 1, 1}, FAIL_ON_WARN_OUTPUT, Murmur3Partitioner.instance);
+        int numTokens = 16;
+        // Simple cases, single rack or single replication.
+        assertTokensAndNodeCount(numTokens, 6, allocate(1,
+                                                        numTokens,
+                                                        new int[]{5, 1},
+                                                        FAIL_ON_WARN_OUTPUT,
+                                                        Murmur3Partitioner.instance));
+        assertTokensAndNodeCount(numTokens, 7, allocate(1,
+                                                        numTokens,
+                                                        new int[]{5, 1, 1},
+                                                        FAIL_ON_WARN_OUTPUT,
+                                                        Murmur3Partitioner.instance));
+        assertTokensAndNodeCount(numTokens, 6, allocate(3,
+                                                        numTokens,
+                                                        new int[]{5, 1},
+                                                        FAIL_ON_WARN_OUTPUT,
+                                                        Murmur3Partitioner.instance));
+        assertTokensAndNodeCount(numTokens, 7, allocate(3,
+                                                        numTokens,
+                                                        new int[]{5, 1, 1},
+                                                        FAIL_ON_WARN_OUTPUT,
+                                                        Murmur3Partitioner.instance));
     }
 
     private static class SystemOutputImpl extends OutputHandler.SystemOutput
