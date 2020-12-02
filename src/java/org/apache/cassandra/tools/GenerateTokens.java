@@ -44,7 +44,7 @@ public class GenerateTokens
     private static final String RACKS = "racks";
     private static final String VERBOSE = "verbose";
 
-    public static void main(String[] args) throws ParseException
+    public static void main(String[] args)
     {
         Options options = null;
         int rf = 0;
@@ -64,7 +64,7 @@ public class GenerateTokens
             rf = Integer.parseInt(cmd.getOptionValue(RF));
             tokens = Integer.parseInt(cmd.getOptionValue(TOKENS));
             nodes = Integer.parseInt(cmd.getOptionValue(NODES));
-            logger = new OutputHandler.SystemOutput(cmd.hasOption(VERBOSE), true);
+            logger = new OutputHandler.SystemOutput(cmd.hasOption(VERBOSE), true, true);
 
             partitioner = FBUtilities.newPartitioner(cmd.getOptionValue(PARTITIONER, Murmur3Partitioner.class.getSimpleName()));
             racksDef = getRacks(cmd.getOptionValue(RACKS, cmd.getOptionValue(NODES)));
