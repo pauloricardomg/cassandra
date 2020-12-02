@@ -202,6 +202,7 @@ public class OfflineTokenAllocatorTest
         @Override
         public void warn(String msg)
         {
+            // We can only guarantee that ownership stdev won't increase above the warn threshold for racks==1 or racks==rf
             if (racks == 1 || racks == rf)
                 fail(msg);
             else
@@ -211,6 +212,7 @@ public class OfflineTokenAllocatorTest
         @Override
         public void warn(String msg, Throwable th)
         {
+            // We can only guarantee that ownership stdev won't increase above the warn threshold for racks==1 or racks==rf
             if (racks == 1 || racks == rf)
                 fail(msg);
             else
