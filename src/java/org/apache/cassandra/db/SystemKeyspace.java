@@ -1126,13 +1126,21 @@ public final class SystemKeyspace
             return hostId;
 
         // ID not found, generate a new one, persist, and then return it.
-        hostId = UUID.randomUUID();
+        String hostString = System.getProperty("cassandra.host_id_first_boot", UUID.randomUUID().toString());
+        try {
+            hostId = UUID.fromString(hostString);
+            setLocalHostId(hostId);
+        } catch (IllegalArgumentException e) {
+            logger.error("hostId to use was illegal UUID: {}", hostString, e);
+            throw e;
+        }
         logger.warn("No host ID found, created {} (Note: This should happen exactly once per node).", hostId);
-        return setLocalHostId(hostId);
+        return hostId;
     }
 
     /**
-     * Sets the local host ID explicitly.  Should only be called outside of SystemTable when replacing a node.
+     * Sets the local host ID explicitly. Should only be called outside of SystemTable when replacing a node.
+     * Used also in CASSANDRA-14582.
      */
     public static synchronized UUID setLocalHostId(UUID hostId)
     {
