@@ -55,6 +55,7 @@ import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
 import javax.rmi.ssl.SslRMIClientSocketFactory;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.batchlog.BatchlogManagerMBean;
 import org.apache.cassandra.db.ColumnFamilyStoreMBean;
@@ -703,9 +704,15 @@ public class NodeProbe implements AutoCloseable
         ssProxy.clearSnapshot(tag, keyspaces);
     }
 
+    public Map<String, TabularData> getSnapshotDetails(Map<String, String> options)
+    {
+        return ssProxy.getSnapshotDetails(options);
+    }
+
+    @Deprecated
     public Map<String, TabularData> getSnapshotDetails()
     {
-        return ssProxy.getSnapshotDetails();
+        return getSnapshotDetails(ImmutableMap.of());
     }
 
     public long trueSnapshotsSize()
