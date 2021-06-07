@@ -1125,17 +1125,9 @@ public final class SystemKeyspace
         if (hostId != null)
             return hostId;
 
-        // ID not found, generate a new one, persist, and then return it.
-        String hostString = System.getProperty("cassandra.host_id_first_boot", UUID.randomUUID().toString());
-        try {
-            hostId = UUID.fromString(hostString);
-            setLocalHostId(hostId);
-        } catch (IllegalArgumentException e) {
-            logger.error("hostId to use was illegal UUID: {}", hostString, e);
-            throw e;
-        }
+        hostId = UUID.fromString(System.getProperty("cassandra.host_id_first_boot", UUID.randomUUID().toString()));
         logger.warn("No host ID found, created {} (Note: This should happen exactly once per node).", hostId);
-        return hostId;
+        return setLocalHostId(hostId);
     }
 
     /**
