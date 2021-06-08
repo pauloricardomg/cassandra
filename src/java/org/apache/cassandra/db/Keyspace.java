@@ -41,6 +41,7 @@ import com.google.common.util.concurrent.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.cql3.Duration;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.compaction.CompactionManager;
@@ -246,7 +247,7 @@ public class Keyspace
      * @param rateLimiter Rate limiter for hardlinks-per-second
      * @throws IOException if the column family doesn't exist
      */
-    public void snapshot(String snapshotName, String columnFamilyName, boolean skipFlush, RateLimiter rateLimiter) throws IOException
+    public void snapshot(String snapshotName, String columnFamilyName, boolean skipFlush, Duration ttl, RateLimiter rateLimiter) throws IOException
     {
         assert snapshotName != null;
         boolean tookSnapShot = false;
@@ -255,7 +256,7 @@ public class Keyspace
             if (columnFamilyName == null || cfStore.name.equals(columnFamilyName))
             {
                 tookSnapShot = true;
-                cfStore.snapshot(snapshotName, skipFlush, rateLimiter);
+                cfStore.snapshot(snapshotName, skipFlush, ttl, rateLimiter);
             }
         }
 
@@ -273,7 +274,7 @@ public class Keyspace
      */
     public void snapshot(String snapshotName, String columnFamilyName) throws IOException
     {
-        snapshot(snapshotName, columnFamilyName, false, null);
+        snapshot(snapshotName, columnFamilyName, false, null, null);
     }
 
     /**
