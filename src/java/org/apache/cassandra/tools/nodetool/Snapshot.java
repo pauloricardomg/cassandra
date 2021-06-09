@@ -32,7 +32,7 @@ import java.util.Map;
 
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
-import org.apache.cassandra.cql3.Duration;
+import org.apache.cassandra.config.Duration;
 
 @Command(name = "snapshot", description = "Take a snapshot of specified keyspaces or a snapshot of the specified table")
 public class Snapshot extends NodeToolCmd
@@ -52,7 +52,7 @@ public class Snapshot extends NodeToolCmd
     @Option(title = "skip-flush", name = {"-sf", "--skip-flush"}, description = "Do not flush memtables before snapshotting (snapshot will not contain unflushed data)")
     private boolean skipFlush = false;
 
-    @Option(title = "ttl", name = {"--ttl"}, description = "Specify aTTL of created snapshot")
+    @Option(title = "ttl", name = {"--ttl"}, description = "Specify a TTL of created snapshot")
     private String ttl = null;
 
     @Override
@@ -68,9 +68,9 @@ public class Snapshot extends NodeToolCmd
             Map<String, String> options = new HashMap<String,String>();
             options.put("skipFlush", Boolean.toString(skipFlush));
             if (null != ttl) {
-                Duration d = Duration.from(ttl);
+                Duration d = new Duration(ttl);
                 // ttl for snapshot must be at least 1 minute
-                if (d.getMonths() == 0 && d.getDays() == 0 && d.getNanoseconds() < d.NANOS_PER_MINUTE)
+                if (d.toMinutes() < 1)
                     throw new IllegalArgumentException("ttl for snapshot must be at least 1 minute");
                 options.put("ttl", d.toString());
             }

@@ -69,7 +69,7 @@ import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.cql3.Duration;
+import org.apache.cassandra.config.Duration;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
@@ -3675,7 +3675,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         boolean skipFlush = Boolean.parseBoolean(options.getOrDefault("skipFlush", "false"));
         Duration ttl = null;
         if (options.containsKey("ttl")) {
-            ttl = Duration.from(options.get("ttl"));
+            ttl = new Duration(options.get("ttl"));
         }
 
         if (entities != null && entities.length > 0 && entities[0].contains("."))

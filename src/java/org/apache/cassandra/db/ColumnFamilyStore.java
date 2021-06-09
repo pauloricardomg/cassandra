@@ -43,7 +43,7 @@ import com.google.common.util.concurrent.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.cql3.Duration;
+import org.apache.cassandra.config.Duration;
 import org.apache.cassandra.cache.*;
 import org.apache.cassandra.concurrent.*;
 import org.apache.cassandra.config.*;
@@ -1886,7 +1886,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.S'Z'");
                     df.setTimeZone(TimeZone.getTimeZone("UTC"));
                     long createdAt = System.currentTimeMillis();
-                    long expiresAt = ttl.addTo(createdAt);
+                    long expiresAt = createdAt + ttl.toMilliseconds();
                     manifestJSON.put("created_at", df.format(new Date(createdAt)));
                     manifestJSON.put("expires_at", df.format(new Date(expiresAt)));
                 }
