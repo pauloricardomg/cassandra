@@ -3676,6 +3676,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         Duration ttl = null;
         if (options.containsKey("ttl")) {
             ttl = new Duration(options.get("ttl"));
+            if (ttl.toMinutes() < 1)
+                throw new IllegalArgumentException("ttl for snapshot must be at least 1 minute");
         }
 
         if (entities != null && entities.length > 0 && entities[0].contains("."))

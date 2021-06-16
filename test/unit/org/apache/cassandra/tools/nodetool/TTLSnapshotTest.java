@@ -58,5 +58,8 @@ public class TTLSnapshotTest extends CQLTester
 
         assertThat(tool.getExitCode()).isEqualTo(1);
         assertThat(tool.getStdout()).contains("ttl for snapshot must be at least 1 minute");
+    
+        tool = ToolRunner.invokeNodetool("snapshot","--ttl","invalid-ttl");
+        assertThat(tool.getExitCode()).isEqualTo(1);
     }
 }

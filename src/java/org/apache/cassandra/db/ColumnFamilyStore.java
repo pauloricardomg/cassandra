@@ -32,8 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import javax.management.*;
 import javax.management.openmbean.*;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.*;
@@ -1883,12 +1882,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 final JSONObject manifestJSON = new JSONObject();
                 manifestJSON.put("files", filesJSONArr);
                 if (ttl != null) {
-                    DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.S'Z'");
-                    df.setTimeZone(TimeZone.getTimeZone("UTC"));
-                    long createdAt = System.currentTimeMillis();
-                    long expiresAt = createdAt + ttl.toMilliseconds();
-                    manifestJSON.put("created_at", df.format(new Date(createdAt)));
-                    manifestJSON.put("expires_at", df.format(new Date(expiresAt)));
+                    Instant createdAt = Instant.now();
+                    Instant expiresAt = createdAt.plusMillis(ttl.toMilliseconds());
+                    manifestJSON.put("created_at", createdAt.toString());
+                    manifestJSON.put("expires_at", expiresAt.toString());
                 }
 
                 out.println(manifestJSON.toJSONString());
