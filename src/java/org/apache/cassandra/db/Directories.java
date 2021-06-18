@@ -1040,6 +1040,19 @@ public class Directories
         }
     }
 
+    public static void clearExpiredSnapshots(List<File> snapshotDirectories) {
+        for (File dir : snapshotDirectories) {
+            File snapshots = new File(dir, SNAPSHOT_SUBDIR);
+            for (File snapshotDir : snapshots.listFiles()) {
+                File manifest = new File(snapshotDir, "manifest.json");
+            
+                if (manifest.exists()) {
+                    
+                }
+            }
+        }
+    }
+
     // The snapshot must exist
     public long snapshotCreationTime(String snapshotName)
     {

@@ -19,7 +19,9 @@
 package org.apache.cassandra.tools.nodetool;
 
 import java.io.IOException;
-
+import java.lang.InterruptedException;
+import java.util.Map;
+import javax.management.openmbean.TabularData;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -61,5 +63,20 @@ public class TTLSnapshotTest extends CQLTester
     
         tool = ToolRunner.invokeNodetool("snapshot","--ttl","invalid-ttl");
         assertThat(tool.getExitCode()).isEqualTo(1);
+    }
+
+    @Test
+    public void testTTLSnapshot_SimpleCleanup() throws InterruptedException
+    {
+        ToolRunner.ToolResult tool = ToolRunner.invokeNodetool("snapshot","--ttl","1m", "-t", "some-name");
+
+        tool.assertOnCleanExit();
+        Map<String, TabularData> snapshots_before = probe.getSnapshotDetails();
+        assertThat(snapshots_before).containsKey("some-name");
+
+        Thread.sleep(120000);
+
+        Map<String, TabularData> snapshots_after = probe.getSnapshotDetails();
+        assertThat(snapshots_after).doesNotContainKey("some-name");
     }
 }
