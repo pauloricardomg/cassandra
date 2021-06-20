@@ -188,6 +188,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private final List<Runnable> preShutdownHooks = new ArrayList<>();
     private final List<Runnable> postShutdownHooks = new ArrayList<>();
 
+    private final SnapshotManager cleanupManager = new SnapshotManager();
+
     public static final StorageService instance = new StorageService();
 
     @Deprecated
@@ -979,6 +981,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             LoadBroadcaster.instance.startBroadcasting();
             HintsService.instance.startDispatch();
             BatchlogManager.instance.start();
+            cleanupManager.startScanning();
         }
     }
 
@@ -3898,8 +3901,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             for (ColumnFamilyStore cfStore : keyspace.getColumnFamilyStores())
             {
+                Directories dirs = cfStore.getDirectories();
                 for (Map.Entry<String, Directories.SnapshotSizeDetails> snapshotDetail : cfStore.getSnapshotDetails().entrySet())
                 {
+                    String snapshotName = snapshotDetail.getKey();
                     TabularDataSupport data = (TabularDataSupport)snapshotMap.get(snapshotDetail.getKey());
                     if (data == null)
                     {
@@ -3907,7 +3912,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         snapshotMap.put(snapshotDetail.getKey(), data);
                     }
 
-                    SnapshotDetailsTabularData.from(snapshotDetail.getKey(), keyspace.getName(), cfStore.getTableName(), snapshotDetail, data);
+                    SnapshotDetailsTabularData.from(snapshotName, dirs.getSnapshotManifestFile(snapshotName), keyspace.getName(), cfStore.getTableName(), snapshotDetail, data);
                 }
             }
         }

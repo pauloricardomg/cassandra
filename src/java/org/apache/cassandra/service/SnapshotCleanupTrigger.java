@@ -19,17 +19,27 @@ package org.apache.cassandra.service;
 
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Directories;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import java.io.File;
 import java.util.List;
 
-public class SnapshotCleanupTrigger implements Runnable {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import com.google.common.util.concurrent.RateLimiter;
+
+
+public class SnapshotCleanupTrigger implements Runnable {
+    private static final Logger logger = LoggerFactory.getLogger(SnapshotCleanupTrigger.class);
 
     public void run() {
+        logger.info("start cleanup");
+        RateLimiter clearSnapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
+
         for (Keyspace ks: Keyspace.all()) {
             List<File> snapshotDirs = Directories.getKSChildDirectories(ks.getName());
 
-            Directories.clearExpiredSnapshots(snapshotDirs);
+            Directories.clearExpiredSnapshots(snapshotDirs, clearSnapshotRateLimiter);
         }
     }
 

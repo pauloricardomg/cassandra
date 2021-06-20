@@ -21,13 +21,18 @@ package org.apache.cassandra.service;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 
 public class SnapshotManager {
     private volatile ScheduledFuture snapshotCleanupTrigger;
+    private static final Logger logger = LoggerFactory.getLogger(SnapshotManager.class);
 
 
     public void startScanning() {
+        logger.info("start scheduling cleanups");
         SnapshotCleanupTrigger trigger = new SnapshotCleanupTrigger();
     
         snapshotCleanupTrigger = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(trigger, 10, 10, TimeUnit.SECONDS);
