@@ -22,7 +22,6 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiPredicate;
-import java.time.Instant;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
@@ -1036,31 +1035,6 @@ public class Directories
                         SnapshotDeletingTask.addFailedSnapshot(snapshotDir);
                     else
                         throw e;
-                }
-            }
-        }
-    }
-
-    public static void clearExpiredSnapshots(List<File> snapshotDirectories, RateLimiter snapshotRateLimiter) {
-        for (File dir : snapshotDirectories) {
-            File snapshots = new File(dir, SNAPSHOT_SUBDIR);
-            for (File snapshotDir : snapshots.listFiles()) {
-                File manifest = new File(snapshotDir, "manifest.json");
-            
-                if (manifest.exists()) {
-                    try {
-                        Map<String, Object> content = FileUtils.readFileToJson(manifest);
-                        if (content.containsKey("expires_at")) {
-                            Instant expiresAt = Instant.parse((String)content.get("expires_at"));
-                            Instant now = Instant.now();
-                            if (expiresAt.compareTo(now) < 0) {
-                                FileUtils.deleteRecursiveWithThrottle(snapshotDir, snapshotRateLimiter);
-                                logger.info("deleted snapshot {}", snapshotDir.getAbsolutePath());
-                            }
-                        }
-                    } catch (IOException e) {
-                        logger.warn("could not read manifest {}, {}", manifest.getAbsolutePath(), e);
-                    }
                 }
             }
         }

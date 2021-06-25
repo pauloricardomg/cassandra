@@ -19,9 +19,16 @@ package org.apache.cassandra.service;
 
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Directories;
+import org.apache.cassandra.db.SnapshotDetails;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import java.io.File;
 import java.util.List;
+import javax.management.openmbean.TabularData;
+import javax.management.openmbean.CompositeData;
+import java.util.Map;
+import java.time.Instant;
+
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,13 +41,29 @@ public class SnapshotCleanupTrigger implements Runnable {
 
     public void run() {
         logger.info("start cleanup");
-        RateLimiter clearSnapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
 
-        for (Keyspace ks: Keyspace.all()) {
-            List<File> snapshotDirs = Directories.getKSChildDirectories(ks.getName());
+        for (Map.Entry<String, TabularData> entry : StorageService.instance.getSnapshotDetails().entrySet()) {
+            String snapshotName = entry.getKey();
+            TabularData data = entry.getValue();
 
-            Directories.clearExpiredSnapshots(snapshotDirs, clearSnapshotRateLimiter);
+            for (Object raw : data.values()) {
+                CompositeData row = (CompositeData)raw;
+                String expiresAt = (String)row.get("Time of snapshot expiration");
+                if (isExpired(expiresAt)) {
+                    logger.info("kek {}", row.containsKey("Time of snapshot expiration"));
+                    Keyspace.clearSnapshot(snapshotName, (String)row.get("Keyspace name"));
+                }
+            }
         }
+    }
+
+    private boolean isExpired(String expiresAt) {
+        if (expiresAt == null) {
+            return false;
+        }
+        Instant expiration = Instant.parse(expiresAt);
+        Instant now = Instant.now();
+        return expiration.compareTo(now) < 0;
     }
 
 }
