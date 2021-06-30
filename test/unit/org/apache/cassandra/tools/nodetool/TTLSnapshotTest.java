@@ -28,6 +28,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.tools.NodeProbe;
@@ -43,6 +44,7 @@ public class TTLSnapshotTest extends CQLTester
     @BeforeClass
     public static void setup() throws Exception
     {
+        StorageService.instance.initServer();
         startJMXServer();
         probe = new NodeProbe(jmxHost, jmxPort);
     }
@@ -74,9 +76,14 @@ public class TTLSnapshotTest extends CQLTester
         Map<String, TabularData> snapshots_before = probe.getSnapshotDetails();
         assertThat(snapshots_before).containsKey("some-name");
 
-        Thread.sleep(120000);
+        Thread.sleep(50000);
 
         Map<String, TabularData> snapshots_after = probe.getSnapshotDetails();
+        assertThat(snapshots_after).containsKey("some-name");
+
+        Thread.sleep(50000);
+
+        snapshots_after = probe.getSnapshotDetails();
         assertThat(snapshots_after).doesNotContainKey("some-name");
     }
 }
