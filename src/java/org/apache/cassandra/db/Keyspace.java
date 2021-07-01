@@ -27,6 +27,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -335,6 +336,23 @@ public class Keyspace
         List<SSTableReader> list = new ArrayList<>(columnFamilyStores.size());
         for (ColumnFamilyStore cfStore : columnFamilyStores.values())
             Iterables.addAll(list, cfStore.getSSTables(sstableSet));
+        return list;
+    }
+
+    public List<SnapshotDetails> getSnapshotDetails() {
+        List<SnapshotDetails> list = new ArrayList<>();
+        for (ColumnFamilyStore cfStore : getColumnFamilyStores())
+        {
+            Directories dirs = cfStore.getDirectories();
+            for (Map.Entry<String, Directories.SnapshotSizeDetails> snapshotDetail : cfStore.getSnapshotDetails().entrySet())
+            {
+                String snapshotName = snapshotDetail.getKey();
+                File manifest = dirs.getSnapshotManifestFile(snapshotName);
+                SnapshotDetails details = new SnapshotDetails(snapshotName, manifest);
+                list.add(details);
+            }
+        }
+
         return list;
     }
 

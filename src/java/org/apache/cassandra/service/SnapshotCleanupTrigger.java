@@ -42,6 +42,17 @@ public class SnapshotCleanupTrigger implements Runnable {
     public void run() {
         logger.info("start cleanup");
 
+        for (Keyspace ks : Keyspace.all()) {
+
+            for (SnapshotDetails snapshot : ks.getSnapshotDetails()) {
+                if (snapshot.isExpired()) {
+                    Keyspace.clearSnapshot(snapshot.name, ks.getName());
+                }
+            }
+
+        }
+
+        /* old
         for (Map.Entry<String, TabularData> entry : StorageService.instance.getSnapshotDetails().entrySet()) {
             String snapshotName = entry.getKey();
             TabularData data = entry.getValue();
@@ -54,7 +65,7 @@ public class SnapshotCleanupTrigger implements Runnable {
                     Keyspace.clearSnapshot(snapshotName, (String)row.get("Keyspace name"));
                 }
             }
-        }
+        }*/
     }
 
     private boolean isExpired(String expiresAt) {
