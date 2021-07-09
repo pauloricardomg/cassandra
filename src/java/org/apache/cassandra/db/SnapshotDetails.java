@@ -22,36 +22,47 @@ import java.io.File;
 import java.io.IOException;
 import org.apache.cassandra.io.util.FileUtils;
 import java.util.Map;
+import org.apache.cassandra.config.Duration;
+
 
 
 public class SnapshotDetails {
-    public String name;
-    public String createdAt;
-    public String expiresAt;
+    public String tag;
+    public String keyspace;
+    public Instant createdAt;
+    public Instant expiresAt;
 
-    public SnapshotDetails(String name, File manifestFile) {
-        this.name = name;
+    public SnapshotDetails(String tag, String keyspace, File manifestFile) {
+        this.tag = tag;
+        this.keyspace = keyspace;
         try
         {
             Map<String, Object> manifest = FileUtils.readFileToJson(manifestFile);
             if (manifest.containsKey("created_at")) {
-                this.createdAt = (String)manifest.get("created_at");
+                this.createdAt = Instant.parse((String)manifest.get("created_at"));
             }
             if (manifest.containsKey("expires_at")) {
-                this.expiresAt = (String)manifest.get("expires_at");
+                this.expiresAt = Instant.parse((String)manifest.get("expires_at"));
             }
         } catch (IOException e) {
             //
         }
     }
 
+
+    public SnapshotDetails(String tag, String keyspace, Duration ttl) {
+        this.tag = tag;
+        this.keyspace = keyspace;
+        this.createdAt = Instant.now();
+        this.expiresAt = createdAt.plusMillis(ttl.toMilliseconds());
+    }
+
     public boolean isExpired() {
         if (createdAt == null || expiresAt == null) {
             return false;
         }
-        Instant expiration = Instant.parse(this.expiresAt);
         Instant now = Instant.now();
 
-        return expiration.compareTo(now) < 0;
+        return expiresAt.compareTo(now) < 0;
     }
 }

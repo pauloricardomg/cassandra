@@ -348,7 +348,7 @@ public class Keyspace
             {
                 String snapshotName = snapshotDetail.getKey();
                 File manifest = dirs.getSnapshotManifestFile(snapshotName);
-                SnapshotDetails details = new SnapshotDetails(snapshotName, manifest);
+                SnapshotDetails details = new SnapshotDetails(snapshotName, getName(), manifest);
                 list.add(details);
             }
         }
