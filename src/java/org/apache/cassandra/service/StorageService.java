@@ -3783,7 +3783,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (Keyspace keyspace : keyspaces) {
             keyspace.snapshot(tag, null, skipFlush, ttl, snapshotRateLimiter);
             if (ttl != null) {
-                cleanupManager.addSnapshot(tag, keyspace.getName(), ttl);
+                cleanupManager.addTtlSnapshot(tag, keyspace.getName(), ttl);
             }
         }
     }
@@ -3852,7 +3852,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             for (String table : entry.getValue())
                 entry.getKey().snapshot(tag, table, skipFlush, ttl, snapshotRateLimiter);
             if (ttl != null) {
-                cleanupManager.addSnapshot(tag, entry.getKey().getName(), ttl);
+                cleanupManager.addTtlSnapshot(tag, entry.getKey().getName(), ttl);
             }
         }
 

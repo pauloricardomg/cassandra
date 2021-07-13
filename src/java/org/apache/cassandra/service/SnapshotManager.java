@@ -34,17 +34,17 @@ import org.apache.cassandra.concurrent.ScheduledExecutors;
 public class SnapshotManager {
     private volatile ScheduledFuture snapshotCleanupTrigger;
     private static final Logger logger = LoggerFactory.getLogger(SnapshotManager.class);
-    private Map<String, SnapshotDetails> activeSnapshots = new ConcurrentHashMap();
+    private Map<String, SnapshotDetails> activeTtlSnapshots = new ConcurrentHashMap();
 
-    public void addSnapshot(String tag, String keyspace, Duration ttl) {
+    public void addTtlSnapshot(String tag, String keyspace, Duration ttl) {
         SnapshotDetails snapshot = new SnapshotDetails(tag, keyspace, ttl);
-        activeSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
+        activeTtlSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
     }
 
     private void uploadSnapshotsFromDisk() {
         for (Keyspace ks : Keyspace.all()) {
             for (SnapshotDetails snapshot : ks.getSnapshotDetails()) {
-                activeSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
+                activeTtlSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
             }
         }
     }
@@ -55,10 +55,10 @@ public class SnapshotManager {
         public void run() {
             logger.info("start cleanup");
 
-            for (SnapshotDetails snapshot : activeSnapshots.values()) {
+            for (SnapshotDetails snapshot : activeTtlSnapshots.values()) {
                 if (snapshot.isExpired()) {
                     Keyspace.clearSnapshot(snapshot.tag, snapshot.keyspace);
-                    activeSnapshots.remove(snapshot.keyspace + ":" + snapshot.tag);
+                    activeTtlSnapshots.remove(snapshot.keyspace + ":" + snapshot.tag);
                 }
             }
         }
@@ -70,6 +70,11 @@ public class SnapshotManager {
     
         uploadSnapshotsFromDisk();
 
-        snapshotCleanupTrigger = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(trigger, 10, 10, TimeUnit.SECONDS);
+        snapshotCleanupTrigger = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(
+            trigger, 
+            10, 
+            Integer.getInteger("cassandra.ttl_snapshot_cleanup_period_seconds", 10), 
+            TimeUnit.SECONDS
+        );
     }
 }

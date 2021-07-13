@@ -32,17 +32,20 @@ public class SnapshotDetails {
     public Instant createdAt;
     public Instant expiresAt;
 
+    private static final String CreatedAtKey = "created_at";
+    private static final String ExpiresAtKey = "expires_at";
+
     public SnapshotDetails(String tag, String keyspace, File manifestFile) {
         this.tag = tag;
         this.keyspace = keyspace;
         try
         {
             Map<String, Object> manifest = FileUtils.readFileToJson(manifestFile);
-            if (manifest.containsKey("created_at")) {
-                this.createdAt = Instant.parse((String)manifest.get("created_at"));
+            if (manifest.containsKey(CreatedAtKey)) {
+                this.createdAt = Instant.parse((String)manifest.get(CreatedAtKey));
             }
-            if (manifest.containsKey("expires_at")) {
-                this.expiresAt = Instant.parse((String)manifest.get("expires_at"));
+            if (manifest.containsKey(ExpiresAtKey)) {
+                this.expiresAt = Instant.parse((String)manifest.get(ExpiresAtKey));
             }
         } catch (IOException e) {
             //
@@ -53,6 +56,7 @@ public class SnapshotDetails {
     public SnapshotDetails(String tag, String keyspace, Duration ttl) {
         this.tag = tag;
         this.keyspace = keyspace;
+        assert ttl != null;
         this.createdAt = Instant.now();
         this.expiresAt = createdAt.plusMillis(ttl.toMilliseconds());
     }
@@ -61,8 +65,7 @@ public class SnapshotDetails {
         if (createdAt == null || expiresAt == null) {
             return false;
         }
-        Instant now = Instant.now();
 
-        return expiresAt.compareTo(now) < 0;
+        return expiresAt.compareTo(Instant.now()) < 0;
     }
 }
