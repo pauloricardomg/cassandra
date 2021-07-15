@@ -343,13 +343,8 @@ public class Keyspace
         List<SnapshotDetails> list = new ArrayList<>();
         for (ColumnFamilyStore cfStore : getColumnFamilyStores())
         {
-            Directories dirs = cfStore.getDirectories();
-            for (Map.Entry<String, Directories.SnapshotSizeDetails> snapshotDetail : cfStore.getSnapshotDetails().entrySet())
-            {
-                String snapshotName = snapshotDetail.getKey();
-                File manifest = dirs.getSnapshotManifestFile(snapshotName);
-                SnapshotDetails details = new SnapshotDetails(snapshotName, getName(), manifest);
-                list.add(details);
+            for (Map.Entry<String, SnapshotDetails> details : cfStore.getSnapshotDetails().entrySet()) {
+                list.add(details.getValue());
             }
         }
 

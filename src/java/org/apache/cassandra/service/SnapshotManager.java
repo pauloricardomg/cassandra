@@ -36,15 +36,17 @@ public class SnapshotManager {
     private static final Logger logger = LoggerFactory.getLogger(SnapshotManager.class);
     private Map<String, SnapshotDetails> activeTtlSnapshots = new ConcurrentHashMap();
 
-    public void addTtlSnapshot(String tag, String keyspace, Duration ttl) {
-        SnapshotDetails snapshot = new SnapshotDetails(tag, keyspace, ttl);
+    public void addTtlSnapshot(String tag, String table, String keyspace, Map<String, Object> manifest) {
+        SnapshotDetails snapshot = new SnapshotDetails(tag, table, keyspace, manifest);
         activeTtlSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
     }
 
-    private void uploadSnapshotsFromDisk() {
+    private void readSnapshotsFromDisk() {
         for (Keyspace ks : Keyspace.all()) {
             for (SnapshotDetails snapshot : ks.getSnapshotDetails()) {
-                activeTtlSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
+                if (snapshot.hasTTL()) {
+                    activeTtlSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
+                }
             }
         }
     }
@@ -53,7 +55,7 @@ public class SnapshotManager {
         private final Logger logger = LoggerFactory.getLogger(SnapshotCleanupTrigger.class);
 
         public void run() {
-            logger.info("start cleanup");
+            logger.info("starting cleanup of expired snapshots");
 
             for (SnapshotDetails snapshot : activeTtlSnapshots.values()) {
                 if (snapshot.isExpired()) {
@@ -67,8 +69,8 @@ public class SnapshotManager {
     public void startScanning() {
         logger.info("start scheduling cleanups");
         SnapshotCleanupTrigger trigger = new SnapshotCleanupTrigger();
-    
-        uploadSnapshotsFromDisk();
+
+        readSnapshotsFromDisk();
 
         snapshotCleanupTrigger = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(
             trigger, 

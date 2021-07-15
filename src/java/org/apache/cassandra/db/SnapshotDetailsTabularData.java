@@ -75,28 +75,24 @@ public class SnapshotDetailsTabularData
     }
 
 
-    public static void from(final String snapshot, final File manifestFile, final String ks, final String cf, Map.Entry<String, Directories.SnapshotSizeDetails> snapshotDetail, TabularDataSupport result)
+    public static void from(SnapshotDetails details, TabularDataSupport result)
     {
         try
         {
-            final String totalSize = FileUtils.stringifyFileSize(snapshotDetail.getValue().sizeOnDiskBytes);
-            final String liveSize =  FileUtils.stringifyFileSize(snapshotDetail.getValue().dataSizeBytes);
+            final String totalSize = FileUtils.stringifyFileSize(details.sizeOnDiskBytes);
+            final String liveSize =  FileUtils.stringifyFileSize(details.dataSizeBytes);
             String createdAt = null;
             String expiresAt = null;
-            try {
-                Map<String, Object> manifest = FileUtils.readFileToJson(manifestFile);
-                if (manifest.containsKey("created_at")) {
-                    createdAt = (String)manifest.get("created_at");
-                }
-                if (manifest.containsKey("expires_at")) {
-                    expiresAt = (String)manifest.get("expires_at");
-                }
-            } catch (IOException e) {
-                //
+            // Map<String, Object> manifest = FileUtils.readFileToJson(manifestFile);
+            if (details.createdAt != null) {
+                createdAt = details.createdAt.toString();
+            }
+            if (details.expiresAt != null) {
+                expiresAt = details.expiresAt.toString();
             }
 
             result.put(new CompositeDataSupport(COMPOSITE_TYPE, ITEM_NAMES,
-                    new Object[]{ snapshot, ks, cf, liveSize, totalSize, createdAt, expiresAt }));
+                    new Object[]{ details.tag, details.keyspace, details.table, liveSize, totalSize, createdAt, expiresAt }));
         }
         catch (OpenDataException e)
         {

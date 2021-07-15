@@ -29,37 +29,36 @@ import org.apache.cassandra.config.Duration;
 public class SnapshotDetails {
     public String tag;
     public String keyspace;
+    public String table;
     public Instant createdAt;
     public Instant expiresAt;
+    public long sizeOnDiskBytes;
+    public  long dataSizeBytes;
 
-    private static final String CreatedAtKey = "created_at";
-    private static final String ExpiresAtKey = "expires_at";
+    private static final String CREATED_AT = "created_at";
+    private static final String EXPIRES_AT = "expires_at";
 
-    public SnapshotDetails(String tag, String keyspace, File manifestFile) {
+    public SnapshotDetails(String tag, String table, String keyspace, Map<String, Object> manifest) {
         this.tag = tag;
+        this.table = table;
         this.keyspace = keyspace;
-        try
-        {
-            Map<String, Object> manifest = FileUtils.readFileToJson(manifestFile);
-            if (manifest.containsKey(CreatedAtKey)) {
-                this.createdAt = Instant.parse((String)manifest.get(CreatedAtKey));
-            }
-            if (manifest.containsKey(ExpiresAtKey)) {
-                this.expiresAt = Instant.parse((String)manifest.get(ExpiresAtKey));
-            }
-        } catch (IOException e) {
-            //
+        // Map<String, Object> manifest = FileUtils.readFileToJson(manifestFile);
+        if (manifest.containsKey(CREATED_AT)) {
+            this.createdAt = Instant.parse((String)manifest.get(CREATED_AT));
+        }
+        if (manifest.containsKey(EXPIRES_AT)) {
+            this.expiresAt = Instant.parse((String)manifest.get(EXPIRES_AT));
         }
     }
 
-
+    /*
     public SnapshotDetails(String tag, String keyspace, Duration ttl) {
         this.tag = tag;
         this.keyspace = keyspace;
         assert ttl != null;
         this.createdAt = Instant.now();
         this.expiresAt = createdAt.plusMillis(ttl.toMilliseconds());
-    }
+    }*/
 
     public boolean isExpired() {
         if (createdAt == null || expiresAt == null) {
@@ -67,5 +66,9 @@ public class SnapshotDetails {
         }
 
         return expiresAt.compareTo(Instant.now()) < 0;
+    }
+
+    public boolean hasTTL() {
+        return createdAt != null && expiresAt != null;
     }
 }

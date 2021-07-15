@@ -1886,6 +1886,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     Instant expiresAt = createdAt.plusMillis(ttl.toMilliseconds());
                     manifestJSON.put("created_at", createdAt.toString());
                     manifestJSON.put("expires_at", expiresAt.toString());
+                    Map<String, Object> manifest = new HashMap<>();
+                    manifest.put("created_at", createdAt.toString());
+                    manifest.put("expires_at", expiresAt.toString());
+                    StorageService.instance.cleanupManager.addTtlSnapshot(snapshotName, getTableName(), keyspace.getName(), manifest);
                 }
 
                 out.println(manifestJSON.toJSONString());
@@ -2066,7 +2070,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @return  Return a map of all snapshots to space being used
      * The pair for a snapshot has true size and size on disk.
      */
-    public Map<String, Directories.SnapshotSizeDetails> getSnapshotDetails()
+    public Map<String, SnapshotDetails> getSnapshotDetails()
     {
         return getDirectories().getSnapshotDetails();
     }

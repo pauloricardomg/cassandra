@@ -188,7 +188,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private final List<Runnable> preShutdownHooks = new ArrayList<>();
     private final List<Runnable> postShutdownHooks = new ArrayList<>();
 
-    private final SnapshotManager cleanupManager = new SnapshotManager();
+    public final SnapshotManager cleanupManager = new SnapshotManager();
 
     public static final StorageService instance = new StorageService();
 
@@ -3782,9 +3782,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         for (Keyspace keyspace : keyspaces) {
             keyspace.snapshot(tag, null, skipFlush, ttl, snapshotRateLimiter);
-            if (ttl != null) {
-                cleanupManager.addTtlSnapshot(tag, keyspace.getName(), ttl);
-            }
         }
     }
 
@@ -3851,9 +3848,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             for (String table : entry.getValue())
                 entry.getKey().snapshot(tag, table, skipFlush, ttl, snapshotRateLimiter);
-            if (ttl != null) {
-                cleanupManager.addTtlSnapshot(tag, entry.getKey().getName(), ttl);
-            }
         }
 
     }
@@ -3909,7 +3903,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             for (ColumnFamilyStore cfStore : keyspace.getColumnFamilyStores())
             {
                 Directories dirs = cfStore.getDirectories();
-                for (Map.Entry<String, Directories.SnapshotSizeDetails> snapshotDetail : cfStore.getSnapshotDetails().entrySet())
+                for (Map.Entry<String, SnapshotDetails> snapshotDetail : cfStore.getSnapshotDetails().entrySet())
                 {
                     String snapshotName = snapshotDetail.getKey();
                     TabularDataSupport data = (TabularDataSupport)snapshotMap.get(snapshotDetail.getKey());
@@ -3919,7 +3913,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         snapshotMap.put(snapshotDetail.getKey(), data);
                     }
 
-                    SnapshotDetailsTabularData.from(snapshotName, dirs.getSnapshotManifestFile(snapshotName), keyspace.getName(), cfStore.getTableName(), snapshotDetail, data);
+                    SnapshotDetailsTabularData.from(snapshotDetail.getValue(), data);
                 }
             }
         }
