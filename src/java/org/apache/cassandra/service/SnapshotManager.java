@@ -37,6 +37,8 @@ public class SnapshotManager {
     private Map<String, SnapshotDetails> activeTtlSnapshots = new ConcurrentHashMap();
 
     public void addTtlSnapshot(String tag, String table, String keyspace, Map<String, Object> manifest) {
+        assert manifest.containsKey(SnapshotDetails.CREATED_AT);
+        assert manifest.containsKey(SnapshotDetails.EXPIRES_AT);
         SnapshotDetails snapshot = new SnapshotDetails(tag, table, keyspace, manifest);
         activeTtlSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
     }

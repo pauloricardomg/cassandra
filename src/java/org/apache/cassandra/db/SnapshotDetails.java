@@ -35,8 +35,8 @@ public class SnapshotDetails {
     public long sizeOnDiskBytes;
     public  long dataSizeBytes;
 
-    private static final String CREATED_AT = "created_at";
-    private static final String EXPIRES_AT = "expires_at";
+    public static final String CREATED_AT = "created_at";
+    public static final String EXPIRES_AT = "expires_at";
 
     public SnapshotDetails(String tag, String table, String keyspace, Map<String, Object> manifest) {
         this.tag = tag;
