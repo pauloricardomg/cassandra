@@ -953,7 +953,11 @@ public class Directories
             File manifestFile = new File(snapshot, "manifest.json");
             Map<String, Object> manifest = new HashMap<>();
             try {
-                manifest = FileUtils.readFileToJson(manifestFile);
+                if (manifestFile.exists()) {
+                    manifest = FileUtils.readFileToJson(manifestFile);
+                } else {
+                    logger.info("manifest file does not exist: {}", manifestFile.getAbsolutePath());
+                }
             } catch (IOException e) {
                 logger.warn("Could not read manifest file: {}", manifestFile.getAbsolutePath());
             }

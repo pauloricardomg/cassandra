@@ -45,7 +45,7 @@ public class SnapshotManager {
         for (Keyspace ks : Keyspace.all()) {
             for (SnapshotDetails snapshot : ks.getSnapshotDetails()) {
                 if (snapshot.hasTTL()) {
-                    activeTtlSnapshots.put(snapshot.keyspace + ":" + snapshot.tag, snapshot);
+                    activeTtlSnapshots.put(snapshot.keyspace + ':' + snapshot.table + ':' + snapshot.tag, snapshot);
                 }
             }
         }
@@ -60,14 +60,14 @@ public class SnapshotManager {
             for (SnapshotDetails snapshot : activeTtlSnapshots.values()) {
                 if (snapshot.isExpired()) {
                     Keyspace.clearSnapshot(snapshot.tag, snapshot.keyspace);
-                    activeTtlSnapshots.remove(snapshot.keyspace + ":" + snapshot.tag);
+                    activeTtlSnapshots.remove(snapshot.keyspace + ':' + snapshot.table + ':' + snapshot.tag);
                 }
             }
         }
     }
 
     public void startScanning() {
-        logger.info("start scheduling cleanups");
+        logger.info("snapshot manager startup, scheduling cleanups");
         SnapshotCleanupTrigger trigger = new SnapshotCleanupTrigger();
 
         readSnapshotsFromDisk();
