@@ -964,7 +964,6 @@ public class Directories
             SnapshotDetails details = snapshotSpaceMap.get(snapshot.getName());
             if (details == null)
                 details = new SnapshotDetails(snapshot.getName(), metadata.name, metadata.keyspace, manifest);
-                // details =  new SnapshotSizeDetails(sizeOnDisk,trueSize);
             else
             {
                 details.dataSizeBytes += trueSize;

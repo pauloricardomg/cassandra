@@ -40,7 +40,7 @@ public final class Duration
     private final long quantity;
 
     private final TimeUnit unit;
-    
+
 
     public Duration(String value)
     {

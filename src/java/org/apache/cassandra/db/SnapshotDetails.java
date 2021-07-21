@@ -51,15 +51,6 @@ public class SnapshotDetails {
         }
     }
 
-    /*
-    public SnapshotDetails(String tag, String keyspace, Duration ttl) {
-        this.tag = tag;
-        this.keyspace = keyspace;
-        assert ttl != null;
-        this.createdAt = Instant.now();
-        this.expiresAt = createdAt.plusMillis(ttl.toMilliseconds());
-    }*/
-
     public boolean isExpired() {
         if (createdAt == null || expiresAt == null) {
             return false;
