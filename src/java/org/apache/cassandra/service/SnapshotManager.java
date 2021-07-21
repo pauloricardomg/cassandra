@@ -31,6 +31,9 @@ import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.SNAPSHOT_CLEANUP_PERIOD_SECONDS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.SNAPSHOT_CLEANUP_INITIAL_DELAY_SECONDS;
+
 public class SnapshotManager {
     private volatile ScheduledFuture snapshotCleanupTrigger;
     private static final Logger logger = LoggerFactory.getLogger(SnapshotManager.class);
@@ -75,9 +78,9 @@ public class SnapshotManager {
         readSnapshotsFromDisk();
 
         snapshotCleanupTrigger = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(
-            trigger, 
-            10, 
-            Integer.getInteger("cassandra.ttl_snapshot_cleanup_period_seconds", 10), 
+            trigger,
+            SNAPSHOT_CLEANUP_INITIAL_DELAY_SECONDS.getInt(),
+            SNAPSHOT_CLEANUP_PERIOD_SECONDS.getInt(),
             TimeUnit.SECONDS
         );
     }
