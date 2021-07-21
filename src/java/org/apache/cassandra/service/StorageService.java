@@ -102,6 +102,8 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.schema.ViewMetadata;
+import org.apache.cassandra.service.snapshot.SnapshotManager;
+import org.apache.cassandra.service.snapshot.TableSnapshotDetails;
 import org.apache.cassandra.streaming.*;
 import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.transport.ClientResourceLimits;
@@ -188,7 +190,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private final List<Runnable> preShutdownHooks = new ArrayList<>();
     private final List<Runnable> postShutdownHooks = new ArrayList<>();
 
-    public final SnapshotManager cleanupManager = new SnapshotManager();
+    public final SnapshotManager snapshotManager = new SnapshotManager();
 
     public static final StorageService instance = new StorageService();
 
@@ -981,7 +983,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             LoadBroadcaster.instance.startBroadcasting();
             HintsService.instance.startDispatch();
             BatchlogManager.instance.start();
-            cleanupManager.startScanning();
+            snapshotManager.start();
         }
     }
 
@@ -3902,10 +3904,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             for (ColumnFamilyStore cfStore : keyspace.getColumnFamilyStores())
             {
-                Directories dirs = cfStore.getDirectories();
-                for (Map.Entry<String, SnapshotDetails> snapshotDetail : cfStore.getSnapshotDetails().entrySet())
+                for (Map.Entry<String, TableSnapshotDetails> snapshotDetail : cfStore.getSnapshotDetails().entrySet())
                 {
-                    String snapshotName = snapshotDetail.getKey();
                     TabularDataSupport data = (TabularDataSupport)snapshotMap.get(snapshotDetail.getKey());
                     if (data == null)
                     {

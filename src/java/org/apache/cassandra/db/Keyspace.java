@@ -66,6 +66,7 @@ import org.apache.cassandra.schema.SchemaProvider;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
+import org.apache.cassandra.service.snapshot.TableSnapshotDetails;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -324,8 +325,8 @@ public class Keyspace
     {
         RateLimiter clearSnapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
 
-        List<File> snapshotDirs = Directories.getKSChildDirectories(keyspace);
-        Directories.clearSnapshot(snapshotName, snapshotDirs, clearSnapshotRateLimiter);
+        List<File> tableDirectories = Directories.getKSChildDirectories(keyspace);
+        Directories.clearSnapshot(snapshotName, tableDirectories, clearSnapshotRateLimiter);
     }
 
     /**
@@ -339,11 +340,11 @@ public class Keyspace
         return list;
     }
 
-    public List<SnapshotDetails> getSnapshotDetails() {
-        List<SnapshotDetails> list = new ArrayList<>();
+    public List<TableSnapshotDetails> getSnapshotDetails() {
+        List<TableSnapshotDetails> list = new ArrayList<>();
         for (ColumnFamilyStore cfStore : getColumnFamilyStores())
         {
-            for (Map.Entry<String, SnapshotDetails> details : cfStore.getSnapshotDetails().entrySet()) {
+            for (Map.Entry<String, TableSnapshotDetails> details : cfStore.getSnapshotDetails().entrySet()) {
                 list.add(details.getValue());
             }
         }

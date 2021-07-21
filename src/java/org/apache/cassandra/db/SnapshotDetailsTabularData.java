@@ -17,17 +17,11 @@
  */
 package org.apache.cassandra.db;
 
-import java.util.Map;
-import java.io.File;
-import java.io.IOException;
 import javax.management.openmbean.*;
 
 import com.google.common.base.Throwables;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.utils.Pair;
-
-
-
+import org.apache.cassandra.service.snapshot.TableSnapshotDetails;
 
 public class SnapshotDetailsTabularData
 {
@@ -75,28 +69,25 @@ public class SnapshotDetailsTabularData
     }
 
 
-    public static void from(SnapshotDetails details, TabularDataSupport result)
+    public static void from(TableSnapshotDetails details, TabularDataSupport result)
     {
         try
         {
-            final String totalSize = FileUtils.stringifyFileSize(details.sizeOnDiskBytes);
-            final String liveSize =  FileUtils.stringifyFileSize(details.dataSizeBytes);
-            String createdAt = null;
-            String expiresAt = null;
-            // Map<String, Object> manifest = FileUtils.readFileToJson(manifestFile);
-            if (details.createdAt != null) {
-                createdAt = details.createdAt.toString();
-            }
-            if (details.expiresAt != null) {
-                expiresAt = details.expiresAt.toString();
-            }
-
+            final String totalSize = FileUtils.stringifyFileSize(details.computeSizeOnDiskBytes());
+            final String liveSize =  FileUtils.stringifyFileSize(details.computeTrueSizeBytes());
+            String createdAt = safeToString(details.getCreatedAt());
+            String expiresAt = safeToString(details.getExpiresAt());
             result.put(new CompositeDataSupport(COMPOSITE_TYPE, ITEM_NAMES,
-                    new Object[]{ details.tag, details.keyspace, details.table, liveSize, totalSize, createdAt, expiresAt }));
+                    new Object[]{ details.getTag(), details.getKeyspace(), details.getTable(), liveSize, totalSize, createdAt, expiresAt }));
         }
         catch (OpenDataException e)
         {
             throw new RuntimeException(e);
         }
+    }
+
+    private static String safeToString(Object object)
+    {
+        return object == null ? null : object.toString();
     }
 }
