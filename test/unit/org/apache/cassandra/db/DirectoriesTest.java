@@ -263,7 +263,7 @@ public class DirectoriesTest
         assertThat(snapshots.get(SNAPSHOT2)).isEqualTo(snapshot2.asTableSnapshot());
 
         // Now remove snapshot1
-        deleteFolder(snapshot1.snapshotDir);
+        FileUtils.deleteRecursive(snapshot1.snapshotDir);
 
         // Only snapshot 2 should be present
         snapshots = directories.listSnapshots();
@@ -289,7 +289,7 @@ public class DirectoriesTest
         assertThat(snapshotDirs.get(SNAPSHOT2)).allMatch(snapshotDir -> snapshotDir.equals(snapshot2.snapshotDir));
 
         // Now remove snapshot1
-        deleteFolder(snapshot1.snapshotDir);
+        FileUtils.deleteRecursive(snapshot1.snapshotDir);
 
         // Only snapshot 2 should be present
         snapshotDirs = directories.listSnapshotDirsByTag();
@@ -825,24 +825,17 @@ public class DirectoriesTest
         long totalAvailable = 0L;
 
         for (DataDirectory dataDir : dataDirectories)
-            {
-                Directories.DataDirectoryCandidate candidate = new Directories.DataDirectoryCandidate(dataDir);
-                // exclude directory if its total writeSize does not fit to data directory
-                if (candidate.availableSpace < writeSize)
-                    continue;
-                candidates.add(candidate);
-                totalAvailable += candidate.availableSpace;
-            }
+        {
+            Directories.DataDirectoryCandidate candidate = new Directories.DataDirectoryCandidate(dataDir);
+            // exclude directory if its total writeSize does not fit to data directory
+            if (candidate.availableSpace < writeSize)
+                continue;
+            candidates.add(candidate);
+            totalAvailable += candidate.availableSpace;
+        }
 
         Directories.sortWriteableCandidates(candidates, totalAvailable);
 
         return candidates;
-    }
-
-
-    static void deleteFolder(File directory)
-    {
-        assert directory.isDirectory();
-        FileUtils.deleteRecursive(directory);
     }
 }

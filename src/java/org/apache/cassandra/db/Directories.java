@@ -1054,12 +1054,6 @@ public class Directories
                     {
                         if (snapshot.isDirectory()) {
                             snapshotDirsByTag.computeIfAbsent(snapshot.getName(), k -> new LinkedHashSet<>()).add(snapshot.getAbsoluteFile());
-                            Set<File> dirs = snapshotDirsByTag.get(snapshot.getName());
-                            for (final File subdir : snapshot.listFiles()) {
-                                if (subdir.isDirectory()) {
-                                    dirs.add(subdir.getAbsoluteFile());
-                                }
-                            }
                         }
                     }
                 }

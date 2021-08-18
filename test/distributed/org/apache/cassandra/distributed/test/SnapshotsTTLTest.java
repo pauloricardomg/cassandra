@@ -36,19 +36,17 @@ import static org.apache.cassandra.distributed.shared.ClusterUtils.stopUnchecked
 public class SnapshotsTTLTest extends TestBaseImpl
 {
     public static final Integer SNAPSHOT_CLEANUP_PERIOD_SECONDS = 1;
-    public static final Integer SNAPSHOT_TTL_SECONDS = 5;
+    public static final Integer FIVE_SECONDS = 5;
     private static WithProperties properties = new WithProperties();
     private static Cluster cluster;
-    private static String msg;
 
     @BeforeClass
     public static void before() throws IOException
     {
         properties.set(CassandraRelevantProperties.SNAPSHOT_CLEANUP_INITIAL_DELAY_SECONDS, 0);
         properties.set(CassandraRelevantProperties.SNAPSHOT_CLEANUP_PERIOD_SECONDS, SNAPSHOT_CLEANUP_PERIOD_SECONDS);
-        properties.set(CassandraRelevantProperties.SNAPSHOT_MIN_ALLOWED_TTL_SECONDS, SNAPSHOT_TTL_SECONDS);
+        properties.set(CassandraRelevantProperties.SNAPSHOT_MIN_ALLOWED_TTL_SECONDS, FIVE_SECONDS);
         cluster = init(Cluster.build(1).withConfig(c -> c.with(Feature.GOSSIP)).start());
-        msg = String.format("ttl for snapshot must be at least %d seconds", SNAPSHOT_TTL_SECONDS);
     }
 
     @AfterClass
@@ -62,27 +60,34 @@ public class SnapshotsTTLTest extends TestBaseImpl
     @Test
     public void testSnapshotsCleanupByTTL() throws Exception
     {
-        cluster.get(1).nodetoolResult("snapshot", "--ttl", String.format("%ds", SNAPSHOT_TTL_SECONDS),
+        cluster.get(1).nodetoolResult("snapshot", "--ttl", String.format("%ds", FIVE_SECONDS),
                                       "-t", "basic").asserts().success();
         cluster.get(1).nodetoolResult("listsnapshots").asserts().success().stdoutContains("basic");
 
-        Thread.sleep(2 * SNAPSHOT_TTL_SECONDS * 1000L);
+        Thread.sleep(2 * FIVE_SECONDS * 1000L);
         cluster.get(1).nodetoolResult("listsnapshots").asserts().success().stdoutNotContains("basic");
     }
 
     @Test
     public void testSnapshotCleanupAfterRestart() throws Exception
     {
+        int TWENTY_SECONDS = 20; // longer TTL to allow snapshot to survive node restart
         IInvokableInstance instance = cluster.get(1);
 
-        instance.nodetoolResult("snapshot", "--ttl", String.format("%ds", SNAPSHOT_TTL_SECONDS),
+        // Create snapshot and check exists
+        instance.nodetoolResult("snapshot", "--ttl", String.format("%ds", TWENTY_SECONDS),
                                 "-t", "basic").asserts().success();
         instance.nodetoolResult("listsnapshots").asserts().success().stdoutContains("basic");
 
-        Thread.sleep(2 * SNAPSHOT_TTL_SECONDS * 1000L);
+        // Restart node
         stopUnchecked(instance);
-
         instance.startup();
+
+        // Check snapshot still exists after restart
+        instance.nodetoolResult("listsnapshots").asserts().success().stdoutContains("basic");
+
+        // Sleep for 2*TTL and then check snapshot is gone
+        Thread.sleep(TWENTY_SECONDS * 1000L);
         cluster.get(1).nodetoolResult("listsnapshots").asserts().success().stdoutNotContains("basic");
     }
 
@@ -92,7 +97,7 @@ public class SnapshotsTTLTest extends TestBaseImpl
         IInvokableInstance instance = cluster.get(1);
 
         instance.nodetoolResult("snapshot", "--ttl", String.format("%ds", 1),
-                                "-t", "basic").asserts().failure().stdoutContains(msg);
+                                "-t", "basic").asserts().failure().stdoutContains(String.format("ttl for snapshot must be at least %d seconds", FIVE_SECONDS));
 
         instance.nodetoolResult("snapshot", "--ttl", "invalid-ttl").asserts().failure();
     }
@@ -105,7 +110,7 @@ public class SnapshotsTTLTest extends TestBaseImpl
 
         // take snapshot with ttl
         cluster.get(1).nodetoolResult("snapshot", "--ttl",
-                                      String.format("%ds", SNAPSHOT_TTL_SECONDS),
+                                      String.format("%ds", 1000),
                                       "-t", "snapshot_with_ttl").asserts().success();
 
         // list snaphots without TTL
@@ -125,11 +130,11 @@ public class SnapshotsTTLTest extends TestBaseImpl
         // take snapshots with ttl
         NodeToolResult.Asserts listSnapshotsResult;
         cluster.get(1).nodetoolResult("snapshot", "--ttl",
-                                      String.format("%ds", SNAPSHOT_TTL_SECONDS),
+                                      String.format("%ds", FIVE_SECONDS),
                                       "-t", "first").asserts().success();
 
         cluster.get(1).nodetoolResult("snapshot", "--ttl",
-                                      String.format("%ds", SNAPSHOT_TTL_SECONDS),
+                                      String.format("%ds", FIVE_SECONDS),
                                       "-t", "second").asserts().success();
 
         listSnapshotsResult = cluster.get(1).nodetoolResult("listsnapshots").asserts().success();
@@ -142,7 +147,7 @@ public class SnapshotsTTLTest extends TestBaseImpl
         listSnapshotsResult.stdoutNotContains("first");
         listSnapshotsResult.stdoutContains("second");
 
-        Thread.sleep(2 * SNAPSHOT_TTL_SECONDS * 1000L);
+        Thread.sleep(2 * FIVE_SECONDS * 1000L);
 
         listSnapshotsResult = cluster.get(1).nodetoolResult("listsnapshots").asserts().success();
         listSnapshotsResult.stdoutNotContains("first");
