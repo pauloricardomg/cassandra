@@ -26,11 +26,13 @@ import org.junit.Test;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.shared.WithProperties;
 
+import static java.lang.String.format;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.stopUnchecked;
 
 public class SnapshotsTTLTest extends TestBaseImpl
@@ -152,5 +154,36 @@ public class SnapshotsTTLTest extends TestBaseImpl
         listSnapshotsResult = cluster.get(1).nodetoolResult("listsnapshots").asserts().success();
         listSnapshotsResult.stdoutNotContains("first");
         listSnapshotsResult.stdoutNotContains("second");
+    }
+
+    @Test
+    public void testSecondaryIndexCleanup() throws Exception {
+        cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS default WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2};");
+        cluster.schemaChange("CREATE TABLE default.tbl (key int, value text, PRIMARY KEY (key))");
+        cluster.schemaChange("CREATE INDEX value_idx ON default.tbl (value)");
+
+        populate(cluster);
+
+        cluster.get(1).nodetoolResult("snapshot", "--ttl",
+                                      String.format("%ds", FIVE_SECONDS),
+                                      "-t", "first",
+                                      "-kt", "default.tbl").asserts().success();
+
+        NodeToolResult.Asserts listSnapshotsResult;
+
+        listSnapshotsResult = cluster.get(1).nodetoolResult("listsnapshots").asserts().success();
+        listSnapshotsResult.stdoutContains("first");
+
+        Thread.sleep(FIVE_SECONDS * 2 * 1000);
+
+        listSnapshotsResult = cluster.get(1).nodetoolResult("listsnapshots").asserts().success();
+        listSnapshotsResult.stdoutNotContains("first");
+    }
+
+    private void populate(Cluster cluster) {
+        for (int i = 0; i < 100; i++) {
+            cluster.coordinator(1).execute("INSERT INTO default.tbl (key, value) VALUES (?, 'txt')", ConsistencyLevel.ONE, i);
+        }
+
     }
 }
