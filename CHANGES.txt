@@ -11,6 +11,7 @@
  * Add isolated flush timer to CommitLogMetrics and ensure writes correspond to single WaitingOnCommit data points (CASSANDRA-16701)
  * Add a system property to set hostId if not yet initialized (CASSANDRA-14582)
  * GossiperTest.testHasVersion3Nodes didn't take into account trunk version changes, fixed to rely on latest version (CASSANDRA-16651)
+ * Add TTL support to nodetool snapshots (CASSANDRA-16789)
 Merged from 4.0:
  * Improve help, doc and error messages about sstabledump -k and -x arguments (CASSANDRA-16818)
  * Add repaired/unrepaired bytes back to nodetool (CASSANDRA-15282)
