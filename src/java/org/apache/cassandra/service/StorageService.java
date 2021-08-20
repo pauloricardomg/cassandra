@@ -3706,7 +3706,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         boolean skipFlush = Boolean.parseBoolean(options.getOrDefault("skipFlush", "false"));
         Duration ttl = null;
-        if (options.containsKey("ttl")) {
+        if (options.containsKey("ttl"))
+        {
             ttl = new Duration(options.get("ttl"));
             int minAllowedTtlSecs = CassandraRelevantProperties.SNAPSHOT_MIN_ALLOWED_TTL_SECONDS.getInt();
             if (ttl.toSeconds() < minAllowedTtlSecs)
@@ -3810,7 +3811,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
 
-        for (Keyspace keyspace : keyspaces) {
+        for (Keyspace keyspace : keyspaces)
+        {
             keyspace.snapshot(tag, null, skipFlush, ttl, snapshotRateLimiter);
         }
     }
