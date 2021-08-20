@@ -116,7 +116,7 @@ public class SnapshotsTTLTest extends TestBaseImpl
                                       "-t", "snapshot_with_ttl").asserts().success();
 
         // list snaphots without TTL
-        NodeToolResult.Asserts withoutTTLResult = cluster.get(1).nodetoolResult("listsnapshots", "-wt").asserts().success();
+        NodeToolResult.Asserts withoutTTLResult = cluster.get(1).nodetoolResult("listsnapshots", "-nt").asserts().success();
         withoutTTLResult.stdoutContains("snapshot_without_ttl");
         withoutTTLResult.stdoutNotContains("snapshot_with_ttl");
 

@@ -58,19 +58,6 @@ public class TableSnapshot
         return keyspace;
     }
 
-    public static Map<String, TableSnapshot> filter(Map<String, TableSnapshot> snapshots, Map<String, String> options)
-    {
-        if (options == null)
-            return snapshots;
-
-        boolean withoutTTL = Boolean.parseBoolean(options.getOrDefault("without_ttl", "false"));
-
-        return snapshots.entrySet()
-                .stream()
-                .filter(entry -> !withoutTTL || !entry.getValue().isExpiring())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-    }
-
     public String getTable()
     {
         return table;
@@ -162,5 +149,18 @@ public class TableSnapshot
     public int hashCode()
     {
         return Objects.hash(keyspace, table, tag, createdAt, expiresAt, snapshotDirs);
+    }
+
+    public static Map<String, TableSnapshot> filter(Map<String, TableSnapshot> snapshots, Map<String, String> options)
+    {
+        if (options == null)
+            return snapshots;
+
+        boolean skipExpiring = Boolean.parseBoolean(options.getOrDefault("no_ttl", "false"));
+
+        return snapshots.entrySet()
+                        .stream()
+                        .filter(entry -> !skipExpiring || !entry.getValue().isExpiring())
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 }
