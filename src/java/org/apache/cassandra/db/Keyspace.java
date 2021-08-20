@@ -339,7 +339,7 @@ public class Keyspace
         return list;
     }
 
-    public Stream<TableSnapshot> getSnapshotDetails() {
+    public Stream<TableSnapshot> getAllSnapshots() {
         return getColumnFamilyStores().stream().flatMap(cfs -> cfs.listSnapshots().values().stream());
     }
 

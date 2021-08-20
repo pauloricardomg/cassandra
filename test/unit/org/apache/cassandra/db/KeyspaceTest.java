@@ -425,7 +425,7 @@ public class KeyspaceTest extends CQLTester
         ks.snapshot("test", table);
 
         assertTrue(ks.snapshotExists("test"));
-        assertEquals(1, ks.getSnapshotDetails().count());
+        assertEquals(1, ks.getAllSnapshots().count());
     }
 
     @Test

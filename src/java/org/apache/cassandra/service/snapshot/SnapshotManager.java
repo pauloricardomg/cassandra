@@ -68,7 +68,7 @@ public class SnapshotManager {
         this(CassandraRelevantProperties.SNAPSHOT_CLEANUP_INITIAL_DELAY_SECONDS.getInt(),
              CassandraRelevantProperties.SNAPSHOT_CLEANUP_PERIOD_SECONDS.getInt(),
              () -> StreamSupport.stream(Keyspace.all().spliterator(), false)
-                                .flatMap(ks -> ks.getSnapshotDetails()));
+                                .flatMap(ks -> ks.getAllSnapshots()));
     }
 
     @VisibleForTesting
