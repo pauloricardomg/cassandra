@@ -4915,6 +4915,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 logger.error("Batchlog manager timed out shutting down", t);
             }
 
+            snapshotManager.stop();
             HintsService.instance.pauseDispatch();
 
             if (daemon != null)
@@ -5007,6 +5008,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
             FBUtilities.waitOnFutures(flushes);
 
+            SnapshotManager.shutdownAndWait(1L, MINUTES);
             HintsService.instance.shutdownBlocking();
 
             // Interrupt ongoing compactions and shutdown CM to prevent further compactions.

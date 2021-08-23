@@ -91,11 +91,14 @@ public class SnapshotManager {
         resumeSnapshotCleanup();
     }
 
-    public synchronized void shutdown() throws InterruptedException, TimeoutException
+    public synchronized void stop() throws InterruptedException, TimeoutException
     {
         expiringSnapshots.clear();
-        cleanupTaskFuture.cancel(false);
-        shutdownAndWait(1L, TimeUnit.MINUTES);
+        if (cleanupTaskFuture != null)
+        {
+            cleanupTaskFuture.cancel(false);
+            cleanupTaskFuture = null;
+        }
     }
 
     public synchronized void addSnapshot(TableSnapshot snapshot)

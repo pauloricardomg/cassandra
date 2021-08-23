@@ -157,7 +157,7 @@ public class SnapshotManagerTest
         }
         finally
         {
-            manager.shutdown();
+            manager.stop();
         }
     }
 
