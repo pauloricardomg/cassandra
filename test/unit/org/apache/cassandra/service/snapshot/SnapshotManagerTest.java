@@ -19,8 +19,10 @@
 package org.apache.cassandra.service.snapshot;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -31,8 +33,10 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.service.DefaultFSErrorHandler;
+import org.apache.cassandra.utils.Pair;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -220,5 +224,76 @@ public class SnapshotManagerTest
         nonExpiringSnapshotCleanupThred.join();
 
         assertTrue(secondInvocationTime.get() - firstInvocationTime.get() > 10_000);
+    }
+
+    @Test
+    public void testShouldClearSnapshot() throws Exception
+    {
+        // TableSnapshot variables -> ephemeral / true / false, createdAt -> null / notnull
+        String keyspace = "ks";
+        String table = "tbl";
+        UUID id = UUID.randomUUID();
+        String tag = "someTag";
+
+        Instant now = Instant.now();
+        Instant created1 = now.minusMillis(1);
+        Instant created2 = now.minusSeconds(60);
+
+        List<TableSnapshot> snapshots = new ArrayList<>();
+
+        for (boolean ephemeral : new boolean[]{ true, false })
+            for (Instant createdAt : new Instant[]{ created1, created2 })
+                snapshots.add(new TableSnapshot(keyspace,
+                                                table,
+                                                id,
+                                                tag,
+                                                createdAt, // variable
+                                                null,
+                                                null,
+                                                ephemeral)); // variable
+
+
+        SnapshotManager manager = new SnapshotManager();
+        manager.addSnapshots(snapshots);
+
+        List<Pair<String, Long>> testingMethodInputs = new ArrayList<>();
+
+        for (String testingTag : new String[] {null, "", tag, "someothertag"})
+            // now.toEpochMilli as true, snapshot minus 60s as false
+            for (long olderThanTimestamp : new long[] {Instant.now().toEpochMilli(), created2.minusSeconds(60).toEpochMilli()})
+                testingMethodInputs.add(Pair.create(testingTag, olderThanTimestamp));
+
+        for (Pair<String, Long> methodInput : testingMethodInputs)
+        {
+            String testingTag = methodInput.left();
+            Long olderThanTimestamp = methodInput.right;
+            for (TableSnapshot snapshot : snapshots)
+            {
+                // if shouldClear method returns true, it is only in case
+                // 1. snapshot to clear is not ephemeral
+                // 2. tag to clear is null, empty, or it is equal to snapshot tag
+                // 3. byTimestamp is true
+                if (TableSnapshot.shouldClearSnapshot(testingTag, olderThanTimestamp).test(snapshot))
+                {
+                    // shouldClearTag = true
+                    boolean shouldClearTag = (testingTag == null || testingTag.isEmpty()) || snapshot.getTag().equals(testingTag);
+                    // notEphemeral
+                    boolean notEphemeral = !snapshot.isEphemeral();
+                    // byTimestamp
+                    boolean byTimestamp = true;
+
+                    if (olderThanTimestamp > 0L)
+                    {
+                        Instant createdAt = snapshot.getCreatedAt();
+                        if (createdAt != null)
+                            byTimestamp = createdAt.isBefore(Instant.ofEpochMilli(olderThanTimestamp));
+                    }
+
+                    assertTrue(notEphemeral);
+                    assertTrue(shouldClearTag);
+                    assertTrue(byTimestamp);
+                }
+            }
+        }
     }
 }

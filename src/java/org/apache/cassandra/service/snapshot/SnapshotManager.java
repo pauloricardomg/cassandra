@@ -18,7 +18,10 @@
 package org.apache.cassandra.service.snapshot;
 
 
+import java.time.Instant;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
@@ -33,9 +36,11 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Directories;
 
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.base.Predicate;
 
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.utils.ExecutorUtils;
@@ -57,6 +62,8 @@ public class SnapshotManager {
 
     @VisibleForTesting
     protected volatile ScheduledFuture<?> cleanupTaskFuture;
+
+    private final Set<TableSnapshot> liveSnapshots = new HashSet<>();
 
     /**
      * Expiring snapshots ordered by expiration date, to allow only iterating over snapshots
@@ -101,17 +108,12 @@ public class SnapshotManager {
 
     public synchronized void addSnapshot(TableSnapshot snapshot)
     {
-        // We currently only care about expiring snapshots
+        liveSnapshots.add(snapshot);
         if (snapshot.isExpiring())
         {
             logger.debug("Adding expiring snapshot {}", snapshot);
             expiringSnapshots.add(snapshot);
         }
-    }
-
-    public synchronized Set<TableSnapshot> loadSnapshots(String keyspace)
-    {
-        return snapshotLoader.loadSnapshots(keyspace);
     }
 
     public synchronized Set<TableSnapshot> loadSnapshots()
@@ -162,11 +164,38 @@ public class SnapshotManager {
             Directories.removeSnapshotDirectory(DatabaseDescriptor.getSnapshotRateLimiter(), snapshotDir);
 
         expiringSnapshots.remove(snapshot);
+        liveSnapshots.remove(snapshot);
     }
 
     @VisibleForTesting
     public static void shutdownAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
     {
         ExecutorUtils.shutdownNowAndWait(timeout, unit, executor);
+    }
+
+    public synchronized Collection<TableSnapshot> getSnapshots(boolean skipExpiring, boolean includeEphemeral)
+    {
+        return getSnapshots(s -> (!skipExpiring || !s.isExpiring()) && (includeEphemeral || !s.isEphemeral()));
+    }
+
+    private synchronized Collection<TableSnapshot> getSnapshots(Predicate<TableSnapshot> filter)
+    {
+        return liveSnapshots.stream()
+                            .filter(filter)
+                            .collect(Collectors.toSet());
+    }
+
+    public void clearSnapshots(Optional<String> tag, Set<String> keyspaces, long maxCreatedAt)
+    {
+        getSnapshotsToClear(tag, keyspaces, maxCreatedAt).forEach(this::clearSnapshot);
+    }
+
+    @VisibleForTesting
+    protected Collection<TableSnapshot> getSnapshotsToClear(Optional<String> tag, Set<String> keyspaces, long maxCreatedAt)
+    {
+        return getSnapshots(s -> !s.isEphemeral() &&
+                                 (tag.isEmpty() || s.equals(tag.get())) &&
+                                 (keyspaces.isEmpty()) || keyspaces.contains(s.getKeyspaceName()) &&
+                                 s.getCreatedAt().isBefore(Instant.ofEpochMilli(maxCreatedAt)));
     }
 }
