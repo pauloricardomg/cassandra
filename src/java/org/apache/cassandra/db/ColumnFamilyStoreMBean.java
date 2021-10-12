@@ -29,6 +29,7 @@ import javax.management.openmbean.OpenDataException;
 
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.utils.BreaksJMX;
 
 /**
@@ -230,7 +231,10 @@ public interface ColumnFamilyStoreMBean
 
     /**
      * @return the size of SSTables in "snapshots" subdirectory which aren't live anymore
+     *
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
+    @Deprecated
     public long trueSnapshotsSize();
 
     /**

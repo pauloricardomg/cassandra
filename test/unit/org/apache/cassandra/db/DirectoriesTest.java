@@ -42,7 +42,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
-import org.junit.AfterClass;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -77,6 +77,8 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaKeyspaceTables;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.DefaultFSErrorHandler;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.snapshot.SnapshotLoader;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
 import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -94,10 +96,6 @@ import static org.junit.Assert.fail;
 @RunWith(Parameterized.class)
 public class DirectoriesTest
 {
-    public static final String TABLE_NAME = "FakeTable";
-    public static final String SNAPSHOT1 = "snapshot1";
-    public static final String SNAPSHOT2 = "snapshot2";
-
     public static final String LEGACY_SNAPSHOT_NAME = "42";
     private static File tempDataDir;
     private static final String KS = "ks";
@@ -148,8 +146,8 @@ public class DirectoriesTest
         createTestFiles();
     }
 
-    @AfterClass
-    public static void afterClass()
+    @After
+    public void after()
     {
         FileUtils.deleteRecursive(tempDataDir);
     }
@@ -199,7 +197,7 @@ public class DirectoriesTest
         {
             Instant createdAt = manifest == null ? null : manifest.createdAt;
             Instant expiresAt = manifest == null ? null : manifest.expiresAt;
-            return new TableSnapshot(table.keyspace, table.name, tag, createdAt, expiresAt, Collections.singleton(snapshotDir), null);
+            return new TableSnapshot(table.keyspace, table.name, table.id.asUUID(), tag, createdAt, expiresAt, Collections.singleton(snapshotDir));
         }
     }
 
@@ -232,13 +230,13 @@ public class DirectoriesTest
         return new FakeSnapshot(table, tag, snapshotDir, manifest);
     }
 
-    private List<File> createFakeSSTable(File dir, String cf, int gen)
+    public static List<File> createFakeSSTable(File dir, String cf, int gen)
     {
         Descriptor desc = new Descriptor(dir, KS, cf, sstableId(gen), SSTableFormat.Type.BIG);
         return createFakeSSTable(desc);
     }
 
-    private List<File> createFakeSSTable(Descriptor desc)
+    public static List<File> createFakeSSTable(Descriptor desc)
     {
         List<File> components = new ArrayList<>(3);
         for (Component c : new Component[]{ Component.DATA, Component.PRIMARY_INDEX, Component.FILTER })
@@ -251,6 +249,11 @@ public class DirectoriesTest
     }
 
     private static File cfDir(TableMetadata metadata)
+    {
+        return cfDir(tempDataDir, metadata);
+    }
+
+    public static File cfDir(File tempDataDir, TableMetadata metadata)
     {
         String tableId = metadata.id.toHexString();
         int idx = metadata.name.indexOf(Directories.SECONDARY_INDEX_NAME_SEPARATOR);
@@ -286,57 +289,6 @@ public class DirectoriesTest
             Supplier<? extends SSTableId> uidGen = directories.getUIDGenerator(idBuilder);
             assertThat(Stream.generate(uidGen).limit(100).filter(MockSchema.sstableIds::containsValue).collect(Collectors.toList())).isEmpty();
         }
-    }
-
-    @Test
-    public void testListSnapshots() throws Exception {
-        // Initial state
-        TableMetadata fakeTable = createFakeTable(TABLE_NAME);
-        Directories directories = new Directories(fakeTable, toDataDirectories(tempDataDir));
-        assertThat(directories.listSnapshots()).isEmpty();
-
-        // Create snapshot with and without manifest
-        FakeSnapshot snapshot1 = createFakeSnapshot(fakeTable, SNAPSHOT1, true);
-        FakeSnapshot snapshot2 = createFakeSnapshot(fakeTable, SNAPSHOT2, false);
-
-        // Both snapshots should be present
-        Map<String, TableSnapshot> snapshots = directories.listSnapshots();
-        assertThat(snapshots.keySet()).isEqualTo(Sets.newHashSet(SNAPSHOT1, SNAPSHOT2));
-        assertThat(snapshots.get(SNAPSHOT1)).isEqualTo(snapshot1.asTableSnapshot());
-        assertThat(snapshots.get(SNAPSHOT2)).isEqualTo(snapshot2.asTableSnapshot());
-
-        // Now remove snapshot1
-        FileUtils.deleteRecursive(snapshot1.snapshotDir);
-
-        // Only snapshot 2 should be present
-        snapshots = directories.listSnapshots();
-        assertThat(snapshots.keySet()).isEqualTo(Sets.newHashSet(SNAPSHOT2));
-        assertThat(snapshots.get(SNAPSHOT2)).isEqualTo(snapshot2.asTableSnapshot());
-    }
-
-    @Test
-    public void testListSnapshotDirsByTag() throws Exception {
-        // Initial state
-        TableMetadata fakeTable = createFakeTable("FakeTable");
-        Directories directories = new Directories(fakeTable, toDataDirectories(tempDataDir));
-        assertThat(directories.listSnapshotDirsByTag()).isEmpty();
-
-        // Create snapshot with and without manifest
-        FakeSnapshot snapshot1 = createFakeSnapshot(fakeTable, SNAPSHOT1, true);
-        FakeSnapshot snapshot2 = createFakeSnapshot(fakeTable, SNAPSHOT2, false);
-
-        // Both snapshots should be present
-        Map<String, Set<File>> snapshotDirs = directories.listSnapshotDirsByTag();
-        assertThat(snapshotDirs.keySet()).isEqualTo(Sets.newHashSet(SNAPSHOT1, SNAPSHOT2));
-        assertThat(snapshotDirs.get(SNAPSHOT1)).allMatch(snapshotDir -> snapshotDir.equals(snapshot1.snapshotDir));
-        assertThat(snapshotDirs.get(SNAPSHOT2)).allMatch(snapshotDir -> snapshotDir.equals(snapshot2.snapshotDir));
-
-        // Now remove snapshot1
-        FileUtils.deleteRecursive(snapshot1.snapshotDir);
-
-        // Only snapshot 2 should be present
-        snapshotDirs = directories.listSnapshotDirsByTag();
-        assertThat(snapshotDirs.keySet()).isEqualTo(Sets.newHashSet(SNAPSHOT2));
     }
 
     @Test
@@ -411,17 +363,15 @@ public class DirectoriesTest
         Descriptor indexSnapshot = new Descriptor(indexSnapshotDirectory, KS, INDEX_CFM.name, sstableId(0), SSTableFormat.Type.BIG);
         createFile(indexSnapshot.filenameFor(Component.DATA), 40);
 
-        assertEquals(30, parentDirectories.trueSnapshotsSize());
-        assertEquals(40, indexDirectories.trueSnapshotsSize());
+        // Register snapshots on SnapshotManager
+        SnapshotLoader finder = new SnapshotLoader(tempDataDir.absolutePath());
+        finder.loadSnapshots().forEach(t -> StorageService.instance.addSnapshot(t));
 
-        // check snapshot details
-        Map<String, TableSnapshot> parentSnapshotDetail = parentDirectories.listSnapshots();
-        assertTrue(parentSnapshotDetail.containsKey("test"));
-        assertEquals(30L, parentSnapshotDetail.get("test").computeTrueSizeBytes());
+        // CASSANDRA-17267 parent snapshot details should count index on true size
+        assertEquals(70L, StorageService.instance.trueSnapshotsSize(PARENT_CFM));
 
-        Map<String, TableSnapshot> indexSnapshotDetail = indexDirectories.listSnapshots();
-        assertTrue(indexSnapshotDetail.containsKey("test"));
-        assertEquals(40L, indexSnapshotDetail.get("test").computeTrueSizeBytes());
+        // CASSANDRA-16843: indexes no longer
+        assertEquals(0L, StorageService.instance.trueSnapshotsSize(INDEX_CFM));
 
         // check backup directory
         File parentBackupDirectory = Directories.getBackupsDirectory(parentDesc);

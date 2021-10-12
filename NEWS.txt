@@ -160,6 +160,9 @@ New features
 
 Upgrading
 ---------
+    - Creation of snapshots with the same tag of an existing snapshot is no longer allowed. Previously it
+      was possible to create a snapshot with the same tag of another snapshot as long as the new snapshot
+      was from a different keyspace.
     - We added new JMX methods `setStreamThroughputMbitPerSec`, `getStreamThroughputMbitPerSec`, `setInterDCStreamThroughputMbitPerSec`,
       `getInterDCStreamThroughputMbitPerSec` to the JMX MBean `org.apache.cassandra.db:type=StorageService`. They replace the now
       deprecated methods `setStreamThroughputMbPerSec`, `getStreamThroughputMbPerSec`, `setInterDCStreamThroughputMbPerSec`, and
@@ -220,6 +223,7 @@ Deprecation
     - The functionality behind the property `windows_timer_interval` was removed as part of CASSANDRA-16956. The
       property is still present but it is deprecated and it is just a place-holder to prevent breaking upgrades. This
       property is expected to be fully removed in the next major release of Cassandra.
+    - The space used by snapshots metric is no longer available for secondary indexes on "nodetool tablestats" (CASSANDRA-16843).
 
 4.0
 ===

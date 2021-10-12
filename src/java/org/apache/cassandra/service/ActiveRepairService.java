@@ -40,7 +40,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
-import com.google.common.util.concurrent.MoreExecutors;
 
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.config.Config;
@@ -53,13 +52,11 @@ import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.repair.state.CoordinatorState;
 import org.apache.cassandra.repair.state.ParticipateState;
 import org.apache.cassandra.repair.state.ValidationState;
-import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.Simulate;
 import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.streaming.PreviewKind;
-import org.apache.cassandra.utils.Simulate;
 import org.apache.cassandra.utils.TimeUUID;
 import org.apache.cassandra.utils.concurrent.CountDownLatch;
 import org.slf4j.Logger;
@@ -115,7 +112,6 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.transform;
@@ -129,7 +125,6 @@ import static org.apache.cassandra.net.Verb.PREPARE_MSG;
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 import static org.apache.cassandra.utils.Simulate.With.MONITORS;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
-import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 import static org.apache.cassandra.utils.concurrent.CountDownLatch.newCountDownLatch;
 
 /**
@@ -785,8 +780,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                 long startNanos = nanoTime();
                 for (ColumnFamilyStore cfs : session.columnFamilyStores.values())
                 {
-                    if (cfs.snapshotExists(snapshotName))
-                        cfs.clearSnapshot(snapshotName);
+                    cfs.clearEphemeralSnapshot(snapshotName);
                 }
                 logger.info("[repair #{}] Cleared snapshots in {}ms", parentSessionId, TimeUnit.NANOSECONDS.toMillis(nanoTime() - startNanos));
             });

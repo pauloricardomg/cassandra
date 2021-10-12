@@ -55,9 +55,9 @@ import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
-import org.apache.cassandra.service.snapshot.TableSnapshot;
-import org.apache.cassandra.utils.DirectorySizeCalculator;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Pair;
 
@@ -522,9 +522,55 @@ public class Directories
         return allowedDirs.toArray(new DataDirectory[allowedDirs.size()]);
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public static File getSnapshotDirectory(Descriptor desc, String snapshotName)
     {
         return getSnapshotDirectory(desc.directory, snapshotName);
+    }
+
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
+    public static File getSnapshotDirectory(String tag, File tableDir)
+    {
+        return new File(tableDir, join(SNAPSHOT_SUBDIR, tag));
+    }
+
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
+    public void clearEphemeralSnapshot(String snapshotName)
+    {
+        // If snapshotName is empty or null, we will delete the entire snapshot directory
+        String tag = snapshotName == null ? StorageService.ALL_SNAPSHOTS_TAG : snapshotName;
+        for (File tableDir : dataPaths)
+        {
+            File snapshotDir = getSnapshotDirectory(tag, tableDir);
+            if (snapshotDir.exists() && isEphemeralSnapshot(snapshotDir))
+            {
+                logger.debug("Removing ephemeral snapshot {}", snapshotDir);
+                FileUtils.deleteRecursiveWithThrottle(snapshotDir, DatabaseDescriptor.getSnapshotRateLimiter());
+            }
+        }
+    }
+
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
+    protected void clearAllEphemeralSnapshots()
+    {
+        logger.trace("Clearing ephemeral snapshots leftover from previous session.");
+
+        for (String ephemeralSnapshot : listEphemeralSnapshots())
+        {
+            clearEphemeralSnapshot(ephemeralSnapshot);
+        }
     }
 
     /**
@@ -550,29 +596,59 @@ public class Directories
         }
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public File getSnapshotManifestFile(String snapshotName)
     {
         File snapshotDir = getSnapshotDirectory(getDirectoryForNewSSTables(), snapshotName);
         return getSnapshotManifestFile(snapshotDir);
     }
 
-    protected static File getSnapshotManifestFile(File snapshotDir)
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
+    @VisibleForTesting
+    public static File getSnapshotManifestFile(File snapshotDir)
     {
         return new File(snapshotDir, "manifest.json");
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public File getSnapshotSchemaFile(String snapshotName)
     {
         File snapshotDir = getSnapshotDirectory(getDirectoryForNewSSTables(), snapshotName);
+        return getSnapshotSchemaFile(snapshotDir);
+    }
+
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
+    public static File getSnapshotSchemaFile(File snapshotDir)
+    {
         return new File(snapshotDir, "schema.cql");
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public File getNewEphemeralSnapshotMarkerFile(String snapshotName)
     {
         File snapshotDir = new File(getWriteableLocationAsFile(1L), join(SNAPSHOT_SUBDIR, snapshotName));
         return getEphemeralSnapshotMarkerFile(snapshotDir);
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     private static File getEphemeralSnapshotMarkerFile(File snapshotDirectory)
     {
         return new File(snapshotDirectory, "ephemeral.snapshot");
@@ -961,30 +1037,10 @@ public class Directories
         }
     }
 
-    public Map<String, TableSnapshot> listSnapshots()
-    {
-        Map<String, Set<File>> snapshotDirsByTag = listSnapshotDirsByTag();
-
-        Map<String, TableSnapshot> snapshots = Maps.newHashMapWithExpectedSize(snapshotDirsByTag.size());
-
-        for (Map.Entry<String, Set<File>> entry : snapshotDirsByTag.entrySet())
-        {
-            String tag = entry.getKey();
-            Set<File> snapshotDirs = entry.getValue();
-            SnapshotManifest manifest = maybeLoadManifest(metadata.keyspace, metadata.name, tag, snapshotDirs);
-            snapshots.put(tag, buildSnapshot(tag, manifest, snapshotDirs));
-        }
-
-        return snapshots;
-    }
-
-    protected TableSnapshot buildSnapshot(String tag, SnapshotManifest manifest, Set<File> snapshotDirs) {
-        Instant createdAt = manifest == null ? null : manifest.createdAt;
-        Instant expiresAt = manifest == null ? null : manifest.expiresAt;
-        return new TableSnapshot(metadata.keyspace, metadata.name, tag, createdAt, expiresAt, snapshotDirs,
-                                 this::getTrueAllocatedSizeIn);
-    }
-
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     @VisibleForTesting
     protected static SnapshotManifest maybeLoadManifest(String keyspace, String table, String tag, Set<File> snapshotDirs)
     {
@@ -1013,17 +1069,30 @@ public class Directories
         return null;
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public List<String> listEphemeralSnapshots()
     {
         final List<String> ephemeralSnapshots = new LinkedList<>();
         for (File snapshot : listAllSnapshots())
         {
-            if (getEphemeralSnapshotMarkerFile(snapshot).exists())
+            if (isEphemeralSnapshot(snapshot))
                 ephemeralSnapshots.add(snapshot.name());
         }
         return ephemeralSnapshots;
     }
 
+    private static boolean isEphemeralSnapshot(File snapshot)
+    {
+        return getEphemeralSnapshotMarkerFile(snapshot).exists();
+    }
+
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     private List<File> listAllSnapshots()
     {
         final List<File> snapshots = new LinkedList<>();
@@ -1049,32 +1118,10 @@ public class Directories
         return snapshots;
     }
 
-    @VisibleForTesting
-    protected Map<String, Set<File>> listSnapshotDirsByTag()
-    {
-        Map<String, Set<File>> snapshotDirsByTag = new HashMap<>();
-        for (final File dir : dataPaths)
-        {
-            File snapshotDir = isSecondaryIndexFolder(dir)
-                               ? new File(dir.parentPath(), SNAPSHOT_SUBDIR)
-                               : new File(dir, SNAPSHOT_SUBDIR);
-            if (snapshotDir.exists() && snapshotDir.isDirectory())
-            {
-                final File[] snapshotDirs  = snapshotDir.tryList();
-                if (snapshotDirs != null)
-                {
-                    for (final File snapshot : snapshotDirs)
-                    {
-                        if (snapshot.isDirectory()) {
-                            snapshotDirsByTag.computeIfAbsent(snapshot.name(), k -> new LinkedHashSet<>()).add(snapshot.toAbsolute());
-                        }
-                    }
-                }
-            }
-        }
-        return snapshotDirsByTag;
-    }
-
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public boolean snapshotExists(String snapshotName)
     {
         for (File dir : dataPaths)
@@ -1094,49 +1141,6 @@ public class Directories
         return false;
     }
 
-    public static void clearSnapshot(String snapshotName, List<File> tableDirectories, RateLimiter snapshotRateLimiter)
-    {
-        // If snapshotName is empty or null, we will delete the entire snapshot directory
-        String tag = snapshotName == null ? "" : snapshotName;
-        for (File tableDir : tableDirectories)
-        {
-            File snapshotDir = new File(tableDir, join(SNAPSHOT_SUBDIR, tag));
-            removeSnapshotDirectory(snapshotRateLimiter, snapshotDir);
-        }
-    }
-
-    public static void removeSnapshotDirectory(RateLimiter snapshotRateLimiter, File snapshotDir)
-    {
-        if (snapshotDir.exists())
-        {
-            logger.trace("Removing snapshot directory {}", snapshotDir);
-            try
-            {
-                FileUtils.deleteRecursiveWithThrottle(snapshotDir, snapshotRateLimiter);
-            }
-            catch (FSWriteError e)
-            {
-                throw e;
-            }
-        }
-    }
-
-    /**
-     * @return total snapshot size in byte for all snapshots.
-     */
-    public long trueSnapshotsSize()
-    {
-        long result = 0L;
-        for (File dir : dataPaths)
-        {
-            File snapshotDir = isSecondaryIndexFolder(dir)
-                               ? new File(dir.parentPath(), SNAPSHOT_SUBDIR)
-                               : new File(dir, SNAPSHOT_SUBDIR);
-            result += getTrueAllocatedSizeIn(snapshotDir);
-        }
-        return result;
-    }
-
     /**
      * @return Raw size on disk for all directories
      */
@@ -1148,24 +1152,6 @@ public class Directories
             totalAllocatedSize += FileUtils.folderSize(path);
 
         return totalAllocatedSize;
-    }
-
-    public long getTrueAllocatedSizeIn(File snapshotDir)
-    {
-        if (!snapshotDir.isDirectory())
-            return 0;
-
-        SSTableSizeSummer visitor = new SSTableSizeSummer(snapshotDir, sstableLister(OnTxnErr.THROW).listFiles());
-        try
-        {
-            Files.walkFileTree(snapshotDir.toPath(), visitor);
-        }
-        catch (IOException e)
-        {
-            logger.error("Could not calculate the size of {}. {}", snapshotDir, e.getMessage());
-        }
-
-        return visitor.getAllocatedSize();
     }
 
     // Recursively finds all the sub directories in the KS directory.
@@ -1236,30 +1222,8 @@ public class Directories
         return dir;
     }
 
-    private static String join(String... s)
+    public static String join(String... s)
     {
         return StringUtils.join(s, File.pathSeparator());
     }
-
-    private class SSTableSizeSummer extends DirectorySizeCalculator
-    {
-        private final Set<String> toSkip;
-        SSTableSizeSummer(File path, List<File> files)
-        {
-            super(path);
-            toSkip = files.stream().map(f -> f.name()).collect(Collectors.toSet());
-        }
-
-        @Override
-        public boolean isAcceptable(Path path)
-        {
-            File file = new File(path);
-            Descriptor desc = SSTable.tryDescriptorFromFilename(file);
-            return desc != null
-                && desc.ksname.equals(metadata.keyspace)
-                && desc.cfname.equals(metadata.name)
-                && !toSkip.contains(file.name());
-        }
-    }
-
 }

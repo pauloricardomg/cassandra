@@ -147,6 +147,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.paxos.Ballot;
 import org.apache.cassandra.service.paxos.PaxosRepairHistory;
 import org.apache.cassandra.service.paxos.TablePaxosRepairHistory;
+import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
 import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.streaming.TableStreamManager;
@@ -731,13 +732,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * Removes unnecessary files from the cf directory at startup: these include temp files, orphans, zero-length files
      * and compacted sstables. Files that cannot be recognized will be ignored.
      */
-    public static void  scrubDataDirectories(TableMetadata metadata) throws StartupException
+    public static void scrubDataDirectories(TableMetadata metadata) throws StartupException
     {
         Directories directories = new Directories(metadata);
         Set<File> cleanedDirectories = new HashSet<>();
 
         // clear ephemeral snapshots that were not properly cleared last session (CASSANDRA-7357)
-        clearEphemeralSnapshots(directories);
+        directories.clearAllEphemeralSnapshots();
 
         directories.removeTemporaryDirectories();
 
@@ -1973,11 +1974,19 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return metadata().comparator;
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public TableSnapshot snapshotWithoutFlush(String snapshotName)
     {
         return snapshotWithoutFlush(snapshotName, now());
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public TableSnapshot snapshotWithoutFlush(String snapshotName, Instant creationTime)
     {
         return snapshotWithoutFlush(snapshotName, null, false, null, null, creationTime);
@@ -1985,7 +1994,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     /**
      * @param ephemeral If this flag is set to true, the snapshot will be cleaned during next startup
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
+    @Deprecated
     public TableSnapshot snapshotWithoutFlush(String snapshotName, Predicate<SSTableReader> predicate, boolean ephemeral, DurationSpec ttl, RateLimiter rateLimiter, Instant creationTime)
     {
         if (ephemeral && ttl != null)
@@ -2016,6 +2027,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return createSnapshot(snapshotName, ephemeral, ttl, snapshottedSSTables, creationTime);
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     protected TableSnapshot createSnapshot(String tag, boolean ephemeral, DurationSpec ttl, Set<SSTableReader> sstables, Instant creationTime) {
         Set<File> snapshotDirs = sstables.stream()
                                          .map(s -> Directories.getSnapshotDirectory(s.descriptor, tag).toAbsolute())
@@ -2044,13 +2059,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             snapshotDirs.add(ephemeralSnapshotMarker.parent().toAbsolute()); // marker may create empty snapshot dir
         }
 
-        TableSnapshot snapshot = new TableSnapshot(metadata.keyspace, metadata.name, tag, manifest.createdAt,
-                                                   manifest.expiresAt, snapshotDirs, directories::getTrueAllocatedSizeIn);
+        TableSnapshot snapshot = new TableSnapshot(metadata.keyspace, metadata.name, metadata.id.asUUID(), tag,
+                                                   manifest.createdAt, manifest.expiresAt, snapshotDirs);
 
-        StorageService.instance.addSnapshot(snapshot);
+        // FIXME: ephemeral snapshots are not supported by @{link SnapshotManager}
+        if (!ephemeral)
+        {
+            StorageService.instance.addSnapshot(snapshot);
+        }
         return snapshot;
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     private SnapshotManifest writeSnapshotManifest(SnapshotManifest manifest, File manifestFile)
     {
         try
@@ -2070,6 +2093,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return sstables.stream().map(s -> s.descriptor.relativeFilenameFor(Component.DATA)).collect(Collectors.toList());
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     private void writeSnapshotSchema(File schemaFile)
     {
         try
@@ -2090,6 +2117,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     private void createEphemeralSnapshotMarkerFile(final String snapshot, File ephemeralSnapshotMarker)
     {
         try
@@ -2107,17 +2138,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                                       "In case there is a failure in the operation that created " +
                                       "this snapshot, you may need to clean it manually afterwards.",
                                       ephemeralSnapshotMarker.absolutePath(), snapshot), e);
-        }
-    }
-
-    protected static void clearEphemeralSnapshots(Directories directories)
-    {
-        RateLimiter clearSnapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
-
-        for (String ephemeralSnapshot : directories.listEphemeralSnapshots())
-        {
-            logger.trace("Clearing ephemeral snapshot {} leftover from previous session.", ephemeralSnapshot);
-            Directories.clearSnapshot(ephemeralSnapshot, directories.getCFDirectories(), clearSnapshotRateLimiter);
         }
     }
 
@@ -2165,7 +2185,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * Take a snap shot of this columnfamily store.
      *
      * @param snapshotName the name of the associated with the snapshot
+     *
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
+    @Deprecated
     public TableSnapshot snapshot(String snapshotName)
     {
         return snapshot(snapshotName, false, null, null, now());
@@ -2179,7 +2202,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @param ttl duration after which the taken snapshot is removed automatically, if supplied with null, it will never be automatically removed
      * @param rateLimiter Rate limiter for hardlinks-per-second
      * @param creationTime time when this snapshot was taken
+     *
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
+    @Deprecated
     public TableSnapshot snapshot(String snapshotName, boolean skipFlush, DurationSpec ttl, RateLimiter rateLimiter, Instant creationTime)
     {
         return snapshot(snapshotName, null, false, skipFlush, ttl, rateLimiter, creationTime);
@@ -2189,7 +2215,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     /**
      * @param ephemeral If this flag is set to true, the snapshot will be cleaned up during next startup
      * @param skipFlush Skip blocking flush of memtable
+     *
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
+    @Deprecated
     public TableSnapshot snapshot(String snapshotName, Predicate<SSTableReader> predicate, boolean ephemeral, boolean skipFlush)
     {
         return snapshot(snapshotName, predicate, ephemeral, skipFlush, null, null, now());
@@ -2201,7 +2230,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @param ttl duration after which the taken snapshot is removed automatically, if supplied with null, it will never be automatically removed
      * @param rateLimiter Rate limiter for hardlinks-per-second
      * @param creationTime time when this snapshot was taken
+     *
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
+    @Deprecated
     public TableSnapshot snapshot(String snapshotName, Predicate<SSTableReader> predicate, boolean ephemeral, boolean skipFlush, DurationSpec ttl, RateLimiter rateLimiter, Instant creationTime)
     {
         if (!skipFlush)
@@ -2211,33 +2243,40 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return snapshotWithoutFlush(snapshotName, predicate, ephemeral, ttl, rateLimiter, creationTime);
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public boolean snapshotExists(String snapshotName)
     {
         return getDirectories().snapshotExists(snapshotName);
     }
 
-
     /**
-     * Clear all the snapshots for a given column family.
+     * After <b>CASSANDRA-16843</b> only ephemeral snapshots
+     * are cleaned via {@link ColumnFamilyStore}. All other
+     * snapshots should be cleared via {@link SnapshotManager#clearSnapshots(java.util.function.Predicate)}
      *
-     * @param snapshotName the user supplied snapshot name. If left empty,
-     *                     all the snapshots will be cleaned.
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
-    public void clearSnapshot(String snapshotName)
+    @Deprecated
+    public void clearEphemeralSnapshot(String snapshotName)
     {
-        RateLimiter clearSnapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
-
-        List<File> snapshotDirs = getDirectories().getCFDirectories();
-        Directories.clearSnapshot(snapshotName, snapshotDirs, clearSnapshotRateLimiter);
+        directories.clearEphemeralSnapshot(snapshotName);
     }
+
     /**
-     *
      * @return  Return a map of all snapshots to space being used
      * The pair for a snapshot has true size and size on disk.
+     *
+     * @deprecated Logic will be moved to {@link SnapshotManager}
      */
+    @Deprecated
     public Map<String, TableSnapshot> listSnapshots()
     {
-        return getDirectories().listSnapshots();
+        Set<TableSnapshot> snapshots = StorageService.instance.listSnapshots(metadata.id);
+        return snapshots.stream().collect(Collectors.toMap(TableSnapshot::getTag, java.util.function.Function.identity()));
+
     }
 
     /**
@@ -2972,9 +3011,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return allColumns > 0 ? allDroppable / allColumns : 0;
     }
 
+    /**
+     * @deprecated Logic will be moved to {@link SnapshotManager}
+     */
+    @Deprecated
     public long trueSnapshotsSize()
     {
-        return getDirectories().trueSnapshotsSize();
+        return StorageService.instance.trueSnapshotsSize(metadata.get());
     }
 
     /**

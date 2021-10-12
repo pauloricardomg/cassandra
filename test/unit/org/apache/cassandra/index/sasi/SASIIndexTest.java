@@ -86,6 +86,7 @@ import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.serializers.TypeSerializer;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
 import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -100,6 +101,8 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.*;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.apache.cassandra.db.ColumnFamilyStoreTest.getSnapshotManifestAndSchemaFileSizes;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class SASIIndexTest
 {
@@ -161,61 +164,54 @@ public class SASIIndexTest
 
         Assert.assertFalse(sasiComponents.isEmpty());
 
-        try
+        store.snapshot(snapshotName);
+
+        // Compact to make true snapshot size != 0
+        store.forceMajorCompaction();
+        LifecycleTransaction.waitForDeletions();
+
+        SnapshotManifest manifest = SnapshotManifest.deserializeFromJsonFile(store.getDirectories().getSnapshotManifestFile(snapshotName));
+
+        Assert.assertFalse(ssTableReaders.isEmpty());
+        Assert.assertFalse(manifest.files.isEmpty());
+        Assert.assertEquals(ssTableReaders.size(), manifest.files.size());
+
+        Map<Descriptor, Set<Component>> snapshotSSTables = store.getDirectories()
+                                                                .sstableLister(Directories.OnTxnErr.IGNORE)
+                                                                .snapshots(snapshotName)
+                                                                .list();
+
+        long indexSize = 0;
+        long tableSize = 0;
+
+        for (SSTableReader sstable : ssTableReaders)
         {
-            store.snapshot(snapshotName);
+            File snapshotDirectory = Directories.getSnapshotDirectory(sstable.descriptor, snapshotName);
+            Descriptor snapshotSSTable = new Descriptor(snapshotDirectory,
+                                                        sstable.getKeyspaceName(),
+                                                        sstable.getColumnFamilyName(),
+                                                        sstable.descriptor.id,
+                                                        sstable.descriptor.formatType);
 
-            // Compact to make true snapshot size != 0
-            store.forceMajorCompaction();
-            LifecycleTransaction.waitForDeletions();
+            Set<Component> components = snapshotSSTables.get(snapshotSSTable);
 
-            SnapshotManifest manifest = SnapshotManifest.deserializeFromJsonFile(store.getDirectories().getSnapshotManifestFile(snapshotName));
+            Assert.assertNotNull(components);
+            Assert.assertTrue(components.containsAll(sasiComponents));
 
-            Assert.assertFalse(ssTableReaders.isEmpty());
-            Assert.assertFalse(manifest.files.isEmpty());
-            Assert.assertEquals(ssTableReaders.size(), manifest.files.size());
-
-            Map<Descriptor, Set<Component>> snapshotSSTables = store.getDirectories()
-                                                                    .sstableLister(Directories.OnTxnErr.IGNORE)
-                                                                    .snapshots(snapshotName)
-                                                                    .list();
-
-            long indexSize = 0;
-            long tableSize = 0;
-
-            for (SSTableReader sstable : ssTableReaders)
+            for (Component c : components)
             {
-                File snapshotDirectory = Directories.getSnapshotDirectory(sstable.descriptor, snapshotName);
-                Descriptor snapshotSSTable = new Descriptor(snapshotDirectory,
-                                                            sstable.getKeyspaceName(),
-                                                            sstable.getColumnFamilyName(),
-                                                            sstable.descriptor.id,
-                                                            sstable.descriptor.formatType);
-
-                Set<Component> components = snapshotSSTables.get(snapshotSSTable);
-
-                Assert.assertNotNull(components);
-                Assert.assertTrue(components.containsAll(sasiComponents));
-
-                for (Component c : components)
-                {
-                    long componentSize = Files.size(Paths.get(snapshotSSTable.filenameFor(c)));
-                    if (Component.Type.fromRepresentation(c.name) == Component.Type.SECONDARY_INDEX)
-                        indexSize += componentSize;
-                    else
-                        tableSize += componentSize;
-                }
+                long componentSize = Files.size(Paths.get(snapshotSSTable.filenameFor(c)));
+                if (Component.Type.fromRepresentation(c.name) == Component.Type.SECONDARY_INDEX)
+                    indexSize += componentSize;
+                else
+                    tableSize += componentSize;
             }
-            
-            TableSnapshot details = store.listSnapshots().get(snapshotName);
+        }
 
-            // check that SASI components are included in the computation of snapshot size
-            Assert.assertEquals(tableSize + indexSize, details.computeTrueSizeBytes());
-        }
-        finally
-        {
-            store.clearSnapshot(snapshotName);
-        }
+        TableSnapshot details = store.listSnapshots().get(snapshotName);
+
+        // check that SASI components are included in the computation of snapshot size
+        assertThat(details.computeTrueSizeBytes()).isEqualTo(tableSize + indexSize + getSnapshotManifestAndSchemaFileSizes(details));
     }
 
     @Test
@@ -283,7 +279,7 @@ public class SASIIndexTest
     {
         Map<String, Pair<String, Integer>> data = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key1", Pair.create("  ", 14));
+            put("key1", Pair.create("  ", 14));
         }};
 
         ColumnFamilyStore store = loadData(data, forceFlush);
@@ -304,10 +300,10 @@ public class SASIIndexTest
     {
         Map<String, Pair<String, Integer>> data = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key1", Pair.create("Pavel", 14));
-                put("key2", Pair.create("Pavel", 26));
-                put("key3", Pair.create("Pavel", 27));
-                put("key4", Pair.create("Jason", 27));
+            put("key1", Pair.create("Pavel", 14));
+            put("key2", Pair.create("Pavel", 26));
+            put("key3", Pair.create("Pavel", 27));
+            put("key4", Pair.create("Jason", 27));
         }};
 
         ColumnFamilyStore store = loadData(data, forceFlush);
@@ -327,48 +323,48 @@ public class SASIIndexTest
         assertRows(rows, "key1", "key2");
 
         rows = getIndexed(store, 10,
-                         buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                         buildExpression(age, Operator.GT, Int32Type.instance.decompose(14)),
-                         buildExpression(age, Operator.LT, Int32Type.instance.decompose(27)));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                          buildExpression(age, Operator.GT, Int32Type.instance.decompose(14)),
+                          buildExpression(age, Operator.LT, Int32Type.instance.decompose(27)));
         assertRows(rows, "key2");
 
         rows = getIndexed(store, 10,
-                         buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                         buildExpression(age, Operator.GT, Int32Type.instance.decompose(12)));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                          buildExpression(age, Operator.GT, Int32Type.instance.decompose(12)));
         assertRows(rows, "key1", "key2", "key3", "key4");
 
         rows = getIndexed(store, 10,
-                         buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                         buildExpression(age, Operator.GTE, Int32Type.instance.decompose(13)));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                          buildExpression(age, Operator.GTE, Int32Type.instance.decompose(13)));
         assertRows(rows, "key1", "key2", "key3", "key4");
 
         rows = getIndexed(store, 10,
-                         buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                         buildExpression(age, Operator.GTE, Int32Type.instance.decompose(16)));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                          buildExpression(age, Operator.GTE, Int32Type.instance.decompose(16)));
         assertRows(rows, "key2", "key3", "key4");
 
 
         rows = getIndexed(store, 10,
-                         buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                         buildExpression(age, Operator.LT, Int32Type.instance.decompose(30)));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                          buildExpression(age, Operator.LT, Int32Type.instance.decompose(30)));
         assertRows(rows, "key1", "key2", "key3", "key4");
 
         rows = getIndexed(store, 10,
-                         buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                         buildExpression(age, Operator.LTE, Int32Type.instance.decompose(29)));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                          buildExpression(age, Operator.LTE, Int32Type.instance.decompose(29)));
         assertRows(rows, "key1", "key2", "key3", "key4");
 
         rows = getIndexed(store, 10,
-                         buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                         buildExpression(age, Operator.LTE, Int32Type.instance.decompose(25)));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                          buildExpression(age, Operator.LTE, Int32Type.instance.decompose(25)));
         assertRows(rows, "key1");
 
         rows = getIndexed(store, 10, buildExpression(firstName, Operator.LIKE_SUFFIX, UTF8Type.instance.decompose("avel")),
-                                     buildExpression(age, Operator.LTE, Int32Type.instance.decompose(25)));
+                          buildExpression(age, Operator.LTE, Int32Type.instance.decompose(25)));
         assertRows(rows, "key1");
 
         rows = getIndexed(store, 10, buildExpression(firstName, Operator.LIKE_SUFFIX, UTF8Type.instance.decompose("n")),
-                                     buildExpression(age, Operator.LTE, Int32Type.instance.decompose(25)));
+                          buildExpression(age, Operator.LTE, Int32Type.instance.decompose(25)));
         Assert.assertTrue(rows.isEmpty());
 
     }
@@ -386,34 +382,34 @@ public class SASIIndexTest
     {
         Map<String, Pair<String, Integer>> part1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key0", Pair.create("Maxie", 43));
-                put("key1", Pair.create("Chelsie", 33));
-                put("key2", Pair.create("Josephine", 43));
-                put("key3", Pair.create("Shanna", 27));
-                put("key4", Pair.create("Amiya", 36));
-            }};
+            put("key0", Pair.create("Maxie", 43));
+            put("key1", Pair.create("Chelsie", 33));
+            put("key2", Pair.create("Josephine", 43));
+            put("key3", Pair.create("Shanna", 27));
+            put("key4", Pair.create("Amiya", 36));
+        }};
 
         loadData(part1, forceFlush); // first sstable
 
         Map<String, Pair<String, Integer>> part2 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key5", Pair.create("Americo", 20));
-                put("key6", Pair.create("Fiona", 39));
-                put("key7", Pair.create("Francis", 41));
-                put("key8", Pair.create("Charley", 21));
-                put("key9", Pair.create("Amely", 40));
-            }};
+            put("key5", Pair.create("Americo", 20));
+            put("key6", Pair.create("Fiona", 39));
+            put("key7", Pair.create("Francis", 41));
+            put("key8", Pair.create("Charley", 21));
+            put("key9", Pair.create("Amely", 40));
+        }};
 
         loadData(part2, forceFlush);
 
         Map<String, Pair<String, Integer>> part3 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key10", Pair.create("Eddie", 42));
-                put("key11", Pair.create("Oswaldo", 35));
-                put("key12", Pair.create("Susana", 35));
-                put("key13", Pair.create("Alivia", 42));
-                put("key14", Pair.create("Demario", 28));
-            }};
+            put("key10", Pair.create("Eddie", 42));
+            put("key11", Pair.create("Oswaldo", 35));
+            put("key12", Pair.create("Susana", 35));
+            put("key13", Pair.create("Alivia", 42));
+            put("key14", Pair.create("Demario", 28));
+        }};
 
         ColumnFamilyStore store = loadData(part3, forceFlush);
 
@@ -422,7 +418,7 @@ public class SASIIndexTest
 
         Set<String> rows;
         rows = getIndexed(store, 10, buildExpression(firstName, Operator.EQ, UTF8Type.instance.decompose("Fiona")),
-                                     buildExpression(age, Operator.LT, Int32Type.instance.decompose(40)));
+                          buildExpression(age, Operator.LT, Int32Type.instance.decompose(40)));
 
         assertRows(rows, "key6");
 
@@ -498,14 +494,14 @@ public class SASIIndexTest
     {
         Map<String, Pair<String, Integer>> part1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key0", Pair.create("If you can dream it, you can do it.", 43));
-                put("key1", Pair.create("What you get by achieving your goals is not " +
-                        "as important as what you become by achieving your goals, do it.", 33));
-                put("key2", Pair.create("Keep your face always toward the sunshine " +
-                        "- and shadows will fall behind you.", 43));
-                put("key3", Pair.create("We can't help everyone, but everyone can " +
-                        "help someone.", 27));
-            }};
+            put("key0", Pair.create("If you can dream it, you can do it.", 43));
+            put("key1", Pair.create("What you get by achieving your goals is not " +
+                                    "as important as what you become by achieving your goals, do it.", 33));
+            put("key2", Pair.create("Keep your face always toward the sunshine " +
+                                    "- and shadows will fall behind you.", 43));
+            put("key3", Pair.create("We can't help everyone, but everyone can " +
+                                    "help someone.", 27));
+        }};
 
         ColumnFamilyStore store = loadData(part1, forceFlush);
 
@@ -513,14 +509,14 @@ public class SASIIndexTest
         final ByteBuffer age = UTF8Type.instance.decompose("age");
 
         Set<String> rows = getIndexed(store, 10,
-                buildExpression(firstName, Operator.LIKE_CONTAINS,
-                        UTF8Type.instance.decompose("What you get by achieving your goals")),
-                buildExpression(age, Operator.GT, Int32Type.instance.decompose(32)));
+                                      buildExpression(firstName, Operator.LIKE_CONTAINS,
+                                                      UTF8Type.instance.decompose("What you get by achieving your goals")),
+                                      buildExpression(age, Operator.GT, Int32Type.instance.decompose(32)));
 
         assertRows(rows, "key1");
 
         rows = getIndexed(store, 10,
-                buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("do it.")));
+                          buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("do it.")));
 
         assertRows(rows, "key0", "key1");
     }
@@ -563,36 +559,36 @@ public class SASIIndexTest
     {
         Map<String, Pair<String, Integer>> part1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key0", Pair.create("Maxie", -1));
-                put("key1", Pair.create("Chelsie", 33));
-                put("key2", Pair.create(null, 43));
-                put("key3", Pair.create("Shanna", 27));
-                put("key4", Pair.create("Amiya", 36));
+            put("key0", Pair.create("Maxie", -1));
+            put("key1", Pair.create("Chelsie", 33));
+            put("key2", Pair.create(null, 43));
+            put("key3", Pair.create("Shanna", 27));
+            put("key4", Pair.create("Amiya", 36));
         }};
 
         loadData(part1, forceFlush); // first sstable
 
         Map<String, Pair<String, Integer>> part2 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key5", Pair.create("Americo", 20));
-                put("key6", Pair.create("Fiona", 39));
-                put("key7", Pair.create("Francis", 41));
-                put("key8", Pair.create("Charley", 21));
-                put("key9", Pair.create("Amely", 40));
-                put("key14", Pair.create(null, 28));
+            put("key5", Pair.create("Americo", 20));
+            put("key6", Pair.create("Fiona", 39));
+            put("key7", Pair.create("Francis", 41));
+            put("key8", Pair.create("Charley", 21));
+            put("key9", Pair.create("Amely", 40));
+            put("key14", Pair.create(null, 28));
         }};
 
         loadData(part2, forceFlush);
 
         Map<String, Pair<String, Integer>> part3 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key0", Pair.create(null, 43));
-                put("key10", Pair.create("Eddie", 42));
-                put("key11", Pair.create("Oswaldo", 35));
-                put("key12", Pair.create("Susana", 35));
-                put("key13", Pair.create("Alivia", 42));
-                put("key14", Pair.create("Demario", -1));
-                put("key2", Pair.create("Josephine", -1));
+            put("key0", Pair.create(null, 43));
+            put("key10", Pair.create("Eddie", 42));
+            put("key11", Pair.create("Oswaldo", 35));
+            put("key12", Pair.create("Susana", 35));
+            put("key13", Pair.create("Alivia", 42));
+            put("key14", Pair.create("Demario", -1));
+            put("key2", Pair.create("Josephine", -1));
         }};
 
         ColumnFamilyStore store = loadData(part3, forceFlush);
@@ -637,9 +633,9 @@ public class SASIIndexTest
 
         Map<String, Pair<String, Integer>> part4 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key12", Pair.create(null, 12));
-                put("key14", Pair.create("Demario", 42));
-                put("key2", Pair.create("Frank", -1));
+            put("key12", Pair.create(null, 12));
+            put("key14", Pair.create("Demario", 42));
+            put("key2", Pair.create("Frank", -1));
         }};
 
         store = loadData(part4, forceFlush);
@@ -692,40 +688,40 @@ public class SASIIndexTest
 
         Map<String, Pair<String, Integer>> part1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key01", Pair.create("Ali", 33));
-                put("key02", Pair.create("Jeremy", 41));
-                put("key03", Pair.create("Elvera", 22));
-                put("key04", Pair.create("Bailey", 45));
-                put("key05", Pair.create("Emerson", 32));
-                put("key06", Pair.create("Kadin", 38));
-                put("key07", Pair.create("Maggie", 36));
-                put("key08", Pair.create("Kailey", 36));
-                put("key09", Pair.create("Armand", 21));
-                put("key10", Pair.create("Arnold", 35));
+            put("key01", Pair.create("Ali", 33));
+            put("key02", Pair.create("Jeremy", 41));
+            put("key03", Pair.create("Elvera", 22));
+            put("key04", Pair.create("Bailey", 45));
+            put("key05", Pair.create("Emerson", 32));
+            put("key06", Pair.create("Kadin", 38));
+            put("key07", Pair.create("Maggie", 36));
+            put("key08", Pair.create("Kailey", 36));
+            put("key09", Pair.create("Armand", 21));
+            put("key10", Pair.create("Arnold", 35));
         }};
 
         Map<String, Pair<String, Integer>> part2 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key11", Pair.create("Ken", 38));
-                put("key12", Pair.create("Penelope", 43));
-                put("key13", Pair.create("Wyatt", 34));
-                put("key14", Pair.create("Johnpaul", 34));
-                put("key15", Pair.create("Trycia", 43));
-                put("key16", Pair.create("Aida", 21));
-                put("key17", Pair.create("Devon", 42));
+            put("key11", Pair.create("Ken", 38));
+            put("key12", Pair.create("Penelope", 43));
+            put("key13", Pair.create("Wyatt", 34));
+            put("key14", Pair.create("Johnpaul", 34));
+            put("key15", Pair.create("Trycia", 43));
+            put("key16", Pair.create("Aida", 21));
+            put("key17", Pair.create("Devon", 42));
         }};
 
         Map<String, Pair<String, Integer>> part3 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key18", Pair.create("Christina", 20));
-                put("key19", Pair.create("Rick", 19));
-                put("key20", Pair.create("Fannie", 22));
-                put("key21", Pair.create("Keegan", 29));
-                put("key22", Pair.create("Ignatius", 36));
-                put("key23", Pair.create("Ellis", 26));
-                put("key24", Pair.create("Annamarie", 29));
-                put("key25", Pair.create("Tianna", 31));
-                put("key26", Pair.create("Dennis", 32));
+            put("key18", Pair.create("Christina", 20));
+            put("key19", Pair.create("Rick", 19));
+            put("key20", Pair.create("Fannie", 22));
+            put("key21", Pair.create("Keegan", 29));
+            put("key22", Pair.create("Ignatius", 36));
+            put("key23", Pair.create("Ellis", 26));
+            put("key24", Pair.create("Annamarie", 29));
+            put("key25", Pair.create("Tianna", 31));
+            put("key26", Pair.create("Dennis", 32));
         }};
 
         ColumnFamilyStore store = loadData(part1, forceFlush);
@@ -737,27 +733,27 @@ public class SASIIndexTest
         final ByteBuffer age = UTF8Type.instance.decompose("age");
 
         Set<DecoratedKey> uniqueKeys = getPaged(store, 4,
-                buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                buildExpression(age, Operator.GTE, Int32Type.instance.decompose(21)));
+                                                buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                                                buildExpression(age, Operator.GTE, Int32Type.instance.decompose(21)));
 
 
         List<String> expected = new ArrayList<String>()
         {{
-                add("key25");
-                add("key20");
-                add("key13");
-                add("key22");
-                add("key09");
-                add("key14");
-                add("key16");
-                add("key24");
-                add("key03");
-                add("key04");
-                add("key08");
-                add("key07");
-                add("key15");
-                add("key06");
-                add("key21");
+            add("key25");
+            add("key20");
+            add("key13");
+            add("key22");
+            add("key09");
+            add("key14");
+            add("key16");
+            add("key24");
+            add("key03");
+            add("key04");
+            add("key08");
+            add("key07");
+            add("key15");
+            add("key06");
+            add("key21");
         }};
 
         Assert.assertEquals(expected, convert(uniqueKeys));
@@ -768,22 +764,22 @@ public class SASIIndexTest
 
         expected = new ArrayList<String>()
         {{
-                add("key25");
-                add("key20");
-                add("key13");
-                add("key22");
-                add("key09");
-                add("key14");
-                add("key16");
-                add("key24");
-                add("key03");
-                add("key04");
-                add("key18");
-                add("key08");
-                add("key07");
-                add("key15");
-                add("key06");
-                add("key21");
+            add("key25");
+            add("key20");
+            add("key13");
+            add("key22");
+            add("key09");
+            add("key14");
+            add("key16");
+            add("key24");
+            add("key03");
+            add("key04");
+            add("key18");
+            add("key08");
+            add("key07");
+            add("key15");
+            add("key06");
+            add("key21");
         }};
 
         Assert.assertEquals(expected, convert(uniqueKeys));
@@ -795,9 +791,9 @@ public class SASIIndexTest
 
         expected = new ArrayList<String>()
         {{
-                add("key22");
-                add("key08");
-                add("key07");
+            add("key22");
+            add("key08");
+            add("key07");
         }};
 
         Assert.assertEquals(expected, convert(uniqueKeys));
@@ -812,24 +808,24 @@ public class SASIIndexTest
 
         // and last but not least, test age range query with pagination
         uniqueKeys = getPaged(store, 4,
-                buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                buildExpression(age, Operator.GT, Int32Type.instance.decompose(20)),
-                buildExpression(age, Operator.LTE, Int32Type.instance.decompose(36)));
+                              buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
+                              buildExpression(age, Operator.GT, Int32Type.instance.decompose(20)),
+                              buildExpression(age, Operator.LTE, Int32Type.instance.decompose(36)));
 
         expected = new ArrayList<String>()
         {{
-                add("key25");
-                add("key20");
-                add("key13");
-                add("key22");
-                add("key09");
-                add("key14");
-                add("key16");
-                add("key24");
-                add("key03");
-                add("key08");
-                add("key07");
-                add("key21");
+            add("key25");
+            add("key20");
+            add("key13");
+            add("key22");
+            add("key09");
+            add("key14");
+            add("key16");
+            add("key24");
+            add("key03");
+            add("key08");
+            add("key07");
+            add("key21");
         }};
 
         Assert.assertEquals(expected, convert(uniqueKeys));
@@ -947,11 +943,11 @@ public class SASIIndexTest
     {
         Map<String, Pair<String, Integer>> part1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key0", Pair.create("Maxie", -1));
-                put("key1", Pair.create("Chelsie", 33));
-                put("key2", Pair.create(null, 43));
-                put("key3", Pair.create("Shanna", 27));
-                put("key4", Pair.create("Amiya", 36));
+            put("key0", Pair.create("Maxie", -1));
+            put("key1", Pair.create("Chelsie", 33));
+            put("key2", Pair.create(null, 43));
+            put("key3", Pair.create("Shanna", 27));
+            put("key4", Pair.create("Amiya", 36));
         }};
 
         ColumnFamilyStore store = loadData(part1, forceFlush);
@@ -976,12 +972,12 @@ public class SASIIndexTest
 
         Map<String, Pair<String, Integer>> part2 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key5", Pair.create("Americo", 20));
-                put("key6", Pair.create("Fiona", 39));
-                put("key7", Pair.create("Francis", 41));
-                put("key8", Pair.create("Fred", 21));
-                put("key9", Pair.create("Amely", 40));
-                put("key14", Pair.create("Dino", 28));
+            put("key5", Pair.create("Americo", 20));
+            put("key6", Pair.create("Fiona", 39));
+            put("key7", Pair.create("Francis", 41));
+            put("key8", Pair.create("Fred", 21));
+            put("key9", Pair.create("Amely", 40));
+            put("key14", Pair.create("Dino", 28));
         }};
 
         loadData(part2, forceFlush);
@@ -1073,40 +1069,40 @@ public class SASIIndexTest
     {
         Map<String, Pair<String, Integer>> part1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key01", Pair.create("Ali", 33));
-                put("key02", Pair.create("Jeremy", 41));
-                put("key03", Pair.create("Elvera", 22));
-                put("key04", Pair.create("Bailey", 45));
-                put("key05", Pair.create("Emerson", 32));
-                put("key06", Pair.create("Kadin", 38));
-                put("key07", Pair.create("Maggie", 36));
-                put("key08", Pair.create("Kailey", 36));
-                put("key09", Pair.create("Armand", 21));
-                put("key10", Pair.create("Arnold", 35));
+            put("key01", Pair.create("Ali", 33));
+            put("key02", Pair.create("Jeremy", 41));
+            put("key03", Pair.create("Elvera", 22));
+            put("key04", Pair.create("Bailey", 45));
+            put("key05", Pair.create("Emerson", 32));
+            put("key06", Pair.create("Kadin", 38));
+            put("key07", Pair.create("Maggie", 36));
+            put("key08", Pair.create("Kailey", 36));
+            put("key09", Pair.create("Armand", 21));
+            put("key10", Pair.create("Arnold", 35));
         }};
 
         Map<String, Pair<String, Integer>> part2 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key11", Pair.create("Ken", 38));
-                put("key12", Pair.create("Penelope", 43));
-                put("key13", Pair.create("Wyatt", 34));
-                put("key14", Pair.create("Johnpaul", 34));
-                put("key15", Pair.create("Trycia", 43));
-                put("key16", Pair.create("Aida", 21));
-                put("key17", Pair.create("Devon", 42));
+            put("key11", Pair.create("Ken", 38));
+            put("key12", Pair.create("Penelope", 43));
+            put("key13", Pair.create("Wyatt", 34));
+            put("key14", Pair.create("Johnpaul", 34));
+            put("key15", Pair.create("Trycia", 43));
+            put("key16", Pair.create("Aida", 21));
+            put("key17", Pair.create("Devon", 42));
         }};
 
         Map<String, Pair<String, Integer>> part3 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key18", Pair.create("Christina", 20));
-                put("key19", Pair.create("Rick", 19));
-                put("key20", Pair.create("Fannie", 22));
-                put("key21", Pair.create("Keegan", 29));
-                put("key22", Pair.create("Ignatius", 36));
-                put("key23", Pair.create("Ellis", 26));
-                put("key24", Pair.create("Annamarie", 29));
-                put("key25", Pair.create("Tianna", 31));
-                put("key26", Pair.create("Dennis", 32));
+            put("key18", Pair.create("Christina", 20));
+            put("key19", Pair.create("Rick", 19));
+            put("key20", Pair.create("Fannie", 22));
+            put("key21", Pair.create("Keegan", 29));
+            put("key22", Pair.create("Ignatius", 36));
+            put("key23", Pair.create("Ellis", 26));
+            put("key24", Pair.create("Annamarie", 29));
+            put("key25", Pair.create("Tianna", 31));
+            put("key26", Pair.create("Dennis", 32));
         }};
 
         ColumnFamilyStore store = loadData(part1, true, 2);
@@ -1143,8 +1139,8 @@ public class SASIIndexTest
         // add back in some data just to make sure it all still works
         Map<String, Pair<String, Integer>> part4 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key40", Pair.create("Tianna", 31));
-                put("key41", Pair.create("Dennis", 32));
+            put("key40", Pair.create("Tianna", 31));
+            put("key41", Pair.create("Dennis", 32));
         }};
 
         loadData(part4, true, 8);
@@ -1206,7 +1202,7 @@ public class SASIIndexTest
 
             // to make sure that after all of the writes are done we can read all "count" worth of rows
             Set<DecoratedKey> rows = getPaged(store, 100, buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                            buildExpression(age, Operator.EQ, Int32Type.instance.decompose(26)));
+                                              buildExpression(age, Operator.EQ, Int32Type.instance.decompose(26)));
             Assert.assertEquals(writeCount, rows.size());
         } finally {
             scheduler.shutdownNow();
@@ -1222,27 +1218,27 @@ public class SASIIndexTest
 
         Map<String, Pair<String, Integer>> data1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key1", Pair.create("Pavel", 14));
-                put("key2", Pair.create("Pavel", 26));
-                put("key3", Pair.create("Pavel", 27));
-                put("key4", Pair.create("Jason", 27));
+            put("key1", Pair.create("Pavel", 14));
+            put("key2", Pair.create("Pavel", 26));
+            put("key3", Pair.create("Pavel", 27));
+            put("key4", Pair.create("Jason", 27));
         }};
 
         ColumnFamilyStore store = loadData(data1, true);
 
         Map<String, Pair<String, Integer>> data2 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key1", Pair.create("Pavel", 14));
-                put("key2", Pair.create("Pavel", 27));
-                put("key4", Pair.create("Jason", 28));
+            put("key1", Pair.create("Pavel", 14));
+            put("key2", Pair.create("Pavel", 27));
+            put("key4", Pair.create("Jason", 28));
         }};
 
         loadData(data2, true);
 
         Map<String, Pair<String, Integer>> data3 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key1", Pair.create("Pavel", 15));
-                put("key4", Pair.create("Jason", 29));
+            put("key1", Pair.create("Pavel", 15));
+            put("key4", Pair.create("Jason", 29));
         }};
 
         loadData(data3, false);
@@ -1252,17 +1248,17 @@ public class SASIIndexTest
 
 
         rows = getIndexed(store, 100, buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                                      buildExpression(age, Operator.EQ, Int32Type.instance.decompose(15)));
+                          buildExpression(age, Operator.EQ, Int32Type.instance.decompose(15)));
 
         assertRows(rows, "key1");
 
         rows = getIndexed(store, 100, buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                                      buildExpression(age, Operator.EQ, Int32Type.instance.decompose(29)));
+                          buildExpression(age, Operator.EQ, Int32Type.instance.decompose(29)));
 
         assertRows(rows, "key4");
 
         rows = getIndexed(store, 100, buildExpression(firstName, Operator.LIKE_CONTAINS, UTF8Type.instance.decompose("a")),
-                                      buildExpression(age, Operator.EQ, Int32Type.instance.decompose(27)));
+                          buildExpression(age, Operator.EQ, Int32Type.instance.decompose(27)));
 
         assertRows(rows, "key2", "key3");
     }
@@ -1449,10 +1445,10 @@ public class SASIIndexTest
 
         Map<String, Pair<String, Integer>> data1 = new HashMap<String, Pair<String, Integer>>()
         {{
-                put("key1", Pair.create("Pavel", 14));
-                put("key2", Pair.create("Pavel", 26));
-                put("key3", Pair.create("Pavel", 27));
-                put("key4", Pair.create("Jason", 27));
+            put("key1", Pair.create("Pavel", 14));
+            put("key2", Pair.create("Pavel", 26));
+            put("key3", Pair.create("Pavel", 27));
+            put("key4", Pair.create("Jason", 27));
         }};
 
         ColumnFamilyStore store = loadData(data1, true);
@@ -1461,12 +1457,12 @@ public class SASIIndexTest
         filter.add(store.metadata().getColumn(firstName), Operator.LIKE_CONTAINS, AsciiType.instance.fromString("a"));
 
         ReadCommand command =
-            PartitionRangeReadCommand.create(store.metadata(),
-                                             FBUtilities.nowInSeconds(),
-                                             ColumnFilter.all(store.metadata()),
-                                             filter,
-                                             DataLimits.NONE,
-                                             DataRange.allData(store.metadata().partitioner));
+        PartitionRangeReadCommand.create(store.metadata(),
+                                         FBUtilities.nowInSeconds(),
+                                         ColumnFilter.all(store.metadata()),
+                                         filter,
+                                         DataLimits.NONE,
+                                         DataRange.allData(store.metadata().partitioner));
         try
         {
             new QueryPlan(store, command, 0).execute(ReadExecutionController.empty());
@@ -1698,7 +1694,7 @@ public class SASIIndexTest
         assertRows(rows, "key1");
 
         rows = getIndexed(store, 10, buildExpression(name, Operator.LIKE_PREFIX, UTF8Type.instance.decompose("j")),
-                                     buildExpression(name, Operator.NEQ, UTF8Type.instance.decompose("joh")));
+                          buildExpression(name, Operator.NEQ, UTF8Type.instance.decompose("joh")));
         assertRows(rows, "key2", "key6", "key8");
 
         rows = getIndexed(store, 10, buildExpression(name, Operator.LIKE_MATCHES, UTF8Type.instance.decompose("pavel")));
@@ -2172,14 +2168,14 @@ public class SASIIndexTest
         QueryProcessor.executeOnceInternal(String.format("CREATE TABLE IF NOT EXISTS %s.%s (k int primary key, v text);", KS_NAME, tokenizedContainsTable));
 
         QueryProcessor.executeOnceInternal(String.format("CREATE CUSTOM INDEX IF NOT EXISTS ON %s.%s(v) " +
-                "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'CONTAINS', " +
+                                                         "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'CONTAINS', " +
                                                          "'analyzer_class': 'org.apache.cassandra.index.sasi.analyzer.NonTokenizingAnalyzer', " +
                                                          "'case_sensitive': 'false' };",
                                                          KS_NAME, containsTable));
         QueryProcessor.executeOnceInternal(String.format("CREATE CUSTOM INDEX IF NOT EXISTS ON %s.%s(v) " +
-                "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'PREFIX' };", KS_NAME, prefixTable));
+                                                         "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'PREFIX' };", KS_NAME, prefixTable));
         QueryProcessor.executeOnceInternal(String.format("CREATE CUSTOM INDEX IF NOT EXISTS ON %s.%s(v) " +
-                "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'PREFIX', 'analyzed': 'true' };", KS_NAME, analyzedPrefixTable));
+                                                         "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'PREFIX', 'analyzed': 'true' };", KS_NAME, analyzedPrefixTable));
         QueryProcessor.executeOnceInternal(String.format("CREATE CUSTOM INDEX IF NOT EXISTS ON %s.%s(v) " +
                                                          "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = " +
                                                          "{ 'mode' : 'CONTAINS', 'analyzer_class': 'org.apache.cassandra.index.sasi.analyzer.StandardAnalyzer'," +
@@ -2426,17 +2422,17 @@ public class SASIIndexTest
         IndexMemtable beforeFlushMemtable = index.getCurrentMemtable();
 
         PartitionRangeReadCommand command =
-            PartitionRangeReadCommand.create(store.metadata(),
-                                             FBUtilities.nowInSeconds(),
-                                             ColumnFilter.all(store.metadata()),
-                                             RowFilter.NONE,
-                                             DataLimits.NONE,
-                                             DataRange.allData(store.getPartitioner()));
+        PartitionRangeReadCommand.create(store.metadata(),
+                                         FBUtilities.nowInSeconds(),
+                                         ColumnFilter.all(store.metadata()),
+                                         RowFilter.NONE,
+                                         DataLimits.NONE,
+                                         DataRange.allData(store.getPartitioner()));
 
         QueryController controller = new QueryController(store, command, Integer.MAX_VALUE);
         org.apache.cassandra.index.sasi.plan.Expression expression =
-                new org.apache.cassandra.index.sasi.plan.Expression(controller, index)
-                                                    .add(Operator.LIKE_MATCHES, UTF8Type.instance.fromString("Pavel"));
+        new org.apache.cassandra.index.sasi.plan.Expression(controller, index)
+        .add(Operator.LIKE_MATCHES, UTF8Type.instance.fromString("Pavel"));
 
         Assert.assertTrue(rangesSize(beforeFlushMemtable, expression) > 0);
 
@@ -2454,7 +2450,7 @@ public class SASIIndexTest
         }}, false);
 
         expression = new org.apache.cassandra.index.sasi.plan.Expression(controller, index)
-                        .add(Operator.LIKE_MATCHES, UTF8Type.instance.fromString("Sam"));
+                     .add(Operator.LIKE_MATCHES, UTF8Type.instance.fromString("Sam"));
 
         beforeFlushMemtable = index.getCurrentMemtable();
         Assert.assertTrue(rangesSize(beforeFlushMemtable, expression) > 0);
@@ -2480,7 +2476,7 @@ public class SASIIndexTest
         }}, false);
 
         expression = new org.apache.cassandra.index.sasi.plan.Expression(controller, index)
-                .add(Operator.LIKE_MATCHES, UTF8Type.instance.fromString("Jonathan"));
+                     .add(Operator.LIKE_MATCHES, UTF8Type.instance.fromString("Jonathan"));
 
         Assert.assertTrue(rangesSize(index, expression) > 0);
 
@@ -2585,11 +2581,11 @@ public class SASIIndexTest
         try
         {
             QueryProcessor.executeOnceInternal(String.format("CREATE CUSTOM INDEX IF NOT EXISTS %s ON %s.%s(v) " +
-                            "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'CONTAINS', " +
-                            "'analyzer_class': 'org.apache.cassandra.index.sasi.analyzer.NonTokenizingAnalyzer', " +
-                            "'case_sensitive': 'false'," +
-                            "'normalize_uppercase': 'true'};",
-                    indexName, KS_NAME, baseTable));
+                                                             "USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = { 'mode' : 'CONTAINS', " +
+                                                             "'analyzer_class': 'org.apache.cassandra.index.sasi.analyzer.NonTokenizingAnalyzer', " +
+                                                             "'case_sensitive': 'false'," +
+                                                             "'normalize_uppercase': 'true'};",
+                                                             indexName, KS_NAME, baseTable));
 
             Assert.fail("creation of index analyzer with illegal options should fail");
         }
@@ -2599,7 +2595,7 @@ public class SASIIndexTest
             //confirm that it wasn't written to the schema
             String query = String.format("SELECT * FROM system_schema.indexes WHERE keyspace_name = '%s' " +
                                          "and table_name = '%s' and index_name = '%s';", KS_NAME, baseTable, indexName);
-            Assertions.assertThat(QueryProcessor.executeOnceInternal(query)).isEmpty();
+            assertThat(QueryProcessor.executeOnceInternal(query)).isEmpty();
 
             Assert.assertEquals("case_sensitive option cannot be specified together with either normalize_lowercase or normalize_uppercase", e.getMessage());
         }
@@ -2626,6 +2622,7 @@ public class SASIIndexTest
     private static void cleanupData()
     {
         stores().forEach(ColumnFamilyStore::truncateBlocking);
+        StorageService.instance.clearSnapshot(StorageService.ALL_SNAPSHOTS_TAG);
     }
 
     private static Stream<ColumnFamilyStore> stores()
@@ -2686,20 +2683,20 @@ public class SASIIndexTest
     private static ReadCommand getIndexReadCommand(ColumnFamilyStore store, ColumnFilter columnFilter, DecoratedKey startKey, int maxResults, Expression[] expressions)
     {
         DataRange range = (startKey == null)
-                            ? DataRange.allData(PARTITIONER)
-                            : DataRange.forKeyRange(new Range<>(startKey, PARTITIONER.getMinimumToken().maxKeyBound()));
+                          ? DataRange.allData(PARTITIONER)
+                          : DataRange.forKeyRange(new Range<>(startKey, PARTITIONER.getMinimumToken().maxKeyBound()));
 
         RowFilter filter = RowFilter.create();
         for (Expression e : expressions)
             filter.add(store.metadata().getColumn(e.name), e.op, e.value);
 
         ReadCommand command =
-            PartitionRangeReadCommand.create(store.metadata(),
-                                             FBUtilities.nowInSeconds(),
-                                             columnFilter,
-                                             filter,
-                                             DataLimits.cqlLimits(maxResults),
-                                             range);
+        PartitionRangeReadCommand.create(store.metadata(),
+                                         FBUtilities.nowInSeconds(),
+                                         columnFilter,
+                                         filter,
+                                         DataLimits.cqlLimits(maxResults),
+                                         range);
         return command;
     }
 

@@ -20,14 +20,17 @@ package org.apache.cassandra.db;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import com.google.common.collect.Iterators;
@@ -51,11 +54,11 @@ import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.File;
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.ClearableHistogram;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.SchemaConstants;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
 import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -97,6 +100,8 @@ public class ColumnFamilyStoreTest
         Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD2).truncateBlocking();
         Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_INDEX1).truncateBlocking();
         Keyspace.open(KEYSPACE2).getColumnFamilyStore(CF_STANDARD1).truncateBlocking();
+        // cleanup any truncation snapshots
+        StorageService.instance.clearSnapshot(StorageService.ALL_SNAPSHOTS_TAG); //
     }
 
     @Test
@@ -226,12 +231,9 @@ public class ColumnFamilyStoreTest
     }
 
     @Test
-    public void testClearEphemeralSnapshots() throws Throwable
+    public void testClearEphemeralSnapshots()
     {
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_INDEX1);
-
-        //cleanup any previous test gargbage
-        cfs.clearSnapshot("");
 
         int numRows = 1000;
         long[] colValues = new long [numRows * 2]; // each row has two columns
@@ -245,27 +247,21 @@ public class ColumnFamilyStoreTest
         cfs.snapshot("nonEphemeralSnapshot", null, false, false);
         cfs.snapshot("ephemeralSnapshot", null, true, false);
 
-        Map<String, TableSnapshot> snapshotDetails = cfs.listSnapshots();
-        assertEquals(2, snapshotDetails.size());
-        assertTrue(snapshotDetails.containsKey("ephemeralSnapshot"));
-        assertTrue(snapshotDetails.containsKey("nonEphemeralSnapshot"));
+        List<String> ephemeralSnapshots = cfs.getDirectories().listEphemeralSnapshots();
+        assertEquals(1, ephemeralSnapshots.size());
+        assertTrue(ephemeralSnapshots.contains("ephemeralSnapshot"));
 
-        ColumnFamilyStore.clearEphemeralSnapshots(cfs.getDirectories());
+        cfs.getDirectories().clearAllEphemeralSnapshots();
 
-        snapshotDetails = cfs.listSnapshots();
-        assertEquals(1, snapshotDetails.size());
-        assertTrue(snapshotDetails.containsKey("nonEphemeralSnapshot"));
-
-        //test cleanup
-        cfs.clearSnapshot("");
+        ephemeralSnapshots = cfs.getDirectories().listEphemeralSnapshots();
+        assertEquals(0, ephemeralSnapshots.size());
     }
 
     @Test
-    public void testSnapshotSize()
+    public void testSnapshotSize() throws IOException
     {
         // cleanup any previous test gargbage
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD1);
-        cfs.clearSnapshot("");
 
         // Add row
         new RowUpdateBuilder(cfs.metadata(), 0, "key1")
@@ -283,21 +279,33 @@ public class ColumnFamilyStoreTest
         assertThat(snapshotDetails).hasSize(1);
         assertThat(snapshotDetails).containsKey("basic");
 
-        // check that sizeOnDisk > trueSize = 0
-        TableSnapshot details = snapshotDetails.get("basic");
-        assertThat(details.computeSizeOnDiskBytes()).isGreaterThan(details.computeTrueSizeBytes());
-        assertThat(details.computeTrueSizeBytes()).isZero();
+        // check that sizeOnDisk > trueSize = size(schema.cql + manifest.json)
+        TableSnapshot snapshot = snapshotDetails.get("basic");
+
+        assertThat(snapshot.computeSizeOnDiskBytes()).isGreaterThan(snapshot.computeTrueSizeBytes());
+        assertThat(snapshot.computeTrueSizeBytes()).isEqualTo(getSnapshotManifestAndSchemaFileSizes(snapshot));
 
         // compact base table to make trueSize > 0
         cfs.forceMajorCompaction();
         LifecycleTransaction.waitForDeletions();
 
-        // sizeOnDisk > trueSize because trueSize does not include manifest.json
-        // Check that truesize now is > 0
+        // check that sizeOnDisk == trueSize
         snapshotDetails = cfs.listSnapshots();
-        details = snapshotDetails.get("basic");
-        assertThat(details.computeSizeOnDiskBytes()).isGreaterThan(details.computeTrueSizeBytes());
-        assertThat(details.computeTrueSizeBytes()).isPositive();
+        snapshot = snapshotDetails.get("basic");
+        assertThat(snapshot.computeSizeOnDiskBytes()).isEqualTo(snapshot.computeTrueSizeBytes());
+    }
+
+    public static long getSnapshotManifestAndSchemaFileSizes(TableSnapshot snapshot) throws IOException
+    {
+        Optional<File> schemaFile = snapshot.getSchemaFile();
+        Optional<File> manifestFile = snapshot.getManifestFile();
+
+        long schemaAndManifestFileSizes = 0;
+
+        schemaAndManifestFileSizes += schemaFile.isPresent() ? schemaFile.get().length() : 0;
+        schemaAndManifestFileSizes += manifestFile.isPresent() ? manifestFile.get().length() : 0;
+
+        return schemaAndManifestFileSizes;
     }
 
     @Test
@@ -523,12 +531,11 @@ public class ColumnFamilyStoreTest
 
         TableSnapshot snapshot = cfs.snapshot("basic");
 
-
         assertThat(snapshot.exists()).isTrue();
         assertThat(cfs.listSnapshots().containsKey("basic")).isTrue();
         assertThat(cfs.listSnapshots().get("basic")).isEqualTo(snapshot);
 
-        snapshot.getDirectories().forEach(FileUtils::deleteRecursive);
+        StorageService.instance.clearSnapshot("basic");
 
         assertThat(snapshot.exists()).isFalse();
         assertFalse(cfs.listSnapshots().containsKey("basic"));
