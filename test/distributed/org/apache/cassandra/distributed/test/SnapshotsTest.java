@@ -20,19 +20,25 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.util.concurrent.Uninterruptibles;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.shared.WithProperties;
+import org.apache.cassandra.schema.SchemaConstants;
 
 import static org.apache.cassandra.distributed.shared.ClusterUtils.stopUnchecked;
 
@@ -50,6 +56,14 @@ public class SnapshotsTest extends TestBaseImpl
         properties.set(CassandraRelevantProperties.SNAPSHOT_CLEANUP_PERIOD_SECONDS, SNAPSHOT_CLEANUP_PERIOD_SECONDS);
         properties.set(CassandraRelevantProperties.SNAPSHOT_MIN_ALLOWED_TTL_SECONDS, FIVE_SECONDS);
         cluster = init(Cluster.build(1).withConfig(c -> c.with(Feature.GOSSIP)).start());
+    }
+
+
+    @After
+    public void clearAllSnapshots()
+    {
+        cluster.schemaChange("DROP KEYSPACE IF EXISTS default;");
+        cluster.get(1).nodetoolResult("clearsnapshot", "--all").asserts().success();
     }
 
     @AfterClass
@@ -211,6 +225,84 @@ public class SnapshotsTest extends TestBaseImpl
 
         // Check snapshot of dropped table still exists after restart
         instance.nodetoolResult("listsnapshots").asserts().success().stdoutContains("tag1");
+    }
+
+    @Test
+    public void testTakeSnapshotAlreadyExistSameTable()
+    {
+        IInvokableInstance instance = cluster.get(1);
+
+        cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS default WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2};");
+        cluster.schemaChange("CREATE TABLE default.tbl (key int, value text, PRIMARY KEY (key))");
+
+        populate(cluster);
+
+        // Take first snapshot
+
+        instance.nodetoolResult("snapshot",
+                                "-t", "tag1",
+                                "-kt", "default.tbl").asserts().success();
+
+        // Snapshot with same name on same table should fail
+        instance.nodetoolResult("snapshot",
+                                "-t", "tag1",
+                                "-kt", "default.tbl").asserts().failure().stderrContains("already exists");
+    }
+
+    @Test
+    public void testTakeSnapshotAlreadyExistRecreatedTable()
+    {
+        IInvokableInstance instance = cluster.get(1);
+
+        cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS default WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2};");
+        cluster.schemaChange("CREATE TABLE default.tbl (key int, value text, PRIMARY KEY (key))");
+
+        populate(cluster);
+
+        // Take first snapshot
+
+        instance.nodetoolResult("snapshot",
+                                "-t", "tag1",
+                                "-kt", "default.tbl").asserts().success();
+
+        // Drop Table
+        cluster.schemaChange("DROP TABLE default.tbl;");
+
+        Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
+
+        // Re-create table with the same name
+        cluster.schemaChange("CREATE TABLE default.tbl (key int, value text, PRIMARY KEY (key))");
+        populate(cluster);
+
+        // Snapshot with same name should fail
+        instance.nodetoolResult("snapshot",
+                                "-t", "tag1",
+                                "-kt", "default.tbl").asserts().failure().stderrContains("already exists");
+    }
+
+    @Test
+    public void testTakeSnapshotAlreadyExistCrossKeyspace()
+    {
+        IInvokableInstance instance = cluster.get(1);
+
+        cluster.schemaChange("CREATE KEYSPACE IF NOT EXISTS default WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2};");
+        cluster.schemaChange("CREATE TABLE default.tbl (key int, value text, PRIMARY KEY (key))");
+
+        populate(cluster);
+
+        // Take first snapshot
+
+        instance.nodetoolResult("snapshot",
+                                "-t", "tag1",
+                                "-kt", "default.tbl").asserts().success();
+
+        // Drop Table
+        cluster.schemaChange("DROP TABLE default.tbl;");
+
+        // Snapshot with same name on other keyspace should fail
+        instance.nodetoolResult("snapshot",
+                                "-t", "tag1",
+                                "-kt", String.format("%s.%s", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.PEERS_V2)).asserts().failure().stderrContains("already exists");
     }
 
     @Test

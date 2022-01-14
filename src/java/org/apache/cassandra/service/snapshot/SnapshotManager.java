@@ -22,7 +22,9 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
@@ -61,7 +63,7 @@ public class SnapshotManager {
     @VisibleForTesting
     protected volatile ScheduledFuture cleanupTaskFuture;
 
-    private final Set<TableSnapshot> liveSnapshots = new HashSet<>();
+    private final Map<String, Set<TableSnapshot>> liveSnapshots = new HashMap<>();
 
     /**
      * Expiring ssnapshots ordered by expiration date, to allow only iterating over snapshots
@@ -108,7 +110,7 @@ public class SnapshotManager {
 
     public synchronized void addSnapshot(TableSnapshot snapshot)
     {
-        liveSnapshots.add(snapshot);
+        liveSnapshots.computeIfAbsent(snapshot.getTag(), k -> new HashSet<>()).add(snapshot);
         if (snapshot.isExpiring())
         {
             logger.debug("Adding expiring snapshot {}", snapshot);
@@ -118,9 +120,10 @@ public class SnapshotManager {
 
     public synchronized Collection<TableSnapshot> getSnapshots(Predicate<TableSnapshot> filter)
     {
-        return liveSnapshots.stream()
-                            .filter(filter)
-                            .collect(Collectors.toSet());
+        return liveSnapshots.values().stream()
+                                     .flatMap(v -> v.stream())
+                                     .filter(filter)
+                                     .collect(Collectors.toSet());
     }
 
     @VisibleForTesting
@@ -156,14 +159,15 @@ public class SnapshotManager {
     /**
      * Deletes snapshot and remove it from manager
      */
-    protected void clearSnapshot(TableSnapshot snapshot)
+    protected synchronized void clearSnapshot(TableSnapshot snapshot)
     {
+        logger.debug("Clearing snapshot " + snapshot);
         for (File snapshotDir : snapshot.getDirectories())
         {
             Directories.removeSnapshotDirectory(DatabaseDescriptor.getSnapshotRateLimiter(), snapshotDir);
         }
         expiringSnapshots.remove(snapshot);
-        liveSnapshots.remove(snapshot);
+        liveSnapshots.remove(snapshot.getTag());
     }
 
     @VisibleForTesting
@@ -184,8 +188,16 @@ public class SnapshotManager {
         }
     }
 
-    public void clearSnapshots(Predicate<TableSnapshot> predicate)
+    public synchronized Collection<TableSnapshot> clearSnapshots(Predicate<TableSnapshot> predicate)
     {
-        getSnapshots(predicate).forEach(this::clearSnapshot);
+        Collection<TableSnapshot> toClear = getSnapshots(predicate);
+        toClear.forEach(this::clearSnapshot);
+        return toClear;
+    }
+
+    public synchronized boolean exists(String tag)
+    {
+        logger.info("Current state of snapshots {}", liveSnapshots);
+        return liveSnapshots.containsKey(tag);
     }
 }

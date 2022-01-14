@@ -80,6 +80,9 @@ New features
 
 Upgrading
 ---------
+    - Creation of snapshots with the same tag of an existing snapshot is no longer allowed. Previously it
+      was possible to create a snapshot with the same tag of another snapshot as long as the new snapshot
+      was from a different keyspace.
     - Before you upgrade, if you are using `cassandra.auth_bcrypt_gensalt_log2_rounds` property,
       confirm it is set to value lower than 31 otherwise Cassandra will fail to start. See CASSANDRA-9384
       for further details. You also need to regenerate passwords for users for who the password
