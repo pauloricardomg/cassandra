@@ -820,7 +820,6 @@ public class NodeProbe implements AutoCloseable
         return ssProxy.getSnapshotDetails(options);
     }
 
-    @Deprecated
     public Map<String, TabularData> getSnapshotDetails()
     {
         return getSnapshotDetails(ImmutableMap.of());

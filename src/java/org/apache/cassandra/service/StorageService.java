@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.regex.MatchResult;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -159,6 +160,8 @@ import static org.apache.cassandra.service.ActiveRepairService.*;
  */
 public class StorageService extends NotificationBroadcasterSupport implements IEndpointStateChangeSubscriber, StorageServiceMBean
 {
+    private static final Pattern KEYSPACE_OPT_TABLE = Pattern.compile("(?<keyspace>\\w+)\\.?(?<table>\\w+)?");
+
     private static final Logger logger = LoggerFactory.getLogger(StorageService.class);
 
     public static final int INDEFINITE = -1;
@@ -3828,6 +3831,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     @Override
     public void takeSnapshot(String tag, Map<String, String> options, String... entities) throws IOException
     {
+        if (operationMode.equals(Mode.JOINING))
+            throw new IOException("Cannot snapshot until bootstrap completes");
+
+        if (tag == null || tag.equals(ALL_SNAPSHOTS_TAG))
+            throw new IOException("You must supply a snapshot name.");
+
+        if (snapshotManager.exists(tag))
+            throw new IOException("Snapshot " + tag + " already exists.");
+
+        boolean skipFlush = Boolean.parseBoolean(options.getOrDefault("skipFlush", "false"));
+        RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
+        Instant creationTime = Instant.now();
         Duration ttl = options.containsKey("ttl") ? new Duration(options.get("ttl")) : null;
         if (ttl != null)
         {
@@ -3836,14 +3851,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 throw new IllegalArgumentException(String.format("ttl for snapshot must be at least %d seconds", minAllowedTtlSecs));
         }
 
-        boolean skipFlush = Boolean.parseBoolean(options.getOrDefault("skipFlush", "false"));
-        if (entities != null && entities.length > 0 && entities[0].contains("."))
+        Map<Keyspace, Set<String>> entitiesToSnapshot = getEntitiesToSnapshot(entities);
+
+        for (Entry<Keyspace, Set<String>> entry : entitiesToSnapshot.entrySet())
         {
-            takeMultipleTableSnapshot(tag, skipFlush, ttl, entities);
-        }
-        else
-        {
-            takeSnapshot(tag, skipFlush, ttl, entities);
+            Keyspace ks = entry.getKey();
+            Set<String> tablesToSnapshot = entry.getValue();
+            ks.snapshot(tag, tablesToSnapshot, skipFlush, ttl, snapshotRateLimiter, creationTime);
         }
     }
 
@@ -3857,112 +3871,46 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    /**
-     * Takes the snapshot for the given keyspaces. A snapshot name must be specified.
-     *
-     * @param tag the tag given to the snapshot; may not be null or empty
-     * @param skipFlush Skip blocking flush of memtable
-     * @param keyspaceNames the names of the keyspaces to snapshot; empty means "all."
-     */
-    private void takeSnapshot(String tag, boolean skipFlush, Duration ttl, String... keyspaceNames) throws IOException
+    private Map<Keyspace, Set<String>> getEntitiesToSnapshot(String[] entities)
     {
-        if (operationMode == Mode.JOINING)
-            throw new IOException("Cannot snapshot until bootstrap completes");
-        if (tag == null || tag.equals(ALL_SNAPSHOTS_TAG))
-            throw new IOException("You must supply a snapshot name.");
+        Map<Keyspace, Set<String>> ksTablesToSnapshot = new HashMap<>();
 
-        Iterable<Keyspace> keyspaces;
-        if (keyspaceNames.length == 0)
+        // When the entities array is empty, it means snapshot all keyspaces
+        if (entities.length == 0)
         {
-            keyspaces = Keyspace.all();
-        }
-        else
-        {
-            ArrayList<Keyspace> t = new ArrayList<>(keyspaceNames.length);
-            for (String keyspaceName : keyspaceNames)
-                t.add(getValidKeyspace(keyspaceName));
-            keyspaces = t;
+            Keyspace.all().forEach(k -> ksTablesToSnapshot.put(k, null));
+            return ksTablesToSnapshot;
         }
 
-        // Do a check to see if this snapshot exists before we actually snapshot
-        if (snapshotManager.exists(tag))
+        // Otherwise the entities array must contain either a list of keyspaces
+        // or a list of tables in the format "<keyspace>.<table>".
+        for (String entity : entities)
         {
-            throw new IOException("Snapshot " + tag + " already exists.");
-        }
-
-        RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
-        Instant creationTime = Instant.now();
-
-        for (Keyspace keyspace : keyspaces)
-        {
-            keyspace.snapshot(tag, null, skipFlush, ttl, snapshotRateLimiter, creationTime);
-        }
-    }
-
-    /**
-     * Takes the snapshot of a multiple column family from different keyspaces. A snapshot name must be specified.
-     *
-     *
-     * @param tag
-     *            the tag given to the snapshot; may not be null or empty
-     * @param skipFlush
-     *            Skip blocking flush of memtable
-     * @param tableList
-     *            list of tables from different keyspace in the form of ks1.cf1 ks2.cf2
-     */
-    private void takeMultipleTableSnapshot(String tag, boolean skipFlush, Duration ttl, String... tableList)
-            throws IOException
-    {
-        if (snapshotManager.exists(tag))
-        {
-            throw new IOException("Snapshot " + tag + " already exists.");
-        }
-
-        Map<Keyspace, List<String>> keyspaceColumnfamily = new HashMap<Keyspace, List<String>>();
-        for (String table : tableList)
-        {
-            String splittedString[] = StringUtils.split(table, '.');
-            if (splittedString.length == 2)
+            Matcher matcher = KEYSPACE_OPT_TABLE.matcher(entity);
+            if (matcher.matches())
             {
-                String keyspaceName = splittedString[0];
-                String tableName = splittedString[1];
-
-                if (keyspaceName == null)
-                    throw new IOException("You must supply a keyspace name");
-                if (operationMode.equals(Mode.JOINING))
-                    throw new IOException("Cannot snapshot until bootstrap completes");
-
-                if (tableName == null)
-                    throw new IOException("You must supply a table name");
-                if (tag == null || tag.equals(ALL_SNAPSHOTS_TAG))
-                    throw new IOException("You must supply a snapshot name.");
-
+                String keyspaceName = matcher.group("keyspace");
                 Keyspace keyspace = getValidKeyspace(keyspaceName);
-                if (!keyspaceColumnfamily.containsKey(keyspace))
+
+                String tableName = matcher.group("table");
+                if (tableName == null)
                 {
-                    keyspaceColumnfamily.put(keyspace, new ArrayList<String>());
+                    // snapshot all tables of this keyspace
+                    ksTablesToSnapshot.put(keyspace, null);
                 }
-
-                // Add Keyspace columnfamily to map in order to support atomicity for snapshot process.
-                // So no snapshot should happen if any one of the above conditions fail for any keyspace or columnfamily
-                keyspaceColumnfamily.get(keyspace).add(tableName);
-
+                else
+                {
+                    // snapshot only specified tables
+                    ksTablesToSnapshot.computeIfAbsent(keyspace, k -> new LinkedHashSet<>()).add(tableName);
+                }
             }
             else
             {
                 throw new IllegalArgumentException(
-                        "Cannot take a snapshot on secondary index or invalid column family name. You must supply a column family name in the form of keyspace.columnfamily");
+                "Cannot take a snapshot on secondary index or invalid column family name. You must supply a column family name in the form of keyspace.columnfamily");
             }
         }
-
-        RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
-        Instant creationTime = Instant.now();
-
-        for (Entry<Keyspace, List<String>> entry : keyspaceColumnfamily.entrySet())
-        {
-            for (String table : entry.getValue())
-                entry.getKey().snapshot(tag, table, skipFlush, ttl, snapshotRateLimiter, creationTime);
-        }
+        return ksTablesToSnapshot;
     }
 
     private void verifyKeyspaceIsValid(String keyspaceName)

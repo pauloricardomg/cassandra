@@ -22,15 +22,19 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -209,39 +213,28 @@ public class Keyspace
      * if columnFamily is null with a given timestamp
      *
      * @param snapshotName     the tag associated with the name of the snapshot.  This value may not be null
-     * @param columnFamilyName the column family to snapshot or all on null
+     * @param tableNames the tables to snapshot or all when null
      * @param skipFlush Skip blocking flush of memtable
      * @param rateLimiter Rate limiter for hardlinks-per-second
      * @throws IOException if the column family doesn't exist
      */
-    public void snapshot(String snapshotName, String columnFamilyName, boolean skipFlush, Duration ttl, RateLimiter rateLimiter, Instant creationTime) throws IOException
+    public void snapshot(String snapshotName, Set<String> tableNames, boolean skipFlush, Duration ttl, RateLimiter rateLimiter, Instant creationTime) throws IOException
     {
         assert snapshotName != null;
-        boolean tookSnapShot = false;
-        for (ColumnFamilyStore cfStore : columnFamilyStores.values())
+
+        Map<String, ColumnFamilyStore> toSnapshot = columnFamilyStores.values().stream()
+                                                                               .filter(c -> tableNames == null || tableNames.contains(c.getTableName()))
+                                                                               .collect(Collectors.toMap(ColumnFamilyStore::getTableName, Function.identity()));
+
+        // Validate first if all requested tables exist before taking snapshot
+        if (tableNames != null && tableNames.size() != toSnapshot.size())
         {
-            if (columnFamilyName == null || cfStore.name.equals(columnFamilyName))
-            {
-                tookSnapShot = true;
-                cfStore.snapshot(snapshotName, skipFlush, ttl, rateLimiter, creationTime);
-            }
+            Set<String> diff = new HashSet<>(tableNames);
+            diff.removeAll(toSnapshot.keySet());
+            throw new IOException("Failed taking snapshot. Table(s) " + diff + " do(es) not exist.");
         }
 
-        if ((columnFamilyName != null) && !tookSnapShot)
-            throw new IOException("Failed taking snapshot. Table " + columnFamilyName + " does not exist.");
-    }
-
-    /**
-     * Take a snapshot of the specific column family, or the entire set of column families
-     * if columnFamily is null with a given timestamp
-     *
-     * @param snapshotName     the tag associated with the name of the snapshot.  This value may not be null
-     * @param columnFamilyName the column family to snapshot or all on null
-     * @throws IOException if the column family doesn't exist
-     */
-    public void snapshot(String snapshotName, String columnFamilyName) throws IOException
-    {
-        snapshot(snapshotName, columnFamilyName, false, null, null, Instant.now());
+        toSnapshot.values().forEach(cfs -> cfs.snapshot(snapshotName, skipFlush, ttl, rateLimiter, creationTime) );
     }
 
     /**

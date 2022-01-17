@@ -19,7 +19,10 @@
 package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.*;
+
+import com.google.common.collect.Sets;
 
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.schema.MigrationManager;
@@ -430,7 +433,8 @@ public class KeyspaceTest extends CQLTester
 
         Keyspace ks = Keyspace.open(KEYSPACE_PER_TEST);
         String table = getCurrentColumnFamilyStore().name;
-        ks.snapshot("test", table);
+        ks.snapshot("test", Sets.newHashSet(table), false, null, null, Instant.now());
+
 
         assertTrue(ks.snapshotExists("test"));
         assertEquals(1, ks.getAllSnapshots().count());
