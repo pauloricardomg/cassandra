@@ -210,7 +210,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private final List<Runnable> preShutdownHooks = new ArrayList<>();
     private final List<Runnable> postShutdownHooks = new ArrayList<>();
 
-    private final SnapshotManager snapshotManager = new SnapshotManager();
+    @VisibleForTesting
+    protected final SnapshotManager snapshotManager = new SnapshotManager();
 
     public static final StorageService instance = new StorageService();
 
@@ -3846,23 +3847,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    /**
-     * Takes the snapshot of a specific table. A snapshot name must be
-     * specified.
-     *
-     * @param keyspaceName
-     *            the keyspace which holds the specified table
-     * @param tableName
-     *            the table to snapshot
-     * @param tag
-     *            the tag given to the snapshot; may not be null or empty
-     */
-    public void takeTableSnapshot(String keyspaceName, String tableName, String tag)
-            throws IOException
-    {
-        takeMultipleTableSnapshot(tag, false, null, keyspaceName + "." + tableName);
-    }
-
     public void forceKeyspaceCompactionForTokenRange(String keyspaceName, String startToken, String endToken, String... tableNames) throws IOException, ExecutionException, InterruptedException
     {
         Collection<Range<Token>> tokenRanges = createRepairRangeFrom(startToken, endToken);
@@ -3871,31 +3855,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             cfStore.forceCompactionForTokenRange(tokenRanges);
         }
-    }
-
-    /**
-     * Takes the snapshot for the given keyspaces. A snapshot name must be specified.
-     *
-     * @param tag the tag given to the snapshot; may not be null or empty
-     * @param keyspaceNames the names of the keyspaces to snapshot; empty means "all."
-     */
-    public void takeSnapshot(String tag, String... keyspaceNames) throws IOException
-    {
-        takeSnapshot(tag, false, null, keyspaceNames);
-    }
-
-    /**
-     * Takes the snapshot of a multiple column family from different keyspaces. A snapshot name must be specified.
-     *
-     * @param tag
-     *            the tag given to the snapshot; may not be null or empty
-     * @param tableList
-     *            list of tables from different keyspace in the form of ks1.cf1 ks2.cf2
-     */
-    public void takeMultipleTableSnapshot(String tag, String... tableList)
-            throws IOException
-    {
-        takeMultipleTableSnapshot(tag, false, null, tableList);
     }
 
     /**

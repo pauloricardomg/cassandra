@@ -234,24 +234,6 @@ public interface StorageServiceMBean extends NotificationEmitter
     public List<String> getNaturalEndpointsWithPort(String keysapceName, ByteBuffer key);
 
     /**
-     * @deprecated use {@link #takeSnapshot(String tag, Map options, String... entities)} instead.
-     */
-    @Deprecated
-    public void takeSnapshot(String tag, String... keyspaceNames) throws IOException;
-
-    /**
-     * @deprecated use {@link #takeSnapshot(String tag, Map options, String... entities)} instead.
-     */
-    @Deprecated
-    public void takeTableSnapshot(String keyspaceName, String tableName, String tag) throws IOException;
-
-    /**
-     * @deprecated use {@link #takeSnapshot(String tag, Map options, String... entities)} instead.
-     */
-    @Deprecated
-    public void takeMultipleTableSnapshot(String tag, String... tableList) throws IOException;
-
-    /**
      * Takes the snapshot of a multiple column family from different keyspaces. A snapshot name must be specified.
      *
      * @param tag

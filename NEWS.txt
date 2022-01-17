@@ -80,6 +80,8 @@ New features
 
 Upgrading
 ---------
+    - Removed deprecated methods from StorageService: takeSnapshot(tag,keyspaceNames), takeTableSnapshot and
+      takeMultipleTableSnapshot. Use instead StorageService#takeSnapshot(tag, options, entities).
     - Creation of snapshots with the same tag of an existing snapshot is no longer allowed. Previously it
       was possible to create a snapshot with the same tag of another snapshot as long as the new snapshot
       was from a different keyspace.

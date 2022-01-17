@@ -81,13 +81,6 @@ public class StorageServiceServerTest
         assertEquals(Collections.<Range<Token>>emptyList(), StorageService.instance.getAllRanges(toks));
     }
 
-    @Test
-    public void testSnapshotWithFlush() throws IOException
-    {
-        // no need to insert extra data, even an "empty" database will have a little information in the system keyspace
-        StorageService.instance.takeSnapshot(UUID.randomUUID().toString());
-    }
-
     private void checkTempFilePresence(File f, boolean exist)
     {
         for (int i = 0; i < 5; i++)
@@ -158,17 +151,30 @@ public class StorageServiceServerTest
     }
 
     @Test
-    public void testTableSnapshot() throws IOException
+    public void testSnapshotAllKeyspaces() throws IOException
     {
         // no need to insert extra data, even an "empty" database will have a little information in the system keyspace
-        StorageService.instance.takeTableSnapshot(SchemaConstants.SCHEMA_KEYSPACE_NAME, SchemaKeyspaceTables.KEYSPACES, UUID.randomUUID().toString());
+        String tag = UUID.randomUUID().toString();
+        StorageService.instance.takeSnapshot(tag, new HashMap<>());
+        assertTrue(StorageService.instance.snapshotManager.exists(tag));
     }
 
     @Test
-    public void testSnapshot() throws IOException
+    public void testSnapshotSingleKeyspace() throws IOException
     {
         // no need to insert extra data, even an "empty" database will have a little information in the system keyspace
-        StorageService.instance.takeSnapshot(UUID.randomUUID().toString(), SchemaConstants.SCHEMA_KEYSPACE_NAME);
+        String tag = UUID.randomUUID().toString();
+        StorageService.instance.takeSnapshot(tag, new HashMap<>(), SchemaConstants.SCHEMA_KEYSPACE_NAME);
+        assertTrue(StorageService.instance.snapshotManager.exists(tag));
+    }
+
+    @Test
+    public void testSnapshotSingleTable() throws IOException
+    {
+        // no need to insert extra data, even an "empty" database will have a little information in the system keyspace
+        String tag = UUID.randomUUID().toString();
+        StorageService.instance.takeSnapshot(tag, new HashMap<>(), String.format("%s.%s", SchemaConstants.SCHEMA_KEYSPACE_NAME, SchemaKeyspaceTables.KEYSPACES));
+        assertTrue(StorageService.instance.snapshotManager.exists(tag));
     }
 
     @Test
