@@ -54,7 +54,6 @@ import org.apache.cassandra.audit.AuditLogManager;
 import org.apache.cassandra.auth.AuthCacheService;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.config.StartupChecksOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -499,13 +498,13 @@ public class CassandraDaemon
     {
         try
         {
-            StartupChecksOptions startupChecksOptions = DatabaseDescriptor.getStartupChecksOptions();
-            startupChecks.verify(startupChecksOptions);
+            startupChecks.verify(DatabaseDescriptor.getStartupChecksOptions());
         }
         catch (StartupException e)
         {
             exitOrFail(e.returnCode, e.getMessage(), e.getCause());
         }
+
     }
 
     /**

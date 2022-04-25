@@ -48,6 +48,7 @@ public interface StartupCheck
     void execute(StartupChecksOptions startupChecksOptions) throws StartupException;
 
     /**
+     *
      * @return type of this startup check for configuration retrieval
      */
     default StartupCheckType getStartupCheckType()
