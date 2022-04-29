@@ -36,6 +36,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +52,7 @@ import org.apache.cassandra.io.util.FileOutputStreamPlus;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.utils.Clock;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 import static java.lang.String.format;
@@ -73,15 +75,9 @@ public class DataResurrectionCheck implements StartupCheck
 
     public static final String DEFAULT_HEARTBEAT_FILE = "cassandra-heartbeat";
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Heartbeat
     {
-        private static final ObjectMapper mapper = new ObjectMapper();
-        static
-        {
-            mapper.registerModule(new JavaTimeModule());
-            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        }
-
         @JsonProperty("last_heartbeat")
         public final Instant lastHeartbeat;
 
@@ -98,18 +94,12 @@ public class DataResurrectionCheck implements StartupCheck
 
         public void serializeToJsonFile(File outputFile) throws IOException
         {
-            try (FileOutputStreamPlus out = outputFile.newOutputStream(OVERWRITE))
-            {
-                mapper.writeValue((OutputStream) out, Heartbeat.this);
-            }
+            FBUtilities.serializeToJsonFile(this, outputFile);
         }
 
         public static Heartbeat deserializeFromJsonFile(File file) throws IOException
         {
-            try (FileInputStreamPlus in = file.newInputStream())
-            {
-                return mapper.readValue((InputStream) in, Heartbeat.class);
-            }
+            return FBUtilities.deserializeFromJsonFile(Heartbeat.class, file);
         }
 
         @Override
