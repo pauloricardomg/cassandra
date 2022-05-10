@@ -65,7 +65,7 @@ public class SnapshotLoader extends SimpleFileVisitor<Path>
 
     public SnapshotLoader(String[] dataDirectories)
     {
-        this.dataDirectories = Arrays.stream(dataDirectories).map(Paths::get).collect(Collectors.toList());
+        this(Arrays.stream(dataDirectories).map(Paths::get).collect(Collectors.toList()));
     }
 
     public SnapshotLoader(Collection<Path> dataDirs)
@@ -79,11 +79,18 @@ public class SnapshotLoader extends SimpleFileVisitor<Path>
         {
             try
             {
-                Files.walkFileTree(dataDir, Collections.EMPTY_SET, 5, this);
+                if (dataDir.toFile().exists())
+                {
+                    Files.walkFileTree(dataDir, Collections.EMPTY_SET, 5, this);
+                }
+                else
+                {
+                    logger.debug("Skipping non-existing data directory {}", dataDir);
+                }
             }
             catch (IOException e)
             {
-                throw new RuntimeException(String.format("Error while loading snapshots from %s", dataDir));
+                throw new RuntimeException(String.format("Error while loading snapshots from %s", dataDir), e);
             }
         }
         return snapshots.values().stream().map(TableSnapshot.Builder::build).collect(Collectors.toSet());
