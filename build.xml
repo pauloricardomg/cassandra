@@ -90,7 +90,7 @@
     <property name="version.properties.dir"
               value="${build.src.resources}/org/apache/cassandra/config/" />
     <property name="final.name" value="${ant.project.name}-${version}"/>
-
+    <property name="tarball.location" value="${build.dir}/${final.name}-bin.tar.gz"/>
     <property name="local.repository" value="${user.home}/.m2/repository" />
 
     <!-- details of how and which Maven repository we publish to -->
@@ -435,6 +435,10 @@
 
     <target name="echo-base-version">
         <echo message="${base.version}" />
+    </target>
+
+    <target name="echo-tarball-location">
+        <echo message="${tarball.location}" />
     </target>
 
     <!-- create properties file with C version -->
@@ -856,7 +860,7 @@
     <target name="artifacts" depends="_artifacts-init,gen-doc,sources-jar"
             description="Create Cassandra release artifacts">
       <tar compression="gzip" longfile="gnu"
-        destfile="${build.dir}/${final.name}-bin.tar.gz">
+        destfile="${tarball.location}">
 
         <!-- Everything but bin/ (default mode) -->
         <tarfileset dir="${dist.dir}" prefix="${final.name}">
@@ -1982,7 +1986,7 @@
             classifier="javadoc"/>
 
     <!-- the distribution -->
-    <sign-dist file="${build.dir}/${final.name}-bin.tar.gz" />
+    <sign-dist file="${tarball.location}" />
     <sign-dist file="${build.dir}/${final.name}-src.tar.gz" />
 
   </target>
