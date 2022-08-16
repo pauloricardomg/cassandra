@@ -1,6 +1,7 @@
 .gitignore
 
 # C*
+docker/cassandra-bin.tgz
 build
 build/
 src/gen-java/
