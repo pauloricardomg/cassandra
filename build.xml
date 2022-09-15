@@ -855,7 +855,7 @@
     <target name="artifacts" depends="_artifacts-init,gen-doc,sources-jar"
             description="Create Cassandra release artifacts">
       <tar compression="gzip" longfile="gnu"
-        destfile="${tarbal.dest}">
+        destfile="${tarball.location}">
 
         <!-- Everything but bin/ (default mode) -->
         <tarfileset dir="${dist.dir}" prefix="${final.name}">
