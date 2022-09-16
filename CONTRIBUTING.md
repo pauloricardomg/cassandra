@@ -18,14 +18,9 @@
 #
 -->
 
-# Apache Cassandra and Pull Requests
-
-Apache Cassandra doesn't use GitHub pull requests as part of the development process.
-In fact, this repository is a GitHub mirror of [the official repo](https://gitbox.apache.org/repos/asf/cassandra.git).
-
 # How to Contribute
 
-Use [Cassandra JIRA](https://issues.apache.org/jira/browse/CASSANDRA/) to create an issue, then either attach a patch or post a link to a GitHub branch with your changes.
+Use [Cassandra JIRA](https://issues.apache.org/jira/browse/CASSANDRA/) to create an issue, then either attach a patch or post a link to a GitHub branch or PR with your changes.
 
 # Quick Start Development Guide
 
