@@ -1991,6 +1991,75 @@
 
   </target>
 
+  <target name="docker-build"
+          description="Builds a local cassandra-test docker image">
+
+    <!-- check docker exists -->
+    <fail message="docker not found">
+      <condition>
+        <not>
+          <available file="docker" filepath="${env.PATH}"/>
+        </not>
+      </condition>
+    </fail>
+
+    <antcall target="artifacts">
+      <param name="no-javadoc" value="true"/>
+      <param name="ant.gen-doc.skip" value="true"/>
+    </antcall>
+
+    <!-- copy docker templates to build directory and set permissions -->
+    <copy file=".build/docker/Dockerfile" tofile="${build.dir}/Dockerfile"/>
+    <copy file=".build/docker/docker-entrypoint.sh" tofile="${build.dir}/docker-entrypoint.sh"/>
+    <chmod file="${build.dir}/docker-entrypoint.sh" perm="777"/>
+
+    <!-- build docker image -->
+    <exec executable="docker">
+      <arg value="build"/>
+      <arg value="-t"/>
+      <arg value="apache/cassandra-test"/>
+      <arg value="--build-arg"/>
+      <arg value="CASSANDRA_TARBALL=${final.name}-bin.tar.gz"/>
+      <arg value="${build.dir}"/>
+    </exec>
+
+    <!-- remove docker templates -->
+    <delete file="${build.dir}/Dockerfile"/>
+    <delete file="${build.dir}/docker-entrypoint.sh"/>
+
+     <echo>cassandra-test image built, start it with 'ant docker-start'.</echo>
+  </target>
+
+  <target name="docker-start"
+          description="Starts a local cassandra-test docker container">
+
+    <!-- check docker exists -->
+    <fail message="docker not found">
+      <condition>
+        <not>
+          <available file="docker" filepath="${env.PATH}"/>
+        </not>
+      </condition>
+    </fail>
+
+    <exec executable=".build/docker/start.sh"/>
+  </target>
+
+  <target name="docker-stop"
+          description="Stops a local cassandra-test docker container">
+
+    <!-- check docker exists -->
+    <fail message="docker not found">
+      <condition>
+        <not>
+          <available file="docker" filepath="${env.PATH}"/>
+        </not>
+      </condition>
+    </fail>
+
+    <exec executable=".build/docker/stop.sh"/>
+  </target>
+
   <import file="${basedir}/.build/build-resolver.xml"/>
   <import file="${basedir}/.build/build-rat.xml"/>
   <import file="${basedir}/.build/build-owasp.xml"/>
