@@ -2014,7 +2014,7 @@
     <chmod file="${build.dir}/docker-entrypoint.sh" perm="777"/>
 
     <!-- build docker image -->
-    <exec executable="docker">
+    <exec executable="docker" failonerror="true">
       <arg value="build"/>
       <arg value="-t"/>
       <arg value="apache/cassandra-test"/>
@@ -2042,7 +2042,7 @@
       </condition>
     </fail>
 
-    <exec executable=".build/docker/start.sh"/>
+    <exec executable=".build/docker/start.sh" failonerror="true"/>
   </target>
 
   <target name="docker-stop"
@@ -2057,7 +2057,7 @@
       </condition>
     </fail>
 
-    <exec executable=".build/docker/stop.sh"/>
+    <exec executable=".build/docker/stop.sh" failonerror="true"/>
   </target>
 
   <import file="${basedir}/.build/build-resolver.xml"/>

@@ -26,6 +26,11 @@ function display_help {
   echo "ie. docker exec -it cassandra-test cqlsh"
 }
 
+if ! docker info > /dev/null 2>&1; then
+  echo "Docker is not running, please retry after starting docker."
+  exit 1
+fi
+
 # Check if local image exists
 if [[ "$(docker images -q apache/cassandra-test 2> /dev/null)" == "" ]]; then
   echo "cassandra-test image does not exist, please create it with 'ant docker-build'."

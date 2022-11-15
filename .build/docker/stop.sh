@@ -18,6 +18,11 @@
 #
 set -e
 
+if ! docker info > /dev/null 2>&1; then
+  echo "Docker is not running, please retry after starting docker."
+  exit 1
+fi
+
 if [ $( docker ps -a -f name=cassandra-test | wc -l ) -eq 2 ]; then
   CONTAINER=`docker rm --force cassandra-test`
   if [ $? -eq 0 ]; then
