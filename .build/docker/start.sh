@@ -48,13 +48,17 @@ fi
 docker network create cassandra-test 2>/dev/null || true
 
 CONTAINER_ID=`docker run --rm --name cassandra-test --network cassandra-test -d apache/cassandra-test`
-CONTAINER_IP=`docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $CONTAINER_ID`
 
-until nc -z $CONTAINER_IP 9042
+until [ "$( docker container inspect -f '{{.State.Health.Status}}' $CONTAINER_ID )" != "starting" ]
 do
-  echo "Waiting for cassandra-test container $CONTAINER_ID to start listening on $CONTAINER_IP:9042..."
+  echo "Waiting for cassandra-test container $CONTAINER_ID to start."
   sleep 5
 done
 
-echo "cassandra-test container started with id $CONTAINER_ID and ip $CONTAINER_IP"
+if [ "$( docker container inspect -f '{{.State.Health.Status}}' $CONTAINER_ID )" != "healthy" ]; then
+  echo "Cassandra test container $CONTAINER_ID started but is unhealty."
+  exit 1
+fi
+
+echo "cassandra-test container started with id $CONTAINER_ID"
 display_help

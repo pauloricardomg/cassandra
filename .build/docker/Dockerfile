@@ -43,6 +43,8 @@ RUN set -eux; \
 #   https://github.com/apache/cassandra/blob/18bcda2d4c2eba7370a0b21f33eed37cb730bbb3/bin/cassandra#L90-L100
 #   https://github.com/apache/cassandra/commit/604c0e87dc67fa65f6904ef9a98a029c9f2f865a
 		numactl \
+# required for docker health-check
+		netcat \
 	; \
 	rm -rf /var/lib/apt/lists/*; \
 # https://issues.apache.org/jira/browse/CASSANDRA-15767 ("bin/cassandra" only looks for "libjemalloc.so" or "libjemalloc.so.1" which doesn't match our "libjemalloc.so.2")
@@ -127,4 +129,8 @@ ENTRYPOINT ["docker-entrypoint.sh"]
 # 9042: CQL
 # 9160: thrift service
 EXPOSE 7000 7001 7199 9042 9160
+
+# Check the daemon is listening on CQL/JMX ports
+HEALTHCHECK CMD /usr/bin/nc localhost -z 9042 && /usr/bin/nc localhost -z 7199 || exit 1
+
 CMD ["cassandra", "-f"]
