@@ -18,6 +18,7 @@
 package org.apache.cassandra.io.sstable;
 
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -44,6 +45,22 @@ import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
  */
 public class Descriptor
 {
+    // Current SSTable directory format is {keyspace}/{tableName}-{tableId}[/backups|/snapshots/{tag}][/.{indexName}]/{component}.db
+    // * {var} are mandatory components
+    // * [var] are optional components
+    static final Pattern SSTABLE_DIR_PATTERN = Pattern.compile("(?<keyspace>\\w+)/" +
+                                                               "(?<tableName>\\w+)-(?<tableId>[0-9a-f]{32})/" +
+                                                               "(backups/|(snapshots/(?<tag>[\\w-]+)/))?" +
+                                                               "(\\.(?<indexName>[\\w-]+)/)?" +
+                                                               "(?<component>[\\w-]+)\\.db$");
+
+    // Pre 2.1 SSTable directory format is {keyspace}/{tableName}-{tableId}[/backups|/snapshots/{tag}][/.{indexName}]/{component}.db
+    static final Pattern LEGACY_SSTABLE_DIR_PATTERN = Pattern.compile("(?<keyspace>\\w+)/" +
+                                                                      "(?<tableName>\\w+)/" +
+                                                                      "(backups/|(snapshots/(?<tag>[\\w-]+)/))?" +
+                                                                      "(\\.(?<indexName>[\\w-]+)/)?" +
+                                                                      "(?<component>[\\w-]+)\\.db$");
+
     private final static String LEGACY_TMP_REGEX_STR = "^((.*)\\-(.*)\\-)?tmp(link)?\\-((?:l|k).)\\-(\\d)*\\-(.*)$";
     private final static Pattern LEGACY_TMP_REGEX = Pattern.compile(LEGACY_TMP_REGEX_STR);
 
@@ -191,7 +208,7 @@ public class Descriptor
      */
     public static Descriptor fromFilename(String filename)
     {
-        return fromFilename(new File(filename));
+        return fromFilenameWithComponent(new File(filename), false).left;
     }
 
     /**
@@ -229,6 +246,11 @@ public class Descriptor
      */
     public static Pair<Descriptor, Component> fromFilenameWithComponent(File file)
     {
+        return fromFilenameWithComponent(file, true);
+    }
+
+    public static Pair<Descriptor, Component> fromFilenameWithComponent(File file, boolean validateDirs)
+    {
         // We need to extract the keyspace and table names from the parent directories, so make sure we deal with the
         // absolute path.
         if (!file.isAbsolute())
@@ -237,32 +259,32 @@ public class Descriptor
         SSTableInfo info = validateAndExtractInfo(file);
         String name = file.name();
 
-        File directory = parentOf(name, file);
-        File tableDir = directory;
+        String keyspaceName = "";
+        String tableName = "";
 
-        // Check if it's a 2ndary index directory (not that it doesn't exclude it to be also a backup or snapshot)
-        String indexName = "";
-        if (tableDir.name().startsWith(Directories.SECONDARY_INDEX_NAME_SEPARATOR))
+        Matcher sstableDirMatcher = SSTABLE_DIR_PATTERN.matcher(file.toString());
+        // Use pre-2.1 SSTable format if current one does not match it
+        if (!sstableDirMatcher.find(0))
         {
-            indexName = tableDir.name();
-            tableDir = parentOf(name, tableDir);
+            sstableDirMatcher = LEGACY_SSTABLE_DIR_PATTERN.matcher(file.toString());
         }
 
-        // Then it can be a backup or a snapshot
-        if (tableDir.name().equals(Directories.BACKUPS_SUBDIR) && tableDir.parent().name().contains("-"))
-            tableDir = tableDir.parent();
-        else
+        if (sstableDirMatcher.find(0))
         {
-            File keyspaceOrSnapshotDir = parentOf(name, tableDir);
-            if (keyspaceOrSnapshotDir.name().equals(Directories.SNAPSHOT_SUBDIR)
-                && parentOf(name, keyspaceOrSnapshotDir).name().contains("-"))
-                tableDir = parentOf(name, keyspaceOrSnapshotDir);
+            keyspaceName = sstableDirMatcher.group("keyspace");
+            tableName = sstableDirMatcher.group("tableName");
+            String indexName = sstableDirMatcher.group("indexName");
+            if (indexName != null)
+            {
+                tableName = String.format("%s.%s", tableName, indexName);
+            }
+        }
+        else if (validateDirs)
+        {
+            throw invalidSSTable(name, "cannot extract keyspace and table name; make sure the sstable is in the proper sub-directories");
         }
 
-        String table = tableDir.name().split("-")[0] + indexName;
-        String keyspace = parentOf(name, tableDir).name();
-
-        return Pair.create(new Descriptor(info.version, directory, keyspace, table, info.id, info.format), info.component);
+        return Pair.create(new Descriptor(info.version, parentOf(name, file), keyspaceName, tableName, info.id, info.format), info.component);
     }
 
     /**
