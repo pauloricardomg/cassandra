@@ -20,6 +20,7 @@ package org.apache.cassandra.io.sstable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 
 import com.google.common.io.Files;
@@ -34,6 +35,7 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.locator.Replica;
+import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.schema.Schema;
@@ -328,7 +330,7 @@ public class SSTableLoaderTest
 
     private File dataDir(String cf)
     {
-        File dataDir = new File(tmpdir.absolutePath() + File.pathSeparator() + SSTableLoaderTest.KEYSPACE1 + File.pathSeparator() + cf);
+        File dataDir = new File(tmpdir.absolutePath() + File.pathSeparator() + SSTableLoaderTest.KEYSPACE1 + File.pathSeparator() + cf + "-" + TableId.generate().toHexString());
         assert dataDir.tryCreateDirectories();
         //make sure we have no tables...
         assertEquals(Objects.requireNonNull(dataDir.tryList()).length, 0);

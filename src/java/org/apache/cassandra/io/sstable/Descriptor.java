@@ -48,16 +48,16 @@ public class Descriptor
     // Current SSTable directory format is {keyspace}/{tableName}-{tableId}[/backups|/snapshots/{tag}][/.{indexName}]/{component}.db
     // * {var} are mandatory components
     // * [var] are optional components
-    static final Pattern SSTABLE_DIR_PATTERN = Pattern.compile("(?<keyspace>\\w+)/" +
+    static final Pattern SSTABLE_DIR_PATTERN = Pattern.compile(".*/(?<keyspace>\\w+)/" +
                                                                "(?<tableName>\\w+)-(?<tableId>[0-9a-f]{32})/" +
-                                                               "(backups/|(snapshots/(?<tag>[\\w-]+)/))?" +
+                                                               "(backups/|snapshots/(?<tag>[\\w-]+)/)?" +
                                                                "(\\.(?<indexName>[\\w-]+)/)?" +
                                                                "(?<component>[\\w-]+)\\.db$");
 
     // Pre 2.1 SSTable directory format is {keyspace}/{tableName}-{tableId}[/backups|/snapshots/{tag}][/.{indexName}]/{component}.db
-    static final Pattern LEGACY_SSTABLE_DIR_PATTERN = Pattern.compile("(?<keyspace>\\w+)/" +
+    static final Pattern LEGACY_SSTABLE_DIR_PATTERN = Pattern.compile(".*/(?<keyspace>\\w+)/" +
                                                                       "(?<tableName>\\w+)/" +
-                                                                      "(backups/|(snapshots/(?<tag>[\\w-]+)/))?" +
+                                                                      "(backups/|snapshots/(?<tag>[\\w-]+)/)?" +
                                                                       "(\\.(?<indexName>[\\w-]+)/)?" +
                                                                       "(?<component>[\\w-]+)\\.db$");
 
@@ -263,6 +263,7 @@ public class Descriptor
         String tableName = "";
 
         Matcher sstableDirMatcher = SSTABLE_DIR_PATTERN.matcher(file.toString());
+
         // Use pre-2.1 SSTable format if current one does not match it
         if (!sstableDirMatcher.find(0))
         {

@@ -220,6 +220,19 @@ public class DescriptorTest
 
         testKeyspaceTableParsing(filePathsWithBackupsKeyspaceAndTable, "backups", "backups");
 
+        // what if legacy keyspace and table is called backups?
+
+        String[] legacyFilePathsWithBackupsKeyspaceAndTable = new String[]{
+        "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/na-1-big-Index.db",
+        //"/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/snapshots/snapshots/na-1-big-Index.db",
+        "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/backups/na-1-big-Index.db",
+        "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db",
+        //"/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/snapshots/snapshots/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db",
+        "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/backups/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db",
+        };
+
+        testKeyspaceTableParsing(legacyFilePathsWithBackupsKeyspaceAndTable, "backups", "backups");
+
         // what if even a snapshot of a keyspace and table called backups is called snapshots?
 
         String[] filePathsWithBackupsKeyspaceAndTableWithIndices = new String[]{
