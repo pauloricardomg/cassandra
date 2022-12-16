@@ -281,18 +281,30 @@ public class SSTableLoaderTest
     @Test
     public void testLoadingBackupsTable() throws Exception
     {
-        testLoadingTable(CF_BACKUPS);
+        testLoadingTable(CF_BACKUPS, false);
     }
 
     @Test
     public void testLoadingSnapshotsTable() throws Exception
     {
-        testLoadingTable(CF_SNAPSHOTS);
+        testLoadingTable(CF_SNAPSHOTS, false);
     }
 
-    private void testLoadingTable(String tableName) throws Exception
+    @Test
+    public void testLoadingLegacyBackupsTable() throws Exception
     {
-        File dataDir = dataDir(tableName);
+        testLoadingTable(CF_BACKUPS, true);
+    }
+
+    @Test
+    public void testLoadingLegacySnapshotsTable() throws Exception
+    {
+        testLoadingTable(CF_SNAPSHOTS, true);
+    }
+
+    private void testLoadingTable(String tableName, boolean isLegacyTable) throws Exception
+    {
+        File dataDir = dataDir(tableName, isLegacyTable);
         TableMetadata metadata = Schema.instance.getTableMetadata(KEYSPACE1, tableName);
 
         try (CQLSSTableWriter writer = CQLSSTableWriter.builder()
@@ -329,7 +341,14 @@ public class SSTableLoaderTest
 
     private File dataDir(String cf)
     {
-        File dataDir = new File(tmpdir.absolutePath() + File.pathSeparator() + SSTableLoaderTest.KEYSPACE1 + File.pathSeparator() + cf + "-" + TableId.generate().toHexString());
+        return dataDir(cf, false);
+    }
+
+    private File dataDir(String cf, boolean isLegacyTable)
+    {
+        // Add -{tableUuid} suffix to table dir if not a legacy table
+        File dataDir = new File(tmpdir.absolutePath() + File.pathSeparator() + SSTableLoaderTest.KEYSPACE1 + File.pathSeparator() + cf
+                                + (isLegacyTable ? "" : String.format("-%s",TableId.generate().toHexString())));
         assert dataDir.tryCreateDirectories();
         //make sure we have no tables...
         assertEquals(Objects.requireNonNull(dataDir.tryList()).length, 0);
