@@ -20,7 +20,6 @@ package org.apache.cassandra.io.sstable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 
 import com.google.common.io.Files;
