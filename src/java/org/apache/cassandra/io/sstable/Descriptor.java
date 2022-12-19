@@ -25,6 +25,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Splitter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.Version;
@@ -45,6 +48,8 @@ import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
  */
 public class Descriptor
 {
+    private static final Logger logger = LoggerFactory.getLogger(Descriptor.class);
+
     // Current SSTable directory format is {keyspace}/{tableName}-{tableId}[/backups|/snapshots/{tag}][/.{indexName}]/{component}.db
     // * {var} are mandatory components
     // * [var] are optional components
@@ -52,7 +57,7 @@ public class Descriptor
                                                                "(?<tableName>\\w+)-(?<tableId>[0-9a-f]{32})/" +
                                                                "(backups/|snapshots/(?<tag>[\\w-]+)/)?" +
                                                                "(\\.(?<indexName>[\\w-]+)/)?" +
-                                                               "(?<component>[\\w-]+)\\.db$");
+                                                               "(?<component>[\\w-]+)\\.(?<ext>[\\w]+)$");
 
     // Pre 2.1 SSTable directory format is {keyspace}/{tableName}-{tableId}[/backups|/snapshots/{tag}][/.{indexName}]/{component}.db
     static final Pattern LEGACY_SSTABLE_DIR_PATTERN = Pattern.compile(".*/(?<keyspace>\\w+)/" +
@@ -282,6 +287,7 @@ public class Descriptor
         }
         else if (validateDirs)
         {
+            logger.debug("Could not extract keyspace/table info from sstable directory {}", file.toString());
             throw invalidSSTable(name, "cannot extract keyspace and table name; make sure the sstable is in the proper sub-directories");
         }
 
