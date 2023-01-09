@@ -64,7 +64,7 @@ public class Descriptor
                                                                       "(?<tableName>\\w+)/" +
                                                                       "(backups/|snapshots/(?<tag>[\\w-]+)/)?" +
                                                                       "(\\.(?<indexName>[\\w-]+)/)?" +
-                                                                      "(?<component>[\\w-]+)\\.db$");
+                                                                      "(?<component>[\\w-]+)\\.(?<ext>[\\w]+)$");
 
     private final static String LEGACY_TMP_REGEX_STR = "^((.*)\\-(.*)\\-)?tmp(link)?\\-((?:l|k).)\\-(\\d)*\\-(.*)$";
     private final static Pattern LEGACY_TMP_REGEX = Pattern.compile(LEGACY_TMP_REGEX_STR);
