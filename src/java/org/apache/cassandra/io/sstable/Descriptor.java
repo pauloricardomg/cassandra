@@ -288,7 +288,7 @@ public class Descriptor
         else if (validateDirs)
         {
             logger.debug("Could not extract keyspace/table info from sstable directory {}", file.toString());
-            throw invalidSSTable(name, "cannot extract keyspace and table name; make sure the sstable is in the proper sub-directories");
+            throw invalidSSTable(name, String.format("cannot extract keyspace and table name from %s; make sure the sstable is in the proper sub-directories", file));
         }
 
         return Pair.create(new Descriptor(info.version, parentOf(name, file), keyspaceName, tableName, info.id, info.format), info.component);

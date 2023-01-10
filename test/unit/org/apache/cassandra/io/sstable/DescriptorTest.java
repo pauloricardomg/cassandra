@@ -161,6 +161,7 @@ public class DescriptorTest
 
         String[] filePaths = new String[]{
         "/path/to/cassandra/data/dir2/dir5/dir6/ks1/tab1-34234234234234234234234234234234/na-1-big-Index.db",
+        "/path/to/cassandra/data/dir2/dir5/dir6/ks1/tab1-34234234234234234234234234234234/nb-1-big-TOC.txt",
         "/path/to/cassandra/data/dir2/dir5/dir6/ks1/tab1-34234234234234234234234234234234/snapshots/snapshot/na-1-big-Index.db",
         "/path/to/cassandra/data/dir2/dir5/dir6/ks1/tab1-34234234234234234234234234234234/backups/na-1-big-Index.db",
         "/path/to/cassandra/data/dir2/dir5/dir6/ks1/tab1-34234234234234234234234234234234/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db",
@@ -224,10 +225,11 @@ public class DescriptorTest
 
         String[] legacyFilePathsWithBackupsKeyspaceAndTable = new String[]{
         "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/na-1-big-Index.db",
-        //"/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/snapshots/snapshots/na-1-big-Index.db",
+        "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/nb-1-big-TOC.txt",
+        //"/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/snapshots/snapshots/na-1-big-Index.db", #not supported (CASSANDRA-14013)
         "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/backups/na-1-big-Index.db",
         "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db",
-        //"/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/snapshots/snapshots/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db",
+        //"/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/snapshots/snapshots/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db", #not supported (CASSANDRA-14013)
         "/path/to/cassandra/data/dir2/dir5/dir6/backups/backups/backups/nb-3g1m_0nuf_3vj5m2k1125165rxa7-big-Index.db",
         };
 
