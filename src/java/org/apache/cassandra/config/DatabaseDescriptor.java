@@ -323,14 +323,17 @@ public class DatabaseDescriptor
     @VisibleForTesting
     public static Config loadConfig() throws ConfigurationException
     {
-        if (Config.getOverrideLoadConfig() != null)
-            return Config.getOverrideLoadConfig().get();
+        Config config = Config.getOverrideLoadConfig().get();
 
-        String loaderClass = System.getProperty(Config.PROPERTY_PREFIX + "config.loader");
-        ConfigurationLoader loader = loaderClass == null
-                                     ? new YamlConfigurationLoader()
-                                     : FBUtilities.construct(loaderClass, "configuration loading");
-        Config config = loader.loadConfig();
+        // If override is not set, then load config as usual
+        if (config == null)
+        {
+            String loaderClass = System.getProperty(Config.PROPERTY_PREFIX + "config.loader");
+            ConfigurationLoader loader = loaderClass == null
+                                         ? new YamlConfigurationLoader()
+                                         : FBUtilities.construct(loaderClass, "configuration loading");
+            config = loader.loadConfig();
+        }
 
         if (!hasLoggedConfig)
         {
