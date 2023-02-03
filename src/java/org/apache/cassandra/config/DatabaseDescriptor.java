@@ -323,10 +323,14 @@ public class DatabaseDescriptor
     @VisibleForTesting
     public static Config loadConfig() throws ConfigurationException
     {
-        Config config = Config.getOverrideLoadConfig().get();
+        Config config;
 
-        // If override is not set, then load config as usual
-        if (config == null)
+        if (Config.getOverrideLoadConfig() != null)
+        {
+            // Use overriden config if set
+            config = Config.getOverrideLoadConfig().get();
+        }
+        else
         {
             String loaderClass = System.getProperty(Config.PROPERTY_PREFIX + "config.loader");
             ConfigurationLoader loader = loaderClass == null
