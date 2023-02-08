@@ -168,7 +168,8 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                        .set("hinted_handoff_enabled", false))
                                            .start(), 2))
         {
-            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("repair", "--full"), compressionEnabled);
+            IInvokableInstance node2 = cluster.get(2);
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> node2.nodetool("repair", "--full"), compressionEnabled);
         }
     }
 
@@ -184,7 +185,8 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                        .set("hinted_handoff_enabled", false))
                                            .start(), 2))
         {
-            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("rebuild"), compressionEnabled);
+            IInvokableInstance node2 = cluster.get(2);
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> node2.nodetool("rebuild"), compressionEnabled);
         }
     }
 
@@ -200,7 +202,8 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                        .set("hinted_handoff_enabled", false))
                                            .start(), 2))
         {
-            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("rebuild"), compressionEnabled);
+            IInvokableInstance node2 = cluster.get(2);
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> node2.nodetool("rebuild"), compressionEnabled);
         }
     }
 
@@ -216,7 +219,8 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                        .set("hinted_handoff_enabled", false))
                                            .start(), 2))
         {
-            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("repair"), compressionEnabled);
+            IInvokableInstance node2 = cluster.get(2);
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> node2.nodetool("repair"), compressionEnabled);
         }
     }
 
@@ -232,7 +236,8 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                        .set("hinted_handoff_enabled", false))
                                            .start(), 2))
         {
-            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("repair"), compressionEnabled);
+            IInvokableInstance node2 = cluster.get(2);
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> node2.nodetool("repair"), compressionEnabled);
         }
     }
 
@@ -248,7 +253,8 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                        .set("hinted_handoff_enabled", false))
                                            .start(), 2))
         {
-            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("rebuild"), compressionEnabled);
+            IInvokableInstance node2 = cluster.get(2);
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> node2.nodetool("rebuild"), compressionEnabled);
         }
     }
 
@@ -465,7 +471,6 @@ public class StreamingMetricsTest extends TestBaseImpl
             checkThatNoStreamingOccured(cluster, 3);
 
             // Trigger streaming from node 3 and node 2
-
             long bytesFrom2To1;
             int sstablesFrom2To1;
 
