@@ -162,6 +162,8 @@ public final class SystemKeyspace
     public static final String PREPARED_STATEMENTS = "prepared_statements";
     public static final String REPAIRS = "repairs";
     public static final String TOP_PARTITIONS = "top_partitions";
+    public static final String USER_TASKS = "user_tasks";
+
 
     /**
      * By default the system keyspace tables should be stored in a single data directory to allow the server
@@ -451,6 +453,18 @@ public final class SystemKeyspace
           + "ranges set<blob>, "
           + "cfids set<uuid>, "
           + "PRIMARY KEY (parent_id))").build();
+
+    private static final TableMetadata UserTasks =
+    parse(USER_TASKS,
+          "information about the local node",
+          "CREATE TABLE %s ("
+          + "id uuid,"
+          + "type string,"
+          + "state string,"
+          + "start_time timestamp,"
+          + "end_time timestamp,"
+          + "PRIMARY KEY ((id)))"
+    ).build();
 
     @Deprecated
     private static final TableMetadata LegacyPeers =

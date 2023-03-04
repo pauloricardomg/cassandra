@@ -18,16 +18,15 @@
 
 package org.apache.cassandra.service.tasks;
 
+import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.service.tasks.table.TableTask;
-import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
 
@@ -41,22 +40,23 @@ public class UserTask
     private final TaskType type;
     private final Set<TableTask> tasks;
 
+    private final Instant createdAt;
+
     public UserTask(UUID id, TaskType type, Set<TableTask> tasks)
     {
         this.id = id;
         this.type = type;
         this.tasks = tasks;
+        this.createdAt = Instant.now();
     }
 
     Future<?> start()
     {
         Future<?> result = ImmediateFuture.success(null);
-
         for (TableTask task : tasks)
         {
-            result = result.flatMap(o -> task.start());
+            result = result.flatMap(prev -> task.start());
         }
-
         return result;
     }
 

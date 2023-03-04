@@ -18,14 +18,35 @@
 
 package org.apache.cassandra.service.tasks;
 
-import java.util.UUID;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.cassandra.concurrent.ExecutorPlus;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.concurrent.Future;
+
+import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 
 public class TaskManager
 {
-    public UUID run(TaskType type, TaskParams params, String... tableList)
+    private static final int MAX_SIMULTANEOUS_TASKS = 1000;
+    private static final ExecutorPlus taskExecutor = executorFactory()
+                                                     .localAware()       // we do trace repair sessions, and seem to rely on local aware propagation (though could do with refactoring)
+                                                     .withJmxInternal()
+                                                     .configurePooled("Task-Manager", MAX_SIMULTANEOUS_TASKS)
+                                                     .withKeepAlive(1, TimeUnit.HOURS)
+                                                     .withRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy())
+                                                     .build();
+
+    public void executeBlocking(TaskType type, TaskParams params, String... tableList)
     {
-        UserTask task = UserTask.create(type, params, tableList);
-        return task.
+        FBUtilities.waitOnFuture(UserTask.create(type, params, tableList).start()
+    }
+
+    public Future<?> executeAsync(TaskType type, TaskParams params, String... tableList)
+    {
+        UserTask userTask = UserTask.create(type, params, tableList);
+        UserTask task = userTask;
     }
 
 }
