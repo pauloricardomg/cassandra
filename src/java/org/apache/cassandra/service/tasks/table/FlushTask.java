@@ -18,12 +18,10 @@
 
 package org.apache.cassandra.service.tasks.table;
 
-import org.apache.cassandra.concurrent.FutureTask;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.utils.concurrent.Future;
 
-public class FlushTask extends FutureTask
-{
+public class FlushTask extends TableTask {
 
     public FlushTask(ColumnFamilyStore table)
     {
