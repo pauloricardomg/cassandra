@@ -1,4 +1,5 @@
 5.0
+ * Add a virtual table to list snapshots (CASSANDRA-18102)
  * Upgrade to Opcodes.ASM9 (CASSANDRA-17971)
  * Add MaxSSTableSize and MaxSSTableDuration metrics and propagate them together with local read/write ratio to tablestats (CASSANDRA-18283)
  * Add more logging around CompactionManager operations (CASSANDRA-18268)
