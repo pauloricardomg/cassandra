@@ -21,6 +21,8 @@ package org.apache.cassandra.db.virtual;
 import java.util.Date;
 
 import org.apache.cassandra.db.marshal.BooleanType;
+import org.apache.cassandra.db.marshal.IntegerType;
+import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.TimestampType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.dht.LocalPartitioner;
@@ -31,7 +33,7 @@ import org.apache.cassandra.utils.FBUtilities;
 
 public class SnapshotsTable extends AbstractVirtualTable
 {
-    private static final String ID = "id";
+    private static final String NAME = "name";
     private static final String KEYSPACE_NAME = "keyspace_name";
     private static final String TABLE_NAME = "table_name";
     private static final String TRUE_SIZE = "true_size";
@@ -46,11 +48,11 @@ public class SnapshotsTable extends AbstractVirtualTable
                            .comment("available snapshots")
                            .kind(TableMetadata.Kind.VIRTUAL)
                            .partitioner(new LocalPartitioner(UTF8Type.instance))
-                           .addPartitionKeyColumn(ID, UTF8Type.instance)
+                           .addPartitionKeyColumn(NAME, UTF8Type.instance)
                            .addClusteringColumn(KEYSPACE_NAME, UTF8Type.instance)
                            .addClusteringColumn(TABLE_NAME, UTF8Type.instance)
-                           .addRegularColumn(TRUE_SIZE, UTF8Type.instance)
-                           .addRegularColumn(SIZE_ON_DISK, UTF8Type.instance)
+                           .addRegularColumn(TRUE_SIZE, LongType.instance)
+                           .addRegularColumn(SIZE_ON_DISK, LongType.instance)
                            .addRegularColumn(CREATED_AT, TimestampType.instance)
                            .addRegularColumn(EXPIRES_AT, TimestampType.instance)
                            .addRegularColumn(EPHEMERAL, BooleanType.instance)
@@ -67,8 +69,8 @@ public class SnapshotsTable extends AbstractVirtualTable
             SimpleDataSet row = result.row(tableSnapshot.getTag(),
                                            tableSnapshot.getKeyspaceName(),
                                            tableSnapshot.getTableName())
-                                      .column(TRUE_SIZE, FBUtilities.prettyPrintMemory(tableSnapshot.computeTrueSizeBytes()))
-                                      .column(SIZE_ON_DISK, FBUtilities.prettyPrintMemory(tableSnapshot.computeSizeOnDiskBytes()))
+                                      .column(TRUE_SIZE, tableSnapshot.computeTrueSizeBytes())
+                                      .column(SIZE_ON_DISK, tableSnapshot.computeSizeOnDiskBytes())
                                       .column(CREATED_AT, new Date(tableSnapshot.getCreatedAt().toEpochMilli()));
 
             if (tableSnapshot.isExpiring())

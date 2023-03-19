@@ -75,25 +75,30 @@ public class SnapshotsTableTest extends CQLTester
         getCurrentColumnFamilyStore(KEYSPACE).snapshot(SNAPSHOT_TTL, null, false, false, ttl, null, now);
 
         // query all from snapshots virtual table
-        UntypedResultSet result = execute("SELECT id, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots");
+        UntypedResultSet result = execute("SELECT name, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots");
         assertRowsIgnoringOrder(result,
                                 row(SNAPSHOT_NO_TTL, KEYSPACE, currentTable(), createdAt, null, false),
                                 row(SNAPSHOT_TTL, KEYSPACE, currentTable(), createdAt, expiresAt, false));
 
         // query with conditions
-        result = execute("SELECT id, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots where ephemeral = false");
+        result = execute("SELECT name, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots where ephemeral = false");
         assertRows(result,
                    row(SNAPSHOT_NO_TTL, KEYSPACE, currentTable(), createdAt, null, false),
                    row(SNAPSHOT_TTL, KEYSPACE, currentTable(), createdAt, expiresAt, false));
 
-        result = execute("SELECT id, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots where id = ?", SNAPSHOT_TTL);
+        result = execute("SELECT name, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots where size_on_disk > 1000");
+        assertRows(result,
+                   row(SNAPSHOT_NO_TTL, KEYSPACE, currentTable(), createdAt, null, false),
+                   row(SNAPSHOT_TTL, KEYSPACE, currentTable(), createdAt, expiresAt, false));
+
+        result = execute("SELECT name, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots where name = ?", SNAPSHOT_TTL);
         assertRows(result,
                    row(SNAPSHOT_TTL, KEYSPACE, currentTable(), createdAt, expiresAt, false));
 
         // clear some snapshots
         StorageService.instance.clearSnapshot(Collections.emptyMap(), SNAPSHOT_NO_TTL, KEYSPACE);
 
-        result = execute("SELECT id, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots");
+        result = execute("SELECT name, keyspace_name, table_name, created_at, expires_at, ephemeral FROM vts.snapshots");
         assertRowsIgnoringOrder(result,
                                 row(SNAPSHOT_TTL, KEYSPACE, currentTable(), createdAt, expiresAt, false));
     }
