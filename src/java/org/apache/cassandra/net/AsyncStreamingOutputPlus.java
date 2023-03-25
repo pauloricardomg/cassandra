@@ -203,29 +203,7 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus implements 
     }
 
     @VisibleForTesting
-    long writeFileToChannelZeroCopy(FileChannel file, RateLimiter limiter, int batchSize, int lowWaterMark, int highWaterMark) throws IOException
-    {
-        if (!limiter.isRateLimited())
-            return writeFileToChannelZeroCopyUnthrottled(file);
-        else
-            return writeFileToChannelZeroCopyThrottled(file, limiter, batchSize, lowWaterMark, highWaterMark);
-    }
-
-    private long writeFileToChannelZeroCopyUnthrottled(FileChannel file) throws IOException
-    {
-        final long length = file.size();
-
-        if (logger.isTraceEnabled())
-            logger.trace("Writing {} bytes", length);
-
-        ChannelPromise promise = beginFlush(length, 0, length);
-        final DefaultFileRegion defaultFileRegion = new DefaultFileRegion(file, 0, length);
-        channel.writeAndFlush(defaultFileRegion, promise);
-
-        return length;
-    }
-
-    private long writeFileToChannelZeroCopyThrottled(FileChannel file, RateLimiter limiter, int batchSize, int lowWaterMark, int highWaterMark) throws IOException
+    protected long writeFileToChannelZeroCopy(FileChannel file, RateLimiter limiter, int batchSize, int lowWaterMark, int highWaterMark) throws IOException
     {
         final long length = file.size();
         long bytesTransferred = 0;
