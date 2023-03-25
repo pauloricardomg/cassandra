@@ -1029,13 +1029,13 @@ public class StreamSession
         }
     }
 
-    public void progress(String filename, ProgressInfo.Direction direction, long bytes, long delta, long total)
+    public void progress(String filename, ProgressInfo.Direction direction, long currentBytes, long deltaBytes, long totalBytes)
     {
-        if (delta < 0)
+        if (deltaBytes < 0)
             NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES,
-                             "[id={}, key={{}, {}, {})] Stream event reported a negative delta ({})",
-                             planId(), peer, filename, direction, delta);
-        ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, delta, total);
+                             "[id={}, key={{}, {}, {})] Stream event reported a negative deltaBytes ({})",
+                             planId(), peer, filename, direction, deltaBytes);
+        ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, currentBytes, deltaBytes, totalBytes);
         streamResult.handleProgress(progress);
     }
 

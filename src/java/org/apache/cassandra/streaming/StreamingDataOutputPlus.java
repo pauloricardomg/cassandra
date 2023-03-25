@@ -81,7 +81,7 @@ public interface StreamingDataOutputPlus extends DataOutputPlus, Closeable
      * WARNING: this method blocks only for permission to write to the netty channel; it exits before
      * the {@link FileRegion}(zero-copy) or {@link ByteBuffer}(ssl) is flushed to the network.
      */
-    long writeFileToChannel(FileChannel file, RateLimiter limiter) throws IOException;
+    long writeFileToChannel(FileChannel file, RateLimiter limiter, TransferListener listener) throws IOException;
 
     default void flush() throws IOException {}
 }

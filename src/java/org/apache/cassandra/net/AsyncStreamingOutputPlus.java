@@ -29,7 +29,6 @@ import org.slf4j.LoggerFactory;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPromise;
-import io.netty.channel.DefaultFileRegion;
 import io.netty.channel.FileRegion;
 import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.ssl.SslHandler;
@@ -37,6 +36,7 @@ import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.net.SharedDefaultFileRegion.SharedFileChannel;
 import org.apache.cassandra.streaming.StreamingDataOutputPlus;
+import org.apache.cassandra.streaming.TransferListener;
 import org.apache.cassandra.utils.memory.BufferPool;
 import org.apache.cassandra.utils.memory.BufferPools;
 
@@ -154,19 +154,19 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus implements 
      * WARNING: this method blocks only for permission to write to the netty channel; it exits before
      * the {@link FileRegion}(zero-copy) or {@link ByteBuffer}(ssl) is flushed to the network.
      */
-    public long writeFileToChannel(FileChannel file, RateLimiter limiter) throws IOException
+    public long writeFileToChannel(FileChannel file, RateLimiter limiter, TransferListener listener) throws IOException
     {
         if (channel.pipeline().get(SslHandler.class) != null)
             // each batch is loaded into ByteBuffer, 64KiB is more BufferPool friendly.
-            return writeFileToChannel(file, limiter, 1 << 16);
+            return writeFileToChannel(file, limiter, 1 << 16, listener);
         else
             // write files in 1MiB chunks, since there may be blocking work performed to fetch it from disk,
             // the data is never brought in process and is gated by the wire anyway
-            return writeFileToChannelZeroCopy(file, limiter, 1 << 20, 1 << 20, 2 << 20);
+            return writeFileToChannelZeroCopy(file, limiter, 1 << 20, 1 << 20, 2 << 20, listener);
     }
 
     @VisibleForTesting
-    long writeFileToChannel(FileChannel fc, RateLimiter limiter, int batchSize) throws IOException
+    long writeFileToChannel(FileChannel fc, RateLimiter limiter, int batchSize, TransferListener listener) throws IOException
     {
         final long length = fc.size();
         long bytesTransferred = 0;
@@ -191,6 +191,7 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus implements 
                 if (logger.isTraceEnabled())
                     logger.trace("Writing {} bytes at position {} of {}", toWrite, bytesTransferred, length);
                 bytesTransferred += toWrite;
+                listener.onBytesTransferred(bytesTransferred, toWrite);
             }
         }
         finally
@@ -203,7 +204,8 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus implements 
     }
 
     @VisibleForTesting
-    protected long writeFileToChannelZeroCopy(FileChannel file, RateLimiter limiter, int batchSize, int lowWaterMark, int highWaterMark) throws IOException
+    protected long writeFileToChannelZeroCopy(FileChannel file, RateLimiter limiter, int batchSize, int lowWaterMark,
+                                              int highWaterMark, TransferListener listener) throws IOException
     {
         final long length = file.size();
         long bytesTransferred = 0;
@@ -225,6 +227,7 @@ public class AsyncStreamingOutputPlus extends AsyncChannelOutputPlus implements 
                 if (logger.isTraceEnabled())
                     logger.trace("Writing {} bytes at position {} of {}", toWrite, bytesTransferred, length);
                 bytesTransferred += toWrite;
+                listener.onBytesTransferred(bytesTransferred, toWrite);
             }
 
             return bytesTransferred;

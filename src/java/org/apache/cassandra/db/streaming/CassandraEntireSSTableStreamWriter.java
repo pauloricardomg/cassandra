@@ -73,7 +73,7 @@ public class CassandraEntireSSTableStreamWriter
                      sstable.getSSTableMetadata().repairedAt,
                      prettyPrintMemory(totalSize));
 
-        long progress = 0L;
+        long bytesWritten = 0L;
 
         for (Component component : manifest.components())
         {
@@ -90,10 +90,7 @@ public class CassandraEntireSSTableStreamWriter
 
             @SuppressWarnings("resource") // this is closed after the file is transferred by AsyncChannelOutputPlus
             FileChannel channel = context.channel(sstable.descriptor, component, length);
-            long bytesWritten = out.writeFileToChannel(channel, limiter);
-            progress += bytesWritten;
-
-            session.progress(sstable.descriptor.fileFor(component).toString(), ProgressInfo.Direction.OUT, bytesWritten, bytesWritten, length);
+            bytesWritten += out.writeFileToChannel(channel, limiter, (currentBytes, deltaBytes) -> session.progress(sstable.descriptor.fileFor(component).toString(), ProgressInfo.Direction.OUT, currentBytes, deltaBytes, length));
 
             logger.debug("[Stream #{}] Finished streaming {}.{} gen {} component {} to {}, xfered = {}, length = {}, totalSize = {}",
                          session.planId(),
@@ -113,7 +110,7 @@ public class CassandraEntireSSTableStreamWriter
                      session.planId(),
                      sstable.getFilename(),
                      session.peer,
-                     prettyPrintMemory(progress),
+                     prettyPrintMemory(bytesWritten),
                      prettyPrintMemory(totalSize));
 
     }
