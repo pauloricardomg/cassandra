@@ -40,11 +40,14 @@ public class StreamingDataOutputPlusFixed extends DataOutputBufferFixed implemen
     }
 
     @Override
-    public long writeFileToChannel(FileChannel file, RateLimiter limiter) throws IOException
+    public long writeFileToChannel(FileChannel file, RateLimiter limiter, TransferListener listener) throws IOException
     {
-        long count = 0;
-        long tmp;
-        while (0 <= (tmp = file.read(buffer))) count += tmp;
-        return count;
+        long currentBytes = 0;
+        long deltaBytes;
+        while (0 <= (deltaBytes = file.read(buffer))) {
+            currentBytes += deltaBytes;
+            listener.onBytesTransferred(currentBytes, deltaBytes);
+        }
+        return currentBytes;
     }
 }

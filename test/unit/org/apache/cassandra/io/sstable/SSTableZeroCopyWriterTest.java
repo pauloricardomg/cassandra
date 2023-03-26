@@ -24,6 +24,7 @@ import java.nio.channels.ClosedChannelException;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 import org.junit.BeforeClass;
@@ -160,20 +161,29 @@ public class SSTableZeroCopyWriterTest
                                           .setTableMetadataRef(metadata)
                                           .createZeroCopyWriter(txn, store);
 
+        AtomicLong currentBytes = new AtomicLong();
+        AtomicLong deltaBytes = new AtomicLong();
         for (Component component : componentsToWrite)
         {
-            if (desc.fileFor(component).exists())
+            File componentFile = desc.fileFor(component);
+            if (componentFile.exists())
             {
                 Pair<DataInputPlus, Long> pair = getSSTableComponentData(sstable, component, bufferMapper);
 
                 try
                 {
-                    btzcw.writeComponent(component.type, pair.left, pair.right);
+                    long writtenBytes = btzcw.writeComponent(component.type, pair.left, pair.right, (current, delta) -> {
+                        currentBytes.set(current);
+                        deltaBytes.set(delta);
+                    });
+                    assertEquals(componentFile.length(), writtenBytes);
                 }
                 catch (ClosedChannelException e)
                 {
                     throw new UncheckedIOException(e);
                 }
+                assertEquals(componentFile.length(), deltaBytes.get());
+                assertEquals(componentFile.length(), currentBytes.get());
             }
         }
 

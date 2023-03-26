@@ -40,6 +40,7 @@ import org.apache.cassandra.streaming.StreamingDataInputPlus;
 import org.apache.cassandra.streaming.StreamingDataOutputPlus;
 import org.apache.cassandra.streaming.StreamingChannel;
 import org.apache.cassandra.streaming.StreamingDataOutputPlusFixed;
+import org.apache.cassandra.streaming.TransferListener;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
@@ -158,15 +159,17 @@ public class DirectStreamingConnectionFactory
 
                 // TODO (future): support RateLimiter
                 @Override
-                public long writeFileToChannel(FileChannel file, RateLimiter limiter) throws IOException
+                public long writeFileToChannel(FileChannel file, RateLimiter limiter, TransferListener listener) throws IOException
                 {
-                    long count = 0;
+                    long deltaBytes, currentBytes = 0;
                     while (file.read(buffer) >= 0)
                     {
-                        count += buffer.position();
+                        deltaBytes = buffer.position();
+                        currentBytes += deltaBytes;
                         doFlush(0);
+                        listener.onBytesTransferred(currentBytes, deltaBytes);
                     }
-                    return count;
+                    return currentBytes;
                 }
             }
 

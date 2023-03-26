@@ -20,6 +20,6 @@ package org.apache.cassandra.streaming;
 
 public interface TransferListener
 {
-    public void onBytesTransferred(long currentBytes, long deltaBytes);
+    void onBytesTransferred(long currentBytes, long deltaBytes);
 
 }

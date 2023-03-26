@@ -24,6 +24,7 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -244,8 +245,19 @@ public class AsyncStreamingInputPlusTest
 
         inputPlus.skipBytesFully(startOffset);
         BufferedDataOutputStreamPlus writer = new BufferedDataOutputStreamPlus(wbc);
-        inputPlus.consume(buffer -> { writer.write(buffer); return buffer.remaining(); }, len);
+
+        AtomicLong currentBytes = new AtomicLong();
+        AtomicLong deltaBytes = new AtomicLong();
+
+        long writtenBytes = inputPlus.consume(buffer -> { writer.write(buffer); return buffer.remaining(); }, len, (current, delta) -> {
+            currentBytes.set(current);
+            deltaBytes.set(delta);
+        });
+        Assert.assertEquals(len, writtenBytes);
         writer.close();
+
+        Assert.assertEquals(len, currentBytes.get());
+        Assert.assertTrue("Delta should be equal or lower than buffer size", deltaBytes.get() <= buffSize);
 
         Assert.assertEquals(String.format("Test with %d buffers starting at %d consuming %d bytes", nBuffs, startOffset, len),
                             len, wbc.writtenBytes.readableBytes());

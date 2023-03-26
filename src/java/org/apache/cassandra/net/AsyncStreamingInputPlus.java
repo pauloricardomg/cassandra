@@ -31,6 +31,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import org.apache.cassandra.io.util.RebufferingInputStream;
 import org.apache.cassandra.streaming.StreamingDataInputPlus;
+import org.apache.cassandra.streaming.TransferListener;
 
 import static org.apache.cassandra.utils.concurrent.BlockingQueues.newBlockingQueue;
 
@@ -131,9 +132,10 @@ public class AsyncStreamingInputPlus extends RebufferingInputStream implements S
     /**
      * Consumes bytes in the stream until the given length
      */
-    public void consume(Consumer consumer, long length) throws IOException
+    public long consume(Consumer consumer, long length, TransferListener listener) throws IOException
     {
-        while (length > 0)
+        long bytesRead = 0;
+        while (bytesRead < length)
         {
             if (!buffer.hasRemaining())
                 reBuffer();
@@ -141,18 +143,20 @@ public class AsyncStreamingInputPlus extends RebufferingInputStream implements S
             final int position = buffer.position();
             final int limit = buffer.limit();
 
-            buffer.limit(position + (int) Math.min(length, limit - position));
+            buffer.limit(position + (int) Math.min(length - bytesRead, limit - position));
             try
             {
                 int copied = consumer.accept(buffer);
                 buffer.position(position + copied);
-                length -= copied;
+                bytesRead += copied;
+                listener.onBytesTransferred(bytesRead, copied);
             }
             finally
             {
                 buffer.limit(limit);
             }
         }
+        return bytesRead;
     }
 
     /**

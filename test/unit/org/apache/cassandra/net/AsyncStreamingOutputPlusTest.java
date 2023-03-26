@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.cassandra.io.util.File;
 import org.junit.Test;
@@ -161,11 +162,22 @@ public class AsyncStreamingOutputPlusTest
         {
             assertTrue(fileChannel.isOpen());
 
-            if (zeroCopy)
-                out.writeFileToChannelZeroCopy(fileChannel, limiter, length, length, length * 2);
-            else
-                out.writeFileToChannel(fileChannel, limiter, length);
+            AtomicLong currentBytes = new AtomicLong();
+            AtomicLong deltaBytes = new AtomicLong();
 
+            if (zeroCopy)
+                out.writeFileToChannelZeroCopy(fileChannel, limiter, length, length, length * 2, (current, delta) -> {
+                    currentBytes.set(current);
+                    deltaBytes.set(delta);
+                });
+            else
+                out.writeFileToChannel(fileChannel, limiter, length, (current, delta) -> {
+                    currentBytes.set(current);
+                    deltaBytes.set(delta);
+                });
+
+            assertEquals(length, deltaBytes.get());
+            assertEquals(length, currentBytes.get());
             assertEquals(length, out.flushed());
             assertEquals(length, out.flushedToNetwork());
             assertEquals(length, out.position());

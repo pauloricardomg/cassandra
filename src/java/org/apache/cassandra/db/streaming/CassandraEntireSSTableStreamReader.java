@@ -111,6 +111,7 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
             long bytesRead = 0;
             for (Component component : manifest.components())
             {
+                String fileName = writer.descriptor.fileFor(component).toString();
                 long length = manifest.sizeOf(component);
 
                 logger.debug("[Stream #{}] Started receiving {} component from {}, componentSize = {}, readBytes = {}, totalSize = {}",
@@ -121,9 +122,8 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
                              prettyPrintMemory(bytesRead),
                              prettyPrintMemory(totalSize));
 
-                writer.writeComponent(component.type, in, length);
-                session.progress(writer.descriptor.fileFor(component).toString(), ProgressInfo.Direction.IN, length, length, length);
-                bytesRead += length;
+                bytesRead += writer.writeComponent(component.type, in, length,
+                                      (currentBytes, deltaBytes) -> session.progress(fileName, ProgressInfo.Direction.IN, currentBytes, deltaBytes, length));
 
                 logger.debug("[Stream #{}] Finished receiving {} component from {}, componentSize = {}, readBytes = {}, totalSize = {}",
                              session.planId(),

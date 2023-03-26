@@ -41,6 +41,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.net.AsyncStreamingInputPlus;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.streaming.TransferListener;
 
 import static java.lang.String.format;
 import static org.apache.cassandra.utils.FBUtilities.prettyPrintMemory;
@@ -92,7 +93,7 @@ public class SSTableZeroCopyWriter extends SSTable implements SSTableMultiWriter
         return new SequentialWriter(descriptor.fileFor(component), ioOptions.writerOptions, false);
     }
 
-    private void write(DataInputPlus in, long size, SequentialWriter out) throws FSWriteError
+    private long write(DataInputPlus in, long size, SequentialWriter out, TransferListener listener) throws FSWriteError
     {
         final int BUFFER_SIZE = 1 << 20;
         long bytesRead = 0;
@@ -106,6 +107,7 @@ public class SSTableZeroCopyWriter extends SSTable implements SSTableMultiWriter
                 int count = Math.min(toRead, BUFFER_SIZE);
                 out.write(buff, 0, count);
                 bytesRead += count;
+                listener.onBytesTransferred(bytesRead, count);
             }
             out.sync(); // finish will also call sync(). Leaving here to get stuff flushed as early as possible
         }
@@ -113,6 +115,7 @@ public class SSTableZeroCopyWriter extends SSTable implements SSTableMultiWriter
         {
             throw new FSWriteError(e, out.getFile());
         }
+        return bytesRead;
     }
 
     @Override
@@ -195,23 +198,24 @@ public class SSTableZeroCopyWriter extends SSTable implements SSTableMultiWriter
             writer.close();
     }
 
-    public void writeComponent(Component.Type type, DataInputPlus in, long size) throws ClosedChannelException
+    public long writeComponent(Component.Type type, DataInputPlus in, long size, TransferListener listener) throws ClosedChannelException
     {
         logger.info("Writing component {} to {} length {}", type, componentWriters.get(type).getPath(), prettyPrintMemory(size));
 
         if (in instanceof AsyncStreamingInputPlus)
-            write((AsyncStreamingInputPlus) in, size, componentWriters.get(type));
+            return write((AsyncStreamingInputPlus) in, size, componentWriters.get(type), listener);
         else
-            write(in, size, componentWriters.get(type));
+            return write(in, size, componentWriters.get(type), listener);
     }
 
-    private void write(AsyncStreamingInputPlus in, long size, SequentialWriter writer) throws ClosedChannelException
+    private long write(AsyncStreamingInputPlus in, long size, SequentialWriter writer, TransferListener listener) throws ClosedChannelException
     {
         logger.info("Block Writing component to {} length {}", writer.getPath(), prettyPrintMemory(size));
 
+        long bytesRead = 0;
         try
         {
-            in.consume(writer::writeDirectlyToChannel, size);
+            bytesRead = in.consume(writer::writeDirectlyToChannel, size, listener);
             writer.sync();
         }
         catch (EOFException e)
@@ -229,5 +233,6 @@ public class SSTableZeroCopyWriter extends SSTable implements SSTableMultiWriter
         {
             throw new FSWriteError(e, writer.getPath());
         }
+        return bytesRead;
     }
 }
