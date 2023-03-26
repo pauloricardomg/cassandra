@@ -84,6 +84,7 @@ public final class JVMStabilityInspector
      */
     public static void inspectThrowable(Throwable t) throws OutOfMemoryError
     {
+        logger.error("Exception {}", t);
         inspectThrowable(t, JVMStabilityInspector::inspectDiskError);
     }
 
