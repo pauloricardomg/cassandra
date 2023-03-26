@@ -129,6 +129,7 @@ import org.apache.cassandra.service.reads.thresholds.CoordinatorWarnings;
 import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.streaming.StreamManager;
 import org.apache.cassandra.streaming.StreamReceiveTask;
+import org.apache.cassandra.streaming.StreamResultFuture;
 import org.apache.cassandra.streaming.StreamTransferTask;
 import org.apache.cassandra.streaming.async.NettyStreamingChannel;
 import org.apache.cassandra.tools.NodeTool;
@@ -842,6 +843,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> Sampler.shutdownNowAndWait(1L, MINUTES),
                                 NettyStreamingChannel::shutdown,
                                 () -> StreamReceiveTask.shutdownAndWait(1L, MINUTES),
+                                () -> StreamResultFuture.shutdownAndWait(1L, MINUTES),
                                 () -> StreamTransferTask.shutdownAndWait(1L, MINUTES),
                                 () -> StreamManager.instance.stop(),
                                 () -> SecondaryIndexManager.shutdownAndWait(1L, MINUTES),
