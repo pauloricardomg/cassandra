@@ -20,9 +20,7 @@ package org.apache.cassandra.streaming;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -36,11 +34,8 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.utils.FBUtilities;
 
-import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 import static org.apache.cassandra.streaming.StreamingChannel.Factory.Global.streamingFactory;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
-import static org.apache.cassandra.utils.ExecutorUtils.awaitTermination;
-import static org.apache.cassandra.utils.ExecutorUtils.shutdown;
 
 /**
  * A future on the result ({@link StreamState}) of a streaming plan.
@@ -57,12 +52,10 @@ import static org.apache.cassandra.utils.ExecutorUtils.shutdown;
  */
 public final class StreamResultFuture extends AsyncFuture<StreamState>
 {
-    private static final ExecutorService streamProgressExecutor = executorFactory().pooled("StreamProgress", 1);
-
     private static final Logger logger = LoggerFactory.getLogger(StreamResultFuture.class);
 
     public final TimeUUID planId;
-    public final StreamOperation streamOperation;;
+    public final StreamOperation streamOperation;
     private final StreamCoordinator coordinator;
     private final Collection<StreamEventHandler> eventListeners = new ConcurrentLinkedQueue<>();
     private final long slowEventsLogTimeoutNanos = DatabaseDescriptor.getStreamingSlowEventsLogTimeout().toNanoseconds();
@@ -224,18 +217,14 @@ public final class StreamResultFuture extends AsyncFuture<StreamState>
         long startNanos = nanoTime();
         for (StreamEventHandler listener : eventListeners)
         {
-            // Fire stream events asynchronously to avoid blocking stream send/receive threads (CASSANDRA-16325)
-            streamProgressExecutor.submit(() -> {
-                try
-                {
-                    listener.handleStreamEvent(event);
-                }
-                catch (Throwable t)
-                {
-                    logger.warn("Unexpected exception in listern while calling handleStreamEvent", t);
-                }
-            });
-
+            try
+            {
+                listener.handleStreamEvent(event);
+            }
+            catch (Throwable t)
+            {
+                logger.warn("Unexpected exception in listern while calling handleStreamEvent", t);
+            }
         }
         long totalNanos = nanoTime() - startNanos;
         if (totalNanos > slowEventsLogTimeoutNanos)
@@ -287,12 +276,5 @@ public final class StreamResultFuture extends AsyncFuture<StreamState>
     private boolean finishedAllSessions()
     {
         return coordinator.getAllSessionInfo().stream().allMatch(s -> s.state.isFinalState());
-    }
-
-    @VisibleForTesting
-    public static void shutdownAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
-    {
-        shutdown(streamProgressExecutor);
-        awaitTermination(timeout, unit, streamProgressExecutor);
     }
 }
