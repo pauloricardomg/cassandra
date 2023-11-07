@@ -19,6 +19,12 @@ Audit logging captures following events:
 * All database commands executed via native CQL protocol attempted or
 successfully executed
 
+
+== WARNING
+
+If you decide to enable audit logging, you should prefer using JDK vs JRE (CASSANDRA-19001).
+
+
 == Limitations
 
 Executing prepared statements will log the query as provided by the

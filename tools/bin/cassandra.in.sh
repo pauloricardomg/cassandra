@@ -108,6 +108,9 @@ case "$jvm" in
         ;;
 esac
 
+# Check if JDK or JRE is running
+USING_JDK=$(which java | grep -c "jdk")
+
 # Read user-defined JVM options from jvm-server.options file
 JVM_OPTS_FILE=$CASSANDRA_CONF/jvm${jvmoptions_variant:--clients}.options
 if [ $JAVA_VERSION -ge 17 ] ; then
@@ -120,3 +123,10 @@ for opt in `grep "^-" $JVM_OPTS_FILE` `grep "^-" $JVM_DEP_OPTS_FILE`
 do
   JVM_OPTS="$JVM_OPTS $opt"
 done
+
+# Append additional JDK-specific options if using JDK17
+if [ "$USING_JDK" -eq 1 ] && [ "$JAVA_VERSION" -ge 17 ]; then
+  JVM_OPTS="$JVM_OPTS --add-exports jdk.attach/sun.tools.attach=ALL-UNNAMED"
+  JVM_OPTS="$JVM_OPTS --add-exports jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED"
+  JVM_OPTS="$JVM_OPTS --add-opens jdk.compiler/com.sun.tools.javac=ALL-UNNAMED"
+fi
