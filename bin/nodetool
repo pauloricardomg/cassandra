@@ -87,6 +87,14 @@ do
     -D*)
       JVM_ARGS="$JVM_ARGS $1"
       ;;
+    sjk)
+      # Fail-fast if JDK is not detected (CASSANDRA-19001)
+      if [ -z $(command -v javac) ] && [ -z $(command -v "${JAVA_HOME:-/usr}/bin/javac") ]; then
+        echo "ERROR: JDK not detected and nodetool sjk requires JDK to work." 1>&2
+        exit 1
+      fi
+      ARGS="$ARGS $1"
+      ;;
     *)
       ARGS="$ARGS $1"
       ;;
