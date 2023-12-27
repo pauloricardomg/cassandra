@@ -20,12 +20,6 @@ It also captures all successful and failed authentication and authorization even
 The difference between Full Query Logging (FQL) and audit logging is that FQL captures only successful CQL requests, which allow replay or comparison of logs.
 Audit logs are useful for compliance and debugging, while FQL is useful for debugging, performance benchmarking, testing and auditing CQL queries.
 
-
-== WARNING
-
-If you decide to enable audit logging, you should prefer using JDK vs JRE (CASSANDRA-19001).
-
-
 == Audit information logged
 
 The audit log contains:
