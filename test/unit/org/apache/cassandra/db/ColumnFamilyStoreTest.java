@@ -75,6 +75,7 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
+import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
 import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -285,7 +286,7 @@ public class ColumnFamilyStoreTest
         assertTrue(snapshotDetails.containsKey("ephemeralSnapshot"));
         assertTrue(snapshotDetails.containsKey("nonEphemeralSnapshot"));
 
-        ColumnFamilyStore.clearEphemeralSnapshots(cfs.getDirectories());
+        SnapshotManager.instance.clearEphemeralSnapshots();
 
         snapshotDetails = cfs.listSnapshots();
         assertEquals(1, snapshotDetails.size());

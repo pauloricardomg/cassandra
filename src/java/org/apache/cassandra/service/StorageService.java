@@ -72,7 +72,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
-import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -307,8 +306,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private volatile boolean isShutdown = false;
     private final List<Runnable> preShutdownHooks = new ArrayList<>();
     private final List<Runnable> postShutdownHooks = new ArrayList<>();
-
-    public final SnapshotManager snapshotManager = new SnapshotManager();
 
     public static final StorageService instance = new StorageService();
 
@@ -871,7 +868,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DiskUsageBroadcaster.instance.startBroadcasting();
         HintsService.instance.startDispatch();
         BatchlogManager.instance.start();
-        startSnapshotManager();
         servicesInitialized = true;
     }
 
@@ -910,12 +906,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public static boolean isSeed()
     {
         return DatabaseDescriptor.getSeeds().contains(getBroadcastAddressAndPort());
-    }
-
-    @VisibleForTesting
-    public void startSnapshotManager()
-    {
-        snapshotManager.start();
     }
 
     public static boolean isReplacingSameAddress()
@@ -2873,14 +2863,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             if (keyspace.snapshotExists(tag))
                 throw new IOException("Snapshot " + tag + " already exists.");
 
-
-        RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
         Instant creationTime = now();
 
         for (Keyspace keyspace : keyspaces)
-        {
-            keyspace.snapshot(tag, null, skipFlush, ttl, snapshotRateLimiter, creationTime);
-        }
+            keyspace.snapshot(tag, null, skipFlush, ttl,
+                              SnapshotManager.instance.snapshotRateLimiter,
+                              creationTime);
     }
 
     /**
@@ -2940,13 +2928,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
         }
 
-        RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
         Instant creationTime = now();
 
         for (Entry<Keyspace, List<String>> entry : keyspaceColumnfamily.entrySet())
         {
             for (String table : entry.getValue())
-                entry.getKey().snapshot(tag, table, skipFlush, ttl, snapshotRateLimiter, creationTime);
+                entry.getKey().snapshot(tag, table, skipFlush, ttl,
+                                        SnapshotManager.instance.snapshotRateLimiter,
+                                        creationTime);
         }
     }
 
@@ -2969,77 +2958,49 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * Remove the snapshot with the given name from the given keyspaces.
      * If no tag is specified we will remove all snapshots.
      */
-    public void clearSnapshot(String tag, String... keyspaceNames)
+    public void clearSnapshot(String tag, String... keyspaceNames) throws IOException
     {
         clearSnapshot(Collections.emptyMap(), tag, keyspaceNames);
     }
 
     public void clearSnapshot(Map<String, Object> options, String tag, String... keyspaceNames)
     {
-        if (tag == null)
-            tag = "";
-
         if (options == null)
             options = Collections.emptyMap();
 
-        Set<String> keyspaces = new HashSet<>();
-        for (String dataDir : DatabaseDescriptor.getAllDataFileLocations())
-        {
-            for (String keyspaceDir : new File(dataDir).tryListNames())
-            {
-                // Only add a ks if it has been specified as a param, assuming params were actually provided.
-                if (keyspaceNames.length > 0 && !Arrays.asList(keyspaceNames).contains(keyspaceDir))
-                    continue;
-                keyspaces.add(keyspaceDir);
-            }
-        }
+        Set<String> keyspaces = new HashSet<>(Arrays.asList(keyspaceNames));
+        long maxCreatedAt = getMaxSnapshotCreatedAt(options);
 
+        SnapshotManager.instance.clearSnapshots(tag, keyspaces, maxCreatedAt);
+
+        if (logger.isDebugEnabled())
+            logger.debug("Cleared out snapshot directories");
+    }
+
+    private static long getMaxSnapshotCreatedAt(Map<String, Object> options)
+    {
         Object olderThan = options.get("older_than");
         Object olderThanTimestamp = options.get("older_than_timestamp");
 
-        final long clearOlderThanTimestamp;
+        long maxCreatedAt = Clock.Global.currentTimeMillis();
         if (olderThan != null)
         {
             assert olderThan instanceof String : "it is expected that older_than is an instance of java.lang.String";
-            clearOlderThanTimestamp = Clock.Global.currentTimeMillis() - new DurationSpec.LongSecondsBound((String) olderThan).toMilliseconds();
+            maxCreatedAt -=  new DurationSpec.LongSecondsBound((String) olderThan).toMilliseconds();
         }
         else if (olderThanTimestamp != null)
         {
             assert olderThanTimestamp instanceof String : "it is expected that older_than_timestamp is an instance of java.lang.String";
             try
             {
-                clearOlderThanTimestamp = Instant.parse((String) olderThanTimestamp).toEpochMilli();
+                maxCreatedAt = Instant.parse((String) olderThanTimestamp).toEpochMilli();
             }
             catch (DateTimeParseException ex)
             {
                 throw new RuntimeException("Parameter older_than_timestamp has to be a valid instant in ISO format.");
             }
         }
-        else
-            clearOlderThanTimestamp = 0L;
-
-        for (String keyspace : keyspaces)
-            clearKeyspaceSnapshot(keyspace, tag, clearOlderThanTimestamp);
-
-        if (logger.isDebugEnabled())
-            logger.debug("Cleared out snapshot directories");
-    }
-
-    /**
-     * Clear snapshots for a given keyspace.
-     * @param keyspace keyspace to remove snapshots for
-     * @param tag the user supplied snapshot name. If empty or null, all the snapshots will be cleaned
-     * @param olderThanTimestamp if a snapshot was created before this timestamp, it will be cleared,
-     *                           if its value is 0, this parameter is effectively ignored.
-     */
-    private void clearKeyspaceSnapshot(String keyspace, String tag, long olderThanTimestamp)
-    {
-        Set<TableSnapshot> snapshotsToClear = snapshotManager.loadSnapshots(keyspace)
-                                                             .stream()
-                                                             .filter(TableSnapshot.shouldClearSnapshot(tag, olderThanTimestamp))
-                                                             .collect(Collectors.toSet());
-        for (TableSnapshot snapshot : snapshotsToClear)
-            snapshotManager.clearSnapshot(snapshot);
+        return maxCreatedAt;
     }
 
     public Map<String, TabularData> getSnapshotDetails(Map<String, String> options)
@@ -3048,22 +3009,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         boolean includeEphemeral = options != null && Boolean.parseBoolean(options.getOrDefault("include_ephemeral", "false"));
 
         Map<String, TabularData> snapshotMap = new HashMap<>();
-
-        for (TableSnapshot snapshot : snapshotManager.loadSnapshots())
+        for (TableSnapshot s : SnapshotManager.instance.getSnapshots(skipExpiring, includeEphemeral))
         {
-            if (skipExpiring && snapshot.isExpiring())
-                continue;
-            if (!includeEphemeral && snapshot.isEphemeral())
-                continue;
-
-            TabularDataSupport data = (TabularDataSupport) snapshotMap.get(snapshot.getTag());
-            if (data == null)
-            {
-                data = new TabularDataSupport(SnapshotDetailsTabularData.TABULAR_TYPE);
-                snapshotMap.put(snapshot.getTag(), data);
-            }
-
-            SnapshotDetailsTabularData.from(snapshot, data);
+            TabularDataSupport data = (TabularDataSupport) snapshotMap.computeIfAbsent(s.getTag(), k -> new TabularDataSupport(SnapshotDetailsTabularData.TABULAR_TYPE));
+            SnapshotDetailsTabularData.from(s, data);
         }
 
         return snapshotMap;
@@ -3892,7 +3841,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 logger.error("Batchlog manager timed out shutting down", t);
             }
 
-            snapshotManager.stop();
+            SnapshotManager.instance.stop();
             HintsService.instance.pauseDispatch();
 
             if (daemon != null)
@@ -5176,10 +5125,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public int getCompactionTombstoneWarningThreshold()
     {
         return Math.toIntExact(Guardrails.instance.getPartitionTombstonesWarnThreshold());
-    }
-
-    public void addSnapshot(TableSnapshot snapshot) {
-        snapshotManager.addSnapshot(snapshot);
     }
 
     @Override

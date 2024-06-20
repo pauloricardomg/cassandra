@@ -61,7 +61,6 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaProvider;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -305,11 +304,6 @@ public class Keyspace
         for (ColumnFamilyStore cfStore : columnFamilyStores.values())
             Iterables.addAll(list, cfStore.getSSTables(sstableSet));
         return list;
-    }
-
-    public Stream<TableSnapshot> getAllSnapshots()
-    {
-        return getColumnFamilyStores().stream().flatMap(cfs -> cfs.listSnapshots().values().stream());
     }
 
     public static Keyspace forSchema(String keyspaceName, SchemaProvider schema)

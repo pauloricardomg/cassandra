@@ -30,6 +30,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.utils.DiagnosticSnapshotService;
 
 import static org.apache.cassandra.net.ParamType.SNAPSHOT_RANGES;
@@ -44,7 +45,7 @@ public class SnapshotVerbHandler implements IVerbHandler<SnapshotCommand>
         SnapshotCommand command = message.payload;
         if (command.clear_snapshot)
         {
-            StorageService.instance.clearSnapshot(command.snapshot_name, command.keyspace);
+            SnapshotManager.instance.clearSnapshot(command.keyspace, command.column_family, command.snapshot_name);
         }
         else if (DiagnosticSnapshotService.isDiagnosticSnapshotRequest(command))
         {

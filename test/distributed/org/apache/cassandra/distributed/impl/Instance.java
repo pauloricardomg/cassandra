@@ -632,7 +632,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 {
                     partialStartup(cluster);
                 }
-                StorageService.instance.startSnapshotManager();
+                SnapshotManager.instance.start();
+                SnapshotManager.instance.clearExpiredSnapshots();
+                SnapshotManager.instance.clearEphemeralSnapshots();
+                SnapshotManager.instance.resumeSnapshotCleanup();
             }
             catch (Throwable t)
             {
@@ -889,6 +892,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         Future<?> future = async((ExecutorService executor) -> {
             Throwable error = null;
+
+            error = parallelRun(error, executor, SnapshotManager.instance::stop);
 
             CompactionManager.instance.forceShutdown();
 

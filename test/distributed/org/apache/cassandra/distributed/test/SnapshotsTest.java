@@ -161,7 +161,8 @@ public class SnapshotsTest extends TestBaseImpl
     }
 
     @Test
-    public void testManualSnapshotCleanup() {
+    public void testManualSnapshotCleanup()
+    {
         // take snapshots with ttl
         cluster.get(1).nodetoolResult("snapshot", "--ttl",
                                       format("%ds", TEN_SECONDS),

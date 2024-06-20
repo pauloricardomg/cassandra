@@ -27,7 +27,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Predicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +51,8 @@ public class TableSnapshot
 
     private final Set<File> snapshotDirs;
 
+    private long sizeOnDisk = 0;
+
     public TableSnapshot(String keyspaceName, String tableName, UUID tableId,
                          String tag, Instant createdAt, Instant expiresAt,
                          Set<File> snapshotDirs, boolean ephemeral)
@@ -70,7 +71,7 @@ public class TableSnapshot
      * Unique identifier of a snapshot. Used
      * only to deduplicate snapshots internally,
      * not exposed externally.
-     *
+     * <p>
      * Format: "$ks:$table_name:$table_id:$tag"
      */
     public String getId()
@@ -95,13 +96,22 @@ public class TableSnapshot
 
     public Instant getCreatedAt()
     {
+
         if (createdAt == null)
         {
-            long minCreation = snapshotDirs.stream().mapToLong(File::lastModified).min().orElse(0);
-            if (minCreation != 0)
+            long minCreation = 0;
+            for (File snapshotDir : snapshotDirs)
             {
-                return Instant.ofEpochMilli(minCreation);
+                long lastModified = snapshotDir.lastModified();
+                if (lastModified == 0)
+                    continue;
+
+                if (minCreation == 0 || minCreation > lastModified)
+                    minCreation = lastModified;
             }
+
+            if (minCreation != 0)
+                return Instant.ofEpochMilli(minCreation);
         }
         return createdAt;
     }
@@ -123,7 +133,11 @@ public class TableSnapshot
 
     public boolean exists()
     {
-        return snapshotDirs.stream().anyMatch(File::exists);
+        for (File snapshotDir : snapshotDirs)
+            if (snapshotDir.exists())
+                return true;
+
+        return false;
     }
 
     public boolean isEphemeral()
@@ -138,11 +152,21 @@ public class TableSnapshot
 
     public long computeSizeOnDiskBytes()
     {
-        return snapshotDirs.stream().mapToLong(FileUtils::folderSize).sum();
+        long sum = sizeOnDisk;
+        if (sum == 0)
+        {
+            for (File snapshotDir : snapshotDirs)
+                sizeOnDisk = sum += FileUtils.folderSize(snapshotDir);
+        }
+
+        return sum;
     }
 
     public long computeTrueSizeBytes()
     {
+        // we can not "cache" this as it is done for sizeOnDiskBytes because we do not know
+        // whether the corresponding "live" file in data dir is still present or not
+        // by the time we are calculating it here
         DirectorySizeCalculator visitor = new SnapshotTrueSizeCalculator();
 
         for (File snapshotDir : snapshotDirs)
@@ -197,10 +221,14 @@ public class TableSnapshot
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TableSnapshot snapshot = (TableSnapshot) o;
-        return Objects.equals(keyspaceName, snapshot.keyspaceName) && Objects.equals(tableName, snapshot.tableName) &&
-               Objects.equals(tableId, snapshot.tableId) && Objects.equals(tag, snapshot.tag) &&
-               Objects.equals(createdAt, snapshot.createdAt) && Objects.equals(expiresAt, snapshot.expiresAt) &&
-               Objects.equals(snapshotDirs, snapshot.snapshotDirs) && Objects.equals(ephemeral, snapshot.ephemeral);
+        return Objects.equals(keyspaceName, snapshot.keyspaceName) &&
+               Objects.equals(tableName, snapshot.tableName) &&
+               Objects.equals(tableId, snapshot.tableId) &&
+               Objects.equals(tag, snapshot.tag) &&
+               Objects.equals(createdAt, snapshot.createdAt) &&
+               Objects.equals(expiresAt, snapshot.expiresAt) &&
+               Objects.equals(snapshotDirs, snapshot.snapshotDirs) &&
+               Objects.equals(ephemeral, snapshot.ephemeral);
     }
 
     @Override
@@ -224,7 +252,8 @@ public class TableSnapshot
                '}';
     }
 
-    static class Builder {
+    static class Builder
+    {
         private final String keyspaceName;
         private final String tableName;
         private final UUID tableId;
@@ -302,15 +331,14 @@ public class TableSnapshot
 
     /**
      * Returns the corresponding live file for a given snapshot file.
-     *
+     * <p>
      * Example:
-     *  - Base table:
-     *    - Snapshot file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/snapshots/1643481737850/me-1-big-Data.db
-     *    - Live file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/me-1-big-Data.db
-     *  - Secondary index:
-     *    - Snapshot file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/snapshots/1643481737850/.tbl_val_idx/me-1-big-Summary.db
-     *    - Live file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/.tbl_val_idx/me-1-big-Summary.db
-     *
+     * - Base table:
+     * - Snapshot file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/snapshots/1643481737850/me-1-big-Data.db
+     * - Live file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/me-1-big-Data.db
+     * - Secondary index:
+     * - Snapshot file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/snapshots/1643481737850/.tbl_val_idx/me-1-big-Summary.db
+     * - Live file: ~/.ccm/test/node1/data0/test_ks/tbl-e03faca0813211eca100c705ea09b5ef/.tbl_val_idx/me-1-big-Summary.db
      */
     static File getLiveFileFromSnapshotFile(Path snapshotFilePath)
     {
@@ -323,30 +351,4 @@ public class TableSnapshot
         }
         return new File(liveDir.toString(), snapshotFilePath.getFileName().toString());
     }
-
-    public static Predicate<TableSnapshot> shouldClearSnapshot(String tag, long olderThanTimestamp)
-    {
-        return ts ->
-        {
-            // When no tag is supplied, all snapshots must be cleared
-            boolean clearAll = tag == null || tag.isEmpty();
-            if (!clearAll && ts.isEphemeral())
-                logger.info("Skipping deletion of ephemeral snapshot '{}' in keyspace {}. " +
-                            "Ephemeral snapshots are not removable by a user.",
-                            tag, ts.keyspaceName);
-            boolean notEphemeral = !ts.isEphemeral();
-            boolean shouldClearTag = clearAll || ts.tag.equals(tag);
-            boolean byTimestamp = true;
-
-            if (olderThanTimestamp > 0L)
-            {
-                Instant createdAt = ts.getCreatedAt();
-                if (createdAt != null)
-                    byTimestamp = createdAt.isBefore(Instant.ofEpochMilli(olderThanTimestamp));
-            }
-
-            return notEphemeral && shouldClearTag && byTimestamp;
-        };
-    }
-
 }
