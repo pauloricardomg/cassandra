@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +47,7 @@ import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.membership.NodeVersion;
 import org.apache.cassandra.utils.AbstractTypeGenerators;
@@ -73,6 +75,13 @@ public class RandomSchemaTest extends CQLTester.InMemory
         CassandraRelevantProperties.TEST_BLOB_SHARED_SEED.setInt(42);
 
         requireNetwork();
+    }
+
+    @Before
+    public void before()
+    {
+        // snapshot watcher on real fs does not play together with jimfs watcher
+        SnapshotManager.instance.getSnapshotWatcher().close();
     }
 
     @Test

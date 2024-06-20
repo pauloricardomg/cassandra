@@ -74,8 +74,8 @@ public class SnapshotDetailsTabularData
     {
         try
         {
-            final String totalSize = FileUtils.stringifyFileSize(details.computeSizeOnDiskBytes());
-            final String liveSize =  FileUtils.stringifyFileSize(details.computeTrueSizeBytes());
+            String totalSize = FileUtils.stringifyFileSize(details.computeSizeOnDiskBytes());
+            String liveSize =  FileUtils.stringifyFileSize(details.computeTrueSizeBytes());
             String createdAt = safeToString(details.getCreatedAt());
             String expiresAt = safeToString(details.getExpiresAt());
             String ephemeral = Boolean.toString(details.isEphemeral());

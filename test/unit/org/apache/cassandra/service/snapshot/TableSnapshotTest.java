@@ -298,7 +298,7 @@ public class TableSnapshotTest
                 // 1. snapshot to clear is not ephemeral
                 // 2. tag to clear is null, empty, or it is equal to snapshot tag
                 // 3. byTimestamp is true
-                if (TableSnapshot.shouldClearSnapshot(testingTag, olderThanTimestamp).test(snapshot))
+                if (SnapshotManager.shouldClearSnapshot(testingTag, Set.of(keyspace), olderThanTimestamp, false).test(snapshot))
                 {
                     // shouldClearTag = true
                     boolean shouldClearTag = (testingTag == null || testingTag.isEmpty()) || snapshot.getTag().equals(testingTag);
