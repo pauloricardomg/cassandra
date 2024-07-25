@@ -1082,6 +1082,16 @@ incremental_backups: false
 # is a data format change.
 snapshot_before_compaction: false
 
+# If enabled, when a snapshot is manually removed from snaphot directory instead of
+# by e.g. nodetool clearsnapshot, this will be detected and respective snapshot will stop to be tracked
+# hence it will not appear in the output of nodetool listsnapshots anymore.
+# In case a snapshot is located in multiple directories (when data_file_directories contains multiple entries),
+# a snapshot is untracked only in case all its directories are removed.
+# No data will ever be removed automatically when this flag is enabled.
+# The underlying mechanism by which this is detected uses Java's WatchService based on inotify.
+# When not set, defaults to false.
+snapshot_watcher_enabled: false
+
 # Whether or not a snapshot is taken of the data before keyspace truncation
 # or dropping of column families. The STRONGLY advised default of true
 # should be used to provide data safety. If you set this flag to false, you will

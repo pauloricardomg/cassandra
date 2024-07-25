@@ -315,6 +315,7 @@ public class Config
 
     public boolean snapshot_before_compaction = false;
     public boolean auto_snapshot = true;
+    public boolean snapshot_watcher_enabled = false;
 
     /**
      * When auto_snapshot is true and this property

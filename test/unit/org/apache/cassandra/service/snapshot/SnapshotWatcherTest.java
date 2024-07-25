@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.junit.After;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -38,6 +39,7 @@ import org.junit.rules.TemporaryFolder;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.service.DefaultFSErrorHandler;
 
 import static java.lang.String.format;
@@ -68,8 +70,40 @@ public class SnapshotWatcherTest
         rootDir2 = new File(temporaryFolder2.getRoot());
     }
 
+    @After
+    public void afterTest()
+    {
+        PathUtils.clearDirectory(rootDir1.toPath());
+        PathUtils.clearDirectory(rootDir2.toPath());
+    }
+
     @Test
-    public void testWatcher() throws IOException, InterruptedException
+    public void testDisabledWatcher() throws Exception
+    {
+        try
+        {
+            DatabaseDescriptor.setSnapshotWatcherEnabled(false);
+
+            SnapshotManager snapshotManager = new SnapshotManager(5, 10);
+            SnapshotWatcher watcher = snapshotManager.getSnapshotWatcher();
+
+            snapshotManager.start(true);
+
+            List<TableSnapshot> tableSnapshots = generateTableSnapshots(10, 100);
+            snapshotManager.addSnapshots(tableSnapshots);
+
+            assertTrue(watcher.getWatchedDirs().isEmpty());
+
+            snapshotManager.stop();
+        }
+        finally
+        {
+            DatabaseDescriptor.setSnapshotWatcherEnabled(true);
+        }
+    }
+
+    @Test
+    public void testWatcher() throws Exception
     {
         SnapshotManager snapshotManager = new SnapshotManager(5, 10);
         SnapshotWatcher watcher = snapshotManager.getSnapshotWatcher();

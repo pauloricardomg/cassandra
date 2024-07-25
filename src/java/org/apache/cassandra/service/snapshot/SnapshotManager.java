@@ -112,7 +112,7 @@ public class SnapshotManager
         this.initialDelaySeconds = initialDelaySeconds;
         this.cleanupPeriodSeconds = cleanupPeriodSeconds;
         snapshotLoader = new SnapshotLoader(DatabaseDescriptor.getAllDataFileLocations());
-        snapshotWatcher = new SnapshotWatcher(removedSnapshots::add);
+        snapshotWatcher = new SnapshotWatcher(DatabaseDescriptor.isSnapshotWatcherEnabled(), removedSnapshots::add);
         snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
     }
 
@@ -123,9 +123,7 @@ public class SnapshotManager
 
     public synchronized void start(boolean runPeriodicSnapshotCleaner)
     {
-        if (CassandraRelevantProperties.SNAPSHOT_WATCHER_ENABLE.getBoolean())
-            snapshotWatcher.start();
-
+        snapshotWatcher.start();
         addSnapshots(loadSnapshots());
         if (runPeriodicSnapshotCleaner)
             resumeSnapshotCleanup();

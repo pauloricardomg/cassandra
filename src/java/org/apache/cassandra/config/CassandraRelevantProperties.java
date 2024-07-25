@@ -492,7 +492,6 @@ public enum CassandraRelevantProperties
     SNAPSHOT_CLEANUP_PERIOD_SECONDS("cassandra.snapshot.ttl_cleanup_period_seconds", "60"),
     /** minimum allowed TTL for snapshots */
     SNAPSHOT_MIN_ALLOWED_TTL_SECONDS("cassandra.snapshot.min_allowed_ttl_seconds", "60"),
-    SNAPSHOT_WATCHER_ENABLE("cassandra.snapshot.watcher.enable", "true"),
     SSL_ENABLE("ssl.enable"),
     SSL_STORAGE_PORT("cassandra.ssl_storage_port"),
     SSTABLE_FORMAT_DEFAULT("cassandra.sstable.format.default"),

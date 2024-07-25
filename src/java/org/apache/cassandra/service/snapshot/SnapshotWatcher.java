@@ -59,12 +59,14 @@ public class SnapshotWatcher implements AutoCloseable
     private WatchService watchService;
     private ExecutorService executor;
     private final Map<WatchKey, Path> watchKeyPathMap = new ConcurrentHashMap<>();
+    private final boolean enabled;
     private boolean started = false;
 
     private Future<?> watcherFuture;
 
-    public SnapshotWatcher(Consumer<Path> removedSnapshotConsumer)
+    public SnapshotWatcher(boolean enabled, Consumer<Path> removedSnapshotConsumer)
     {
+        this.enabled = enabled;
         this.removedSnapshotConsumer = removedSnapshotConsumer;
     }
 
@@ -104,6 +106,9 @@ public class SnapshotWatcher implements AutoCloseable
 
     public void unwatch(Path snapshotsRootDir)
     {
+        if (!started)
+            return;
+
         logger.trace("Unwatching snapshots dir {}", snapshotsRootDir);
 
         List<WatchKey> watchKeysToRemove = new ArrayList<>();
@@ -121,6 +126,11 @@ public class SnapshotWatcher implements AutoCloseable
             watchKeyPathMap.remove(watchKeyToRemove);
     }
 
+    public boolean isEnabled()
+    {
+        return enabled;
+    }
+
     public boolean isStarted()
     {
         return started;
@@ -128,6 +138,9 @@ public class SnapshotWatcher implements AutoCloseable
 
     public synchronized void start()
     {
+        if (!enabled)
+            return;
+
         if (started)
             return;
 

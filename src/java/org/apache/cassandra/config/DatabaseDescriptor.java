@@ -3411,6 +3411,16 @@ public class DatabaseDescriptor
         return conf.snapshot_before_compaction;
     }
 
+    public static boolean isSnapshotWatcherEnabled()
+    {
+        return conf.snapshot_watcher_enabled;
+    }
+
+    public static void setSnapshotWatcherEnabled(boolean enabled)
+    {
+        conf.snapshot_watcher_enabled = enabled;
+    }
+
     public static boolean isAutoSnapshot()
     {
         return conf.auto_snapshot;
