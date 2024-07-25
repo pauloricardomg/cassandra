@@ -40,6 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.ExecutorFactory;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.utils.ExecutorUtils;
 
@@ -59,14 +60,12 @@ public class SnapshotWatcher implements AutoCloseable
     private WatchService watchService;
     private ExecutorService executor;
     private final Map<WatchKey, Path> watchKeyPathMap = new ConcurrentHashMap<>();
-    private final boolean enabled;
     private boolean started = false;
 
     private Future<?> watcherFuture;
 
-    public SnapshotWatcher(boolean enabled, Consumer<Path> removedSnapshotConsumer)
+    public SnapshotWatcher(Consumer<Path> removedSnapshotConsumer)
     {
-        this.enabled = enabled;
         this.removedSnapshotConsumer = removedSnapshotConsumer;
     }
 
@@ -128,7 +127,7 @@ public class SnapshotWatcher implements AutoCloseable
 
     public boolean isEnabled()
     {
-        return enabled;
+        return DatabaseDescriptor.isSnapshotWatcherEnabled();
     }
 
     public boolean isStarted()
@@ -138,7 +137,7 @@ public class SnapshotWatcher implements AutoCloseable
 
     public synchronized void start()
     {
-        if (!enabled)
+        if (!isEnabled())
             return;
 
         if (started)

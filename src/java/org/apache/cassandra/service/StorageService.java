@@ -3067,6 +3067,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.getSnapshotLinksPerSecond();
     }
 
+    public void refreshSnapshots()
+    {
+        SnapshotManager.instance.restart(true);
+    }
+
     public void refreshSizeEstimates() throws ExecutionException
     {
         cleanupSizeEstimates();
@@ -3855,7 +3860,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 logger.error("Batchlog manager timed out shutting down", t);
             }
 
-            SnapshotManager.instance.stop();
+            SnapshotManager.instance.close();
             HintsService.instance.pauseDispatch();
 
             if (daemon != null)

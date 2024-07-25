@@ -73,7 +73,7 @@ import static java.util.Comparator.comparing;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 
-public class SnapshotManager
+public class SnapshotManager implements AutoCloseable
 {
     private static final ScheduledExecutorPlus executor = executorFactory().scheduled(false, "SnapshotCleanup");
 
@@ -109,10 +109,16 @@ public class SnapshotManager
     @VisibleForTesting
     protected SnapshotManager(long initialDelaySeconds, long cleanupPeriodSeconds)
     {
+        this(initialDelaySeconds, cleanupPeriodSeconds, DatabaseDescriptor.getAllDataFileLocations());
+    }
+
+    @VisibleForTesting
+    protected SnapshotManager(long initialDelaySeconds, long cleanupPeriodSeconds, String[] dataDirs)
+    {
         this.initialDelaySeconds = initialDelaySeconds;
         this.cleanupPeriodSeconds = cleanupPeriodSeconds;
-        snapshotLoader = new SnapshotLoader(DatabaseDescriptor.getAllDataFileLocations());
-        snapshotWatcher = new SnapshotWatcher(DatabaseDescriptor.isSnapshotWatcherEnabled(), removedSnapshots::add);
+        snapshotLoader = new SnapshotLoader(dataDirs);
+        snapshotWatcher = new SnapshotWatcher(removedSnapshots::add);
         snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
     }
 
@@ -134,7 +140,8 @@ public class SnapshotManager
         start(false);
     }
 
-    public synchronized void stop()
+    @Override
+    public synchronized void close()
     {
         pauseSnapshotCleanup();
         snapshotWatcher.close();
@@ -155,13 +162,13 @@ public class SnapshotManager
 
     public synchronized void restart()
     {
-        stop();
+        close();
         start(false);
     }
 
     public synchronized void restart(boolean runPeriodicSnapshotCleaner)
     {
-        stop();
+        close();
         start(runPeriodicSnapshotCleaner);
     }
 
@@ -197,7 +204,7 @@ public class SnapshotManager
                                                                 SECONDS);
         }
 
-        if (manuallyRemovedSnapshotsTaskFuture == null)
+        if (manuallyRemovedSnapshotsTaskFuture == null && DatabaseDescriptor.isSnapshotWatcherEnabled())
         {
             manuallyRemovedSnapshotsTaskFuture = executor.scheduleWithFixedDelay(this::cleanupManuallyRemovedSnapshots,
                                                                                  initialDelaySeconds,
@@ -215,7 +222,7 @@ public class SnapshotManager
             cleanupTaskFuture = null;
         }
 
-        if (manuallyRemovedSnapshotsTaskFuture != null)
+        if (manuallyRemovedSnapshotsTaskFuture != null && DatabaseDescriptor.isSnapshotWatcherEnabled())
         {
             manuallyRemovedSnapshotsTaskFuture.cancel(false);
             manuallyRemovedSnapshotsTaskFuture = null;

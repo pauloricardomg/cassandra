@@ -895,7 +895,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         Future<?> future = async((ExecutorService executor) -> {
             Throwable error = null;
 
-            error = parallelRun(error, executor, SnapshotManager.instance::stop);
+            error = parallelRun(error, executor, SnapshotManager.instance::close);
 
             CompactionManager.instance.forceShutdown();
 

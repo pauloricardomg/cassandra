@@ -66,7 +66,7 @@ public class MetadataSnapshotsTest
         if (manager != null)
         {
             manager.clearAllSnapshots();
-            manager.stop();
+            manager.close();
         }
     }
 
@@ -90,7 +90,7 @@ public class MetadataSnapshotsTest
     }
 
     @Test
-    public void testLoadSnapshots()
+    public void testExpiringSnapshots()
     {
         TableSnapshot expired = generateSnapshotDetails("expired", Instant.EPOCH, false);
         TableSnapshot nonExpired = generateSnapshotDetails("non-expired", now().plusSeconds(ONE_DAY_SECS), false);

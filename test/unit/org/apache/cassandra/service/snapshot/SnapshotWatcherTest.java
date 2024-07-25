@@ -78,23 +78,68 @@ public class SnapshotWatcherTest
     }
 
     @Test
+    public void testRefresh() throws Exception
+    {
+        DatabaseDescriptor.setSnapshotWatcherEnabled(false);
+
+        String[] dataDirs = new String[] {
+            rootDir1.toPath().toAbsolutePath().toString(),
+            rootDir2.toPath().toAbsolutePath().toString()
+        };
+
+        try (SnapshotManager snapshotManager = new SnapshotManager(5, 10, dataDirs))
+        {
+            snapshotManager.start(true);
+            List<TableSnapshot> tableSnapshots = generateTableSnapshots(10, 100);
+
+            snapshotManager.addSnapshots(tableSnapshots);
+
+            // we have two dirs
+            removeDirectoryOfSnapshot(tableSnapshots.get(0));
+            removeDirectoryOfSnapshot(tableSnapshots.get(0));
+
+            // still 1000, we don't have watcher enabled
+            assertEquals(1000, snapshotManager.getSnapshots((t) -> true).size());
+
+            snapshotManager.restart();
+
+            // after restart, we detected that we have 999 snapshots only as we wiped out one of snapshots
+            assertEquals(999, snapshotManager.getSnapshots((t) -> true).size());
+
+            for (int i = 1; i < 100; i++)
+            {
+                // we have two dirs
+                removeDirectoryOfSnapshot(tableSnapshots.get(i));
+                removeDirectoryOfSnapshot(tableSnapshots.get(i));
+            }
+
+            // still 999
+            assertEquals(999, snapshotManager.getSnapshots((t) -> true).size());
+
+            snapshotManager.restart();
+
+            assertEquals(900, snapshotManager.getSnapshots((t) -> true).size());
+        }
+        finally
+        {
+            DatabaseDescriptor.setSnapshotWatcherEnabled(true);
+        }
+    }
+
+    @Test
     public void testDisabledWatcher() throws Exception
     {
-        try
+        DatabaseDescriptor.setSnapshotWatcherEnabled(false);
+
+        try (SnapshotManager snapshotManager = new SnapshotManager(5, 10))
         {
-            DatabaseDescriptor.setSnapshotWatcherEnabled(false);
-
-            SnapshotManager snapshotManager = new SnapshotManager(5, 10);
             SnapshotWatcher watcher = snapshotManager.getSnapshotWatcher();
-
             snapshotManager.start(true);
 
             List<TableSnapshot> tableSnapshots = generateTableSnapshots(10, 100);
             snapshotManager.addSnapshots(tableSnapshots);
 
             assertTrue(watcher.getWatchedDirs().isEmpty());
-
-            snapshotManager.stop();
         }
         finally
         {
@@ -116,8 +161,8 @@ public class SnapshotWatcherTest
 
         snapshotManager.addSnapshots(tableSnapshots);
 
-        Set<Path> watchedDirs = Set.of(Paths.get(rootDir1.absolutePath(), "ks", "tb", "snapshots"),
-                                       Paths.get(rootDir2.absolutePath(), "ks", "tb", "snapshots"));
+        Set<Path> watchedDirs = Set.of(Paths.get(rootDir1.absolutePath(), "ks", "tb-1b255f4def2540a60000000000000005", "snapshots"),
+                                       Paths.get(rootDir2.absolutePath(), "ks", "tb-1b255f4def2540a60000000000000005", "snapshots"));
 
         // it watches just 2 dirs, the snapshot dir for each root
         assertWatchedDirs(watcher.getWatchedDirs(), 2, watchedDirs);
@@ -165,16 +210,16 @@ public class SnapshotWatcherTest
         // here, all snapshots are spread over two data dirs so the fact we removed the first root dir does not
         // untrack any snapshots because there is still the second "half" of it.
 
-        removeSnapshotsDir(rootDir1, "ks", "tb");
+        removeSnapshotsDir(rootDir1, "ks", "tb-1b255f4def2540a60000000000000005");
         waitOnNumberOfSnapshots(snapshotManager, watcher, 999, 1);
-        watchedDirs = Set.of(Paths.get(rootDir2.absolutePath(), "ks", "tb", "snapshots"));
+        watchedDirs = Set.of(Paths.get(rootDir2.absolutePath(), "ks", "tb-1b255f4def2540a60000000000000005", "snapshots"));
         assertWatchedDirs(watcher.getWatchedDirs(), 1, watchedDirs);
 
         // removal of the second snapshot dir results in unwatching and untracking everything
-        removeSnapshotsDir(rootDir2, "ks", "tb");
+        removeSnapshotsDir(rootDir2, "ks", "tb-1b255f4def2540a60000000000000005");
         waitOnNumberOfSnapshots(snapshotManager, watcher, 0, 0);
 
-        snapshotManager.stop();
+        snapshotManager.close();
     }
 
     private void waitOnNumberOfSnapshots(SnapshotManager snapshotManager,
@@ -201,11 +246,13 @@ public class SnapshotWatcherTest
             for (int j = 0; j < tables; j++)
             {
                 String snapshotName = format("mysnapshot_%s_%s", i, j);
-                File dir1 = new File(Paths.get(rootDir1.absolutePath(), "ks", "tb", "snapshots", snapshotName));
-                File dir2 = new File(Paths.get(rootDir2.absolutePath(), "ks", "tb", "snapshots", snapshotName));
+                File dir1 = new File(Paths.get(rootDir1.absolutePath(), "ks", "tb-1b255f4def2540a60000000000000005", "snapshots", snapshotName));
+                File dir2 = new File(Paths.get(rootDir2.absolutePath(), "ks", "tb-1b255f4def2540a60000000000000005", "snapshots", snapshotName));
                 dir1.tryCreateDirectories();
                 dir2.tryCreateDirectories();
-                TableSnapshot snapshot = generateSnapshotDetails(Set.of(dir1, dir2), snapshotName, "ks", "tb", null, false);
+                TableSnapshot snapshot = generateSnapshotDetails(Set.of(dir1, dir2), snapshotName, "ks", "tb-1b255f4def2540a60000000000000005", null, false);
+                SnapshotManifest manifest = new SnapshotManifest(List.of(), null, snapshot.getCreatedAt(), snapshot.isEphemeral());
+                manifest.serializeToJsonFile(new File(dir1.toPath().resolve("manifest.json")));
                 generateFileInSnapshot(snapshot);
                 tableSnapshots.add(snapshot);
             }
@@ -217,13 +264,13 @@ public class SnapshotWatcherTest
     private void generateFileInSnapshot(TableSnapshot tableSnapshot) throws IOException
     {
         for (File snapshotDir : tableSnapshot.getDirectories())
-            Files.createFile(snapshotDir.toPath().resolve("aFile"));
+            Files.createFile(snapshotDir.toPath().resolve("schema.cql"));
     }
 
     private void removeFileInSnapshot(TableSnapshot tableSnapshot) throws IOException
     {
         for (File snapshotDir : tableSnapshot.getDirectories())
-            Files.deleteIfExists(snapshotDir.toPath().resolve("aFile"));
+            Files.deleteIfExists(snapshotDir.toPath().resolve("schema.cql"));
     }
 
     private void removeDirectoryOfSnapshot(TableSnapshot tableSnapshot)

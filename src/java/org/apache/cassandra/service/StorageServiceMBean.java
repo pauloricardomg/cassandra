@@ -350,6 +350,11 @@ public interface StorageServiceMBean extends NotificationEmitter
     public long getSnapshotLinksPerSecond();
 
     /**
+     * Refreshes the list of all snaphots by scanning them from the disk(s).
+     */
+    public void refreshSnapshots();
+
+    /**
      * Forces refresh of values stored in system.size_estimates of all column families.
      */
     public void refreshSizeEstimates() throws ExecutionException;

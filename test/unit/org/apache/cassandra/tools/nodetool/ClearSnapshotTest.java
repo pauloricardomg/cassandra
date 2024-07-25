@@ -323,7 +323,7 @@ public class ClearSnapshotTest extends CQLTester
         String tableId2 = DASH_PATTERN.matcher(tableMetadata2.orElseThrow(() -> new IllegalStateException(format("no metadata found for %s.%s", keyspace2, tableName2)))
                                                .id.asUUID().toString()).replaceAll("");
 
-        SnapshotManager.instance.stop();
+        SnapshotManager.instance.close();
 
         rewriteManifest(tableId, getAllDataFileLocations(), KEYSPACE, tableName, "snapshot-to-clear-ks1-tb1", start.minus(5, HOURS));
         rewriteManifest(tableId, getAllDataFileLocations(), KEYSPACE, tableName, "some-other-snapshot-ks1-tb1", start.minus(2, HOURS));
