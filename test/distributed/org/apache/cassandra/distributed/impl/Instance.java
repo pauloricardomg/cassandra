@@ -719,7 +719,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
         CommitLog.instance.start();
 
-        SnapshotManager.instance.start();
+        SnapshotManager.instance.start(false);
         SnapshotManager.instance.clearExpiredSnapshots();
         SnapshotManager.instance.clearEphemeralSnapshots();
         SnapshotManager.instance.resumeSnapshotCleanup();
@@ -952,7 +952,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> shutdownAndWait(Collections.singletonList(ActiveRepairService.repairCommandExecutor())),
                                 () -> ActiveRepairService.instance().shutdownNowAndWait(1L, MINUTES),
                                 () -> EpochAwareDebounce.instance.close(),
-                                () -> SnapshotManager.instance.close(true)
+                                SnapshotManager.instance::close
             );
 
             internodeMessagingStarted = false;
