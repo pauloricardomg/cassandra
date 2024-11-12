@@ -37,6 +37,7 @@ import org.apache.cassandra.repair.TableRepairManager;
 import org.apache.cassandra.repair.ValidationPartitionIterator;
 import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.service.snapshot.SnapshotManager;
+import org.apache.cassandra.service.snapshot.SnapshotType;
 import org.apache.cassandra.utils.TimeUUID;
 import org.apache.cassandra.service.ActiveRepairService;
 
@@ -91,12 +92,7 @@ public class CassandraTableRepairManager implements TableRepairManager
                                    new Bounds<>(sstable.getFirst().getToken(), sstable.getLast().getToken()).intersects(ranges);
                         }
                     };
-
-                    // ephemeral snapshot, if repair fails, it will be cleaned next startup
-                    SnapshotManager.instance.snapshotBuilder(name, cfs.getKeyspaceTableName())
-                                            .predicate(predicate)
-                                            .ephemeral()
-                                            .takeSnapshot();
+                    SnapshotManager.instance.takeSystemSnapshotWithFilter(name, SnapshotType.REPAIR, predicate, cfs.getKeyspaceTableName());
                 }
             }).get();
         }

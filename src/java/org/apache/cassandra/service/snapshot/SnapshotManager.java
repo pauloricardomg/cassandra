@@ -18,6 +18,8 @@
 package org.apache.cassandra.service.snapshot;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,7 @@ import org.apache.cassandra.concurrent.ScheduledExecutorPlus;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.notifications.INotification;
 import org.apache.cassandra.notifications.INotificationConsumer;
 import org.apache.cassandra.notifications.TableDroppedNotification;
@@ -56,7 +59,6 @@ import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFac
 import static org.apache.cassandra.service.snapshot.ClearSnapshotTask.getClearSnapshotPredicate;
 import static org.apache.cassandra.service.snapshot.ClearSnapshotTask.getPredicateForCleanedSnapshots;
 import static org.apache.cassandra.service.snapshot.ListSnapshotsTask.getListingSnapshotsPredicate;
-import static org.apache.cassandra.service.snapshot.TableSnapshot.getTimestampedSnapshotNameWithPrefix;
 
 public class SnapshotManager implements SnapshotManagerMBean, INotificationConsumer, AutoCloseable
 {
@@ -130,22 +132,6 @@ public class SnapshotManager implements SnapshotManagerMBean, INotificationConsu
         }
     }
 
-    private static class LoadSnapshotsTask implements Callable<Set<TableSnapshot>>
-    {
-        private final String[] dataDirs;
-
-        public LoadSnapshotsTask(String[] dataDirs)
-        {
-            this.dataDirs = dataDirs;
-        }
-
-        @Override
-        public Set<TableSnapshot> call()
-        {
-            return new SnapshotLoader(dataDirs).loadSnapshots();
-        }
-    }
-
     public synchronized void start(boolean runPeriodicSnapshotCleaner)
     {
         if (started)
@@ -157,8 +143,7 @@ public class SnapshotManager implements SnapshotManagerMBean, INotificationConsu
             tasksExecutor = createSnapshotTasksExecutor();
         }
 
-        for (TableSnapshot snapshot : executeTask(new LoadSnapshotsTask(dataDirs)))
-            SnapshotManager.instance.addSnapshot(snapshot);
+        reloadSnapshots();
 
         if (runPeriodicSnapshotCleaner)
             resumeSnapshotCleanup();
@@ -197,15 +182,31 @@ public class SnapshotManager implements SnapshotManagerMBean, INotificationConsu
         restart(true);
     }
 
-    public synchronized Set<TableSnapshot> loadSnapshots()
+    @VisibleForTesting
+    protected synchronized void reloadSnapshots()
     {
-        return executeTask(new LoadSnapshotsTask(dataDirs));
+        Set<TableSnapshot> diskSnapshots = executeTask(() -> new SnapshotLoader(dataDirs).loadSnapshots());
+        if (diskSnapshots.isEmpty())
+        {
+            logger.debug("No snapshots found on disk.");
+            return;
+        }
+        logger.debug("Reloading {} snapshots from disk.", diskSnapshots.size());
+        loadSnapshotsInternal(diskSnapshots, true);
     }
 
-    void addSnapshot(TableSnapshot snapshot)
+    @VisibleForTesting
+    protected synchronized void loadSnapshotsInternal(Collection<TableSnapshot> newSnapshots, boolean reset)
     {
-        logger.debug("Adding snapshot {}", snapshot);
-        snapshots.add(snapshot);
+        if (reset)
+        {
+            snapshots.clear();
+        }
+        for (TableSnapshot snapshot : newSnapshots)
+        {
+            logger.debug("Adding snapshot {}", snapshot.getId());
+            snapshots.add(snapshot);
+        }
     }
 
     Set<TableSnapshot> getSnapshots()
@@ -377,52 +378,44 @@ public class SnapshotManager implements SnapshotManagerMBean, INotificationConsu
         executeTask(new ClearSnapshotTask(getClearSnapshotPredicate(tag, keyspaces, maxCreatedAt, false), true));
     }
 
-    /**
-     * Takes snapshot(s) for given task which was constructed outside of this manager to fine-tune the snapshotting task.
-     *
-     * @param takeSnapshotTask task to take snapshots for
-     * @return list of taken snapshots
-     */
-    public List<TableSnapshot> takeSnapshot(TakeSnapshotTask takeSnapshotTask)
+    @VisibleForTesting
+    public List<TableSnapshot> takeUserSnapshot(String tag, String... entities)
     {
-        return executeTask(takeSnapshotTask);
+        return takeUserSnapshotWithOptions(tag, Collections.emptyMap(), entities);
     }
 
-    /**
-     * Takes snapshot of a given name for given keyspace and table.
-     *
-     * @param snapshotName  name of snapshot to take
-     * @param keyspaceTable keyspace and table pair in form "keyspace.table"
-     * @return taken snapshot
-     */
-    public TableSnapshot takeSnapshot(String snapshotName, String keyspaceTable)
+    @VisibleForTesting
+    public List<TableSnapshot> takeUserSnapshotWithOptions(String tag, Map<String, String> optMap, String... entities)
     {
-        return takeSnapshot(new TakeSnapshotTask.Builder(snapshotName, keyspaceTable).build()).get(0);
+        CreateSnapshotOptions options = CreateSnapshotOptions.userSnapshot(tag, optMap, entities);
+        return takeSnapshotWithOptions(options);
     }
 
-    /**
-     * Takes snapshot of given name against given keyspace and table name.
-     *
-     * @param snapshotName name of snapshot to take
-     * @param keyspace     keyspace name to take a snapshot for
-     * @param table        table name to take a snapshot for
-     * @return taken snapshot
-     */
-    public TableSnapshot takeSnapshot(String snapshotName, String keyspace, String table)
+    public void takeSystemSnapshot(String tag, SnapshotType type, String... entities)
     {
-        return takeSnapshot(new TakeSnapshotTask.Builder(snapshotName, keyspace + '.' + table).build()).get(0);
+        takeSystemSnapshotWithFilter(tag, type, ssTableReader -> true, entities);
     }
 
-    // MBean methods
+    public void takeSystemSnapshotWithFilter(String tag, SnapshotType type, Predicate<SSTableReader> sstableFilter, String... entities)
+    {
+        CreateSnapshotOptions options = CreateSnapshotOptions.systemSnapshot(tag, type, sstableFilter, entities).build();
+        takeSnapshotWithOptions(options);
+    }
+
+    private List<TableSnapshot> takeSnapshotWithOptions(CreateSnapshotOptions options)
+    {
+        TakeSnapshotTask takeSnapshotTask = new TakeSnapshotTask(options);
+        List<TableSnapshot> snapshots = executeTask(takeSnapshotTask);
+        loadSnapshotsInternal(snapshots, false);
+        return snapshots;
+    }
+
+    // Super methods
 
     @Override
-    public void takeSnapshot(String tag, Map<String, String> options, String... entities)
+    public void takeSnapshot(String tag, Map<String, String> optMap, String... entities)
     {
-        TakeSnapshotTask.Builder builder = new TakeSnapshotTask.Builder(tag, entities).ttl(options.get(TakeSnapshotTask.TTL));
-        if (Boolean.parseBoolean(options.getOrDefault(TakeSnapshotTask.SKIP_FLUSH, Boolean.FALSE.toString())))
-            builder.skipFlush();
-
-        takeSnapshot(builder.build());
+        takeUserSnapshotWithOptions(tag, optMap, entities);
     }
 
     @Override
@@ -471,54 +464,36 @@ public class SnapshotManager implements SnapshotManagerMBean, INotificationConsu
     @Override
     public void handleNotification(INotification notification, Object sender)
     {
-        long creationTime = Clock.Global.currentTimeMillis();
-
         if (notification instanceof TruncationNotification)
         {
             TruncationNotification truncationNotification = (TruncationNotification) notification;
             ColumnFamilyStore cfs = truncationNotification.cfs;
-
             if (!truncationNotification.disableSnapshot && cfs.isAutoSnapshotEnabled())
             {
-                String tag = getTimestampedSnapshotNameWithPrefix(cfs.name, creationTime, TableSnapshot.SNAPSHOT_TRUNCATE_PREFIX);
-                SnapshotManager.instance.snapshotBuilder(tag, cfs.getKeyspaceTableName())
-                                        .ttl(truncationNotification.ttl)
-                                        .creationTime(creationTime)
-                                        .takeSnapshot();
+                CreateSnapshotOptions opts = CreateSnapshotOptions.systemSnapshot(cfs.name, SnapshotType.TRUNCATE, cfs.getKeyspaceTableName())
+                                                                  .ttl(truncationNotification.ttl).build();
+                takeSnapshotWithOptions(opts);
             }
         }
         else if (notification instanceof TableDroppedNotification)
         {
             TableDroppedNotification tableDroppedNotification = (TableDroppedNotification) notification;
             ColumnFamilyStore cfs = tableDroppedNotification.cfs;
-
             if (cfs.isAutoSnapshotEnabled())
             {
-                String tag = getTimestampedSnapshotNameWithPrefix(cfs.name, creationTime, TableSnapshot.SNAPSHOT_DROP_PREFIX);
-                SnapshotManager.instance.snapshotBuilder(tag, cfs.getKeyspaceTableName())
-                                        .cfs(cfs)
-                                        .ttl(tableDroppedNotification.ttl)
-                                        .creationTime(creationTime)
-                                        .takeSnapshot();
+                CreateSnapshotOptions opts = CreateSnapshotOptions.systemSnapshot(cfs.name, SnapshotType.DROP, cfs.getKeyspaceTableName())
+                                                                  .cfs(cfs).ttl(tableDroppedNotification.ttl).build();
+                takeSnapshotWithOptions(opts);
             }
         }
         else if (notification instanceof TablePreScrubNotification)
         {
             TablePreScrubNotification tablePreScrubNotification = (TablePreScrubNotification) notification;
             ColumnFamilyStore cfs = tablePreScrubNotification.cfs;
-
-            String snapshotName = TableSnapshot.SNAPSHOT_PRE_SCRUB_PREFIX + '-' + creationTime;
-
-            SnapshotManager.instance.snapshotBuilder(snapshotName, cfs.getKeyspaceTableName())
-                                    .skipFlush()
-                                    .creationTime(creationTime)
-                                    .takeSnapshot();
+            CreateSnapshotOptions opts = CreateSnapshotOptions.systemSnapshot(cfs.name, SnapshotType.PRE_SCRUB, cfs.getKeyspaceTableName())
+                                                              .cfs(cfs).build();
+            takeSnapshotWithOptions(opts);
         }
-    }
-
-    public TakeSnapshotTask.Builder snapshotBuilder(String tag, String... entities)
-    {
-        return new TakeSnapshotTask.Builder(tag, entities);
     }
 
     private <T> T executeTask(Callable<T> task)
@@ -542,9 +517,8 @@ public class SnapshotManager implements SnapshotManagerMBean, INotificationConsu
     {
         return executorFactory()
                .localAware()
-               .configurePooled("SnapshotManager", 1)
-               .withKeepAlive(1, TimeUnit.HOURS)
-               .withQueueLimit(Integer.MAX_VALUE)
+               .configureSequential("SnapshotManager")
+               .withQueueLimit(100)
                .withRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy())
                .build();
     }

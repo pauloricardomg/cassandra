@@ -28,16 +28,12 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.function.Predicate;
 
-import com.google.common.base.Predicate;
-import com.google.common.util.concurrent.RateLimiter;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.CassandraRelevantProperties;
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.config.DurationSpec.IntSecondsBound;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.Keyspace;
@@ -61,154 +57,13 @@ import static java.lang.String.format;
 
 public class TakeSnapshotTask implements Callable<List<TableSnapshot>>
 {
-    public static final String SKIP_FLUSH = "skipFlush";
-    public static final String TTL = "ttl";
-
     private static final Logger logger = LoggerFactory.getLogger(TakeSnapshotTask.class);
 
-    private final String tag;
-    private final IntSecondsBound ttl;
-    private Instant creationTime;
-    private final boolean skipFlush;
-    private final boolean ephemeral;
-    private final Predicate<SSTableReader> predicate;
-    private final RateLimiter rateLimiter;
-    private final ColumnFamilyStore cfs;
-    private final String[] entities;
+    private final CreateSnapshotOptions opts;
 
-    private TakeSnapshotTask(String tag,
-                             IntSecondsBound ttl,
-                             Instant creationTime,
-                             boolean skipFlush,
-                             boolean ephemeral,
-                             Predicate<SSTableReader> predicate,
-                             RateLimiter rateLimiter,
-                             ColumnFamilyStore cfs,
-                             String... entities)
+    public TakeSnapshotTask(CreateSnapshotOptions options)
     {
-        this.tag = tag;
-        this.ttl = ttl;
-        this.creationTime = creationTime;
-        this.skipFlush = skipFlush;
-        this.ephemeral = ephemeral;
-        this.predicate = predicate;
-        this.rateLimiter = rateLimiter == null ? DatabaseDescriptor.getSnapshotRateLimiter() : rateLimiter;
-        this.cfs = cfs;
-        this.entities = entities;
-    }
-
-    public static class Builder
-    {
-        private final String tag;
-        private IntSecondsBound ttl;
-        private Instant creationTime;
-        private boolean skipFlush = false;
-        private boolean ephemeral = false;
-        private Predicate<SSTableReader> predicate;
-        private RateLimiter rateLimiter;
-        private final String[] entities;
-        private ColumnFamilyStore cfs;
-
-        public List<TableSnapshot> takeSnapshot()
-        {
-            return SnapshotManager.instance.takeSnapshot(build());
-        }
-
-        Builder(String tag, String... entities)
-        {
-            this.tag = tag;
-            this.entities = entities;
-        }
-
-        public Builder predicate(Predicate<SSTableReader> predicate)
-        {
-            this.predicate = predicate;
-            return this;
-        }
-
-        public Builder rateLimiter(RateLimiter rateLimiter)
-        {
-            this.rateLimiter = rateLimiter;
-            return this;
-        }
-
-        public Builder ttl(String ttl)
-        {
-            if (ttl != null)
-                this.ttl = new IntSecondsBound(ttl);
-
-            return this;
-        }
-
-        public Builder ttl(IntSecondsBound ttl)
-        {
-            this.ttl = ttl;
-            return this;
-        }
-
-        public Builder creationTime(String creationTime)
-        {
-            if (creationTime != null)
-            {
-                try
-                {
-                    return creationTime(Long.parseLong(creationTime));
-                }
-                catch (Exception ex)
-                {
-                    throw new RuntimeException("Unable to parse creation time from " + creationTime);
-                }
-            }
-
-            return this;
-        }
-
-        public Builder creationTime(Instant creationTime)
-        {
-            this.creationTime = creationTime;
-            return this;
-        }
-
-        public Builder creationTime(long creationTime)
-        {
-            return creationTime(Instant.ofEpochMilli(creationTime));
-        }
-
-        public Builder skipFlush()
-        {
-            skipFlush = true;
-            return this;
-        }
-
-        public Builder ephemeral()
-        {
-            ephemeral = true;
-            return this;
-        }
-
-        public Builder cfs(ColumnFamilyStore cfs)
-        {
-            this.cfs = cfs;
-            return this;
-        }
-
-        public TakeSnapshotTask build()
-        {
-            if (tag == null || tag.isEmpty())
-                throw new RuntimeException("You must supply a snapshot name.");
-
-            if (ttl != null)
-            {
-                int minAllowedTtlSecs = CassandraRelevantProperties.SNAPSHOT_MIN_ALLOWED_TTL_SECONDS.getInt();
-                if (ttl.toSeconds() < minAllowedTtlSecs)
-                    throw new IllegalArgumentException(format("ttl for snapshot must be at least %d seconds", minAllowedTtlSecs));
-            }
-
-            if (ephemeral && ttl != null)
-                throw new IllegalStateException(format("can not take ephemeral snapshot (%s) while ttl is specified too", tag));
-
-            return new TakeSnapshotTask(tag, ttl, creationTime, skipFlush, ephemeral, predicate, rateLimiter, cfs, entities);
-        }
+        this.opts = options;
     }
 
     @Override
@@ -217,34 +72,35 @@ public class TakeSnapshotTask implements Callable<List<TableSnapshot>>
         if (StorageService.instance.operationMode() == StorageService.Mode.JOINING)
             throw new RuntimeException("Cannot snapshot until bootstrap completes");
 
-        Set<ColumnFamilyStore> entitiesForSnapshot = cfs == null ? parseEntitiesForSnapshot(entities) : Set.of(cfs);
+        // This is not in builder's build method on purpose in order to postpone the timestamp for as long as possible
+        // until the actual snapshot is taken. If we constructed a task and have not done anything with it for 5 minutes
+        // then by the time a snapshot would be taken the creation time would be quite off
+        Instant creationTime = opts.creationTime;
+        if (creationTime == null)
+            creationTime = Instant.ofEpochMilli(Clock.Global.currentTimeMillis());
 
+        // Fail if there are any other snapshots with this name
+        String snapshotName = opts.getSnapshotName(creationTime);
+        Set<ColumnFamilyStore> entitiesForSnapshot = opts.cfs == null ? parseEntitiesForSnapshot(opts.entities) : Set.of(opts.cfs);
         for (ColumnFamilyStore table : entitiesForSnapshot)
         {
             String keyspaceName = table.getKeyspaceName();
             String tableName = table.getTableName();
             for (TableSnapshot existingSnapshot : SnapshotManager.instance.getSnapshots())
             {
-                if (existingSnapshot.getTag().equals(tag) &&
+                if (existingSnapshot.getTag().equals(snapshotName) &&
                     existingSnapshot.getKeyspaceName().equals(keyspaceName) &&
                     existingSnapshot.getTableName().equals(tableName))
                 {
-                    throw new RuntimeException(format("Snapshot %s for %s.%s already exists.", tag, keyspaceName, tableName));
+                    throw new RuntimeException(format("Snapshot %s for %s.%s already exists.", snapshotName, keyspaceName, tableName));
                 }
             }
         }
 
         List<TableSnapshot> snapshots = new LinkedList<>();
-
-        // This is not in builder's build method on purpose in order to postpone the timestamp for as long as possible
-        // until the actual snapshot is taken. If we constructed a task and have not done anything with it for 5 minutes
-        // then by the time a snapshot would be taken the creation time would be quite off
-        if (creationTime == null)
-            creationTime = Instant.ofEpochMilli(Clock.Global.currentTimeMillis());
-
         for (ColumnFamilyStore cfs : entitiesForSnapshot)
         {
-            if (!skipFlush)
+            if (!opts.skipFlush)
             {
                 Memtable current = cfs.getTracker().getView().getCurrentMemtable();
                 if (!current.isClean())
@@ -252,36 +108,29 @@ public class TakeSnapshotTask implements Callable<List<TableSnapshot>>
                     if (current.shouldSwitch(ColumnFamilyStore.FlushReason.SNAPSHOT))
                         FBUtilities.waitOnFuture(cfs.switchMemtableIfCurrent(current, ColumnFamilyStore.FlushReason.SNAPSHOT));
                     else
-                        current.performSnapshot(tag);
+                        current.performSnapshot(snapshotName);
                 }
             }
 
-            TableSnapshot snapshot = createSnapshot(cfs, tag, predicate, ephemeral, ttl, creationTime);
+            TableSnapshot snapshot = createSnapshot(cfs, snapshotName, creationTime);
             snapshots.add(snapshot);
         }
-
-        for (TableSnapshot snapshot : snapshots)
-            SnapshotManager.instance.addSnapshot(snapshot);
 
         return snapshots;
     }
 
-    private TableSnapshot createSnapshot(ColumnFamilyStore cfs,
-                                         String tag,
-                                         Predicate<SSTableReader> predicate,
-                                         boolean ephemeral,
-                                         IntSecondsBound ttl,
-                                         Instant creationTime)
+    private TableSnapshot createSnapshot(ColumnFamilyStore cfs, String snapshotName, Instant creationTime)
     {
+        Predicate<SSTableReader> predicate = opts.sstableFilter;
         Set<SSTableReader> sstables = new LinkedHashSet<>();
         for (ColumnFamilyStore aCfs : cfs.concatWithIndexes())
         {
-            try (ColumnFamilyStore.RefViewFragment currentView = aCfs.selectAndReference(View.select(SSTableSet.CANONICAL, (x) -> predicate == null || predicate.apply(x))))
+            try (ColumnFamilyStore.RefViewFragment currentView = aCfs.selectAndReference(View.select(SSTableSet.CANONICAL, (x) -> predicate == null || predicate.test(x))))
             {
                 for (SSTableReader ssTable : currentView.sstables)
                 {
-                    File snapshotDirectory = Directories.getSnapshotDirectory(ssTable.descriptor, tag);
-                    ssTable.createLinks(snapshotDirectory.path(), rateLimiter); // hard links
+                    File snapshotDirectory = Directories.getSnapshotDirectory(ssTable.descriptor, snapshotName);
+                    ssTable.createLinks(snapshotDirectory.path(), opts.rateLimiter); // hard links
                     if (logger.isTraceEnabled())
                         logger.trace("Snapshot for {} keyspace data file {} created in {}", cfs.keyspace, ssTable.getFilename(), snapshotDirectory);
                     sstables.add(ssTable);
@@ -293,10 +142,8 @@ public class TakeSnapshotTask implements Callable<List<TableSnapshot>>
         for (SSTableReader sstable : sstables)
             dataComponents.add(sstable.descriptor.relativeFilenameFor(SSTableFormat.Components.DATA));
 
-        SnapshotManifest manifest = new SnapshotManifest(dataComponents, ttl, creationTime, ephemeral);
-
-        Set<File> snapshotDirs = cfs.getDirectories().getSnapshotDirs(tag);
-
+        SnapshotManifest manifest = new SnapshotManifest(dataComponents, opts.ttl, creationTime, opts.ephemeral);
+        Set<File> snapshotDirs = cfs.getDirectories().getSnapshotDirs(snapshotName);
         for (File snapshotDir : snapshotDirs)
         {
             writeSnapshotManifest(manifest, Directories.getSnapshotManifestFile(snapshotDir));
@@ -311,11 +158,11 @@ public class TakeSnapshotTask implements Callable<List<TableSnapshot>>
         return new TableSnapshot(cfs.metadata.keyspace,
                                  cfs.metadata.name,
                                  cfs.metadata.id.asUUID(),
-                                 tag,
+                                 snapshotName,
                                  creationTime,
-                                 SnapshotManifest.computeExpiration(ttl, creationTime),
+                                 SnapshotManifest.computeExpiration(opts.ttl, creationTime),
                                  snapshotDirs,
-                                 ephemeral);
+                                 opts.ephemeral);
     }
 
     private Set<ColumnFamilyStore> parseEntitiesForSnapshot(String... entities)

@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.db.compaction;
 
-import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -47,6 +46,7 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.snapshot.SnapshotManager;
+import org.apache.cassandra.service.snapshot.SnapshotType;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.TimeUUID;
 import org.apache.cassandra.utils.concurrent.Refs;
@@ -54,7 +54,6 @@ import org.apache.cassandra.utils.concurrent.Refs;
 import static org.apache.cassandra.db.compaction.CompactionHistoryTabularData.COMPACTION_TYPE_PROPERTY;
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
-import static org.apache.cassandra.utils.FBUtilities.now;
 
 public class CompactionTask extends AbstractCompactionTask
 {
@@ -127,12 +126,7 @@ public class CompactionTask extends AbstractCompactionTask
 
         if (DatabaseDescriptor.isSnapshotBeforeCompaction())
         {
-            Instant creationTime = now();
-            SnapshotManager.instance.snapshotBuilder(creationTime.toEpochMilli() + "-compact- " + cfs.name,
-                                                     cfs.getKeyspaceTableName())
-                                    .skipFlush()
-                                    .creationTime(creationTime)
-                                    .takeSnapshot();
+            SnapshotManager.instance.takeSystemSnapshot(cfs.name, SnapshotType.COMPACT, cfs.getKeyspaceTableName());
         }
 
         try (CompactionController controller = getCompactionController(transaction.originals()))

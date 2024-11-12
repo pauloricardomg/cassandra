@@ -110,7 +110,7 @@ import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.service.paxos.uncommitted.PaxosRows;
 import org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedIndex;
 import org.apache.cassandra.service.snapshot.SnapshotManager;
-import org.apache.cassandra.service.snapshot.TableSnapshot;
+import org.apache.cassandra.service.snapshot.SnapshotType;
 import org.apache.cassandra.streaming.StreamOperation;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.Epoch;
@@ -118,7 +118,6 @@ import org.apache.cassandra.tcm.membership.NodeState;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraVersion;
-import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MD5Digest;
 import org.apache.cassandra.utils.Pair;
@@ -1828,17 +1827,9 @@ public final class SystemKeyspace
                     entities.add(cfs.getKeyspaceTableName());
             }
 
-            long creationTime = Clock.Global.currentTimeMillis();
             logger.info("Detected version upgrade from {} to {}, snapshotting system keyspaces", previous, next);
-            String snapshotName = TableSnapshot.getTimestampedSnapshotName(format("%s-%s-%s",
-                                                                                  TableSnapshot.SNAPSHOT_UPGRADE_PREFIX,
-                                                                                  previous,
-                                                                                  next),
-                                                                           creationTime);
-
-            SnapshotManager.instance.snapshotBuilder(snapshotName, entities.toArray(new String[0]))
-                                    .creationTime(creationTime)
-                                    .takeSnapshot();
+            String tag = format("%s-%s", previous, next);
+            SnapshotManager.instance.takeSystemSnapshot(tag, SnapshotType.UPGRADE, entities.toArray(new String[0]));
         }
     }
 

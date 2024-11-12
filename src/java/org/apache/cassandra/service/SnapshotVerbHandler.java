@@ -25,6 +25,7 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.snapshot.SnapshotManager;
+import org.apache.cassandra.service.snapshot.SnapshotType;
 import org.apache.cassandra.utils.DiagnosticSnapshotService;
 
 
@@ -48,7 +49,7 @@ public class SnapshotVerbHandler implements IVerbHandler<SnapshotCommand>
         {
             try
             {
-                SnapshotManager.instance.snapshotBuilder(command.snapshot_name, command.keyspace + '.' + command.column_family).takeSnapshot();
+                SnapshotManager.instance.takeSystemSnapshot(command.snapshot_name, SnapshotType.MISC, command.keyspace + '.' + command.column_family);
             }
             catch (Exception ex)
             {
