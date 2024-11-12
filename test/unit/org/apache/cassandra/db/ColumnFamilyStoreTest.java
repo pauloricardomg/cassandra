@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -81,8 +82,10 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaTestUtil;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
+import org.apache.cassandra.service.snapshot.CreateSnapshotOptions;
 import org.apache.cassandra.service.snapshot.SnapshotManager;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
+import org.apache.cassandra.service.snapshot.SnapshotType;
 import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -292,8 +295,8 @@ public class ColumnFamilyStoreTest
         }
         ScrubTest.fillIndexCF(cfs, false, colValues);
 
-        SnapshotManager.instance.snapshotBuilder("nonEphemeralSnapshot", cfs.getKeyspaceTableName()).takeSnapshot();
-        SnapshotManager.instance.snapshotBuilder("ephemeralSnapshot", cfs.getKeyspaceTableName()).ephemeral().takeSnapshot();
+        SnapshotManager.instance.takeSystemSnapshot("nonEphemeralSnapshot", SnapshotType.MISC, cfs.getKeyspaceTableName());
+        SnapshotManager.instance.takeSystemSnapshot("ephemeralSnapshot", SnapshotType.REPAIR, cfs.getKeyspaceTableName());
 
         Map<String, TableSnapshot> snapshotDetails = Util.listSnapshots(cfs);
         assertEquals(2, snapshotDetails.size());
@@ -324,7 +327,7 @@ public class ColumnFamilyStoreTest
         Util.flush(cfs);
 
         // snapshot
-        SnapshotManager.instance.snapshotBuilder("basic", cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeUserSnapshot("basic", cfs.getKeyspaceTableName());
 
         // check snapshot was created
         Map<String, TableSnapshot> snapshotDetails = Util.listSnapshots(cfs);
@@ -375,7 +378,7 @@ public class ColumnFamilyStoreTest
 
         assertThat(cfs.trueSnapshotsSize()).isZero();
 
-        SnapshotManager.instance.snapshotBuilder("snapshot_without_index", cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeUserSnapshot("snapshot_without_index", cfs.getKeyspaceTableName());
 
         long firstSnapshotsSize = cfs.trueSnapshotsSize();
         Map<String, TableSnapshot> listedSnapshots = Util.listSnapshots(cfs);
@@ -407,7 +410,7 @@ public class ColumnFamilyStoreTest
 
         rebuildIndices(cfs);
 
-        SnapshotManager.instance.snapshotBuilder("snapshot_with_index", cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeSnapshot("snapshot_with_index", new HashMap<>(), cfs.getKeyspaceTableName());
 
         long secondSnapshotSize = cfs.trueSnapshotsSize();
         Map<String, TableSnapshot> secondListedSnapshots = Util.listSnapshots(cfs);
@@ -425,8 +428,7 @@ public class ColumnFamilyStoreTest
         assertEquals(secondSnapshotSize, withIndexTrueSize + withoutIndexTrueSize);
 
         // taking another one is basically a copy of the previous
-
-        SnapshotManager.instance.snapshotBuilder("another_snapshot_with_index", cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeSnapshot("another_snapshot_with_index", new HashMap<>(), cfs.getKeyspaceTableName());
 
         long thirdSnapshotSize = cfs.trueSnapshotsSize();
         Map<String, TableSnapshot> thirdListedSnapshots = Util.listSnapshots(cfs);
@@ -687,7 +689,7 @@ public class ColumnFamilyStoreTest
         Util.flush(cfs);
 
         String snapshotName = "newSnapshot";
-        SnapshotManager.instance.snapshotBuilder(snapshotName, cfs.getKeyspaceTableName()).skipFlush().takeSnapshot();
+        SnapshotManager.instance.takeUserSnapshotWithOptions(snapshotName, Map.of(CreateSnapshotOptions.SKIP_FLUSH, "true"), cfs.getKeyspaceTableName());
 
         File snapshotManifestFile = cfs.getDirectories().getSnapshotManifestFile(snapshotName);
         SnapshotManifest manifest = SnapshotManifest.deserializeFromJsonFile(snapshotManifestFile);
@@ -717,8 +719,10 @@ public class ColumnFamilyStoreTest
             writeData(cfs);
         }
 
-        TableSnapshot snapshot = SnapshotManager.instance.snapshotBuilder("basic", cfs.getKeyspaceTableName()).takeSnapshot().get(0);
+        SnapshotManager.instance.takeUserSnapshot("basic", cfs.getKeyspaceTableName());
 
+        TableSnapshot snapshot = SnapshotManager.instance.getSnapshot(cfs.metadata.keyspace, cfs.metadata.name, "basic").get();
+        assertNotNull(snapshot);
         assertThat(snapshot.exists()).isTrue();
         assertThat(Util.listSnapshots(cfs).containsKey("basic")).isTrue();
         assertThat(Util.listSnapshots(cfs).get("basic")).isEqualTo(snapshot);

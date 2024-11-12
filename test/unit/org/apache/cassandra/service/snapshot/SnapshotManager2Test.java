@@ -90,16 +90,16 @@ public class SnapshotManager2Test
                 for (int k = 0; k < NUM_SNAPSHOTS_PER_TABLE; k++)
                 {
                     System.out.printf("Creating snapshot %d of table %s.%s%n", k, cfs.keyspace.getName(), cfs.name);
-                    SnapshotManager.instance.snapshotBuilder(snapshotName(k), cfs.getKeyspaceTableName()).takeSnapshot();
+                    CreateSnapshotOptions options = CreateSnapshotOptions.userSnapshot(snapshotName(k), cfs.getKeyspaceTableName());
+                    TakeSnapshotTask createSnapshot = new TakeSnapshotTask(options);
+                    assertEquals(1, createSnapshot.call().size());
                 }
             }
         }
 
         assertEquals(SnapshotManager.instance.getSnapshots(KEYSPACE).size(), 0);
 
-        for (TableSnapshot snapshot : SnapshotManager.instance.loadSnapshots())
-            SnapshotManager.instance.addSnapshot(snapshot);
-
+        SnapshotManager.instance.reloadSnapshots();
         assertEquals(SnapshotManager.instance.getSnapshots(t -> true).size(), NUM_KEYSPACES * NUM_TABLES_PER_KEYSPACE * NUM_SNAPSHOTS_PER_TABLE);
     }
 

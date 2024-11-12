@@ -103,7 +103,6 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.snapshot.SnapshotManager;
-import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.utils.ConfigGenBuilder;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Throwables;
@@ -684,8 +683,8 @@ public abstract class SAITester extends CQLTester.Fuzzed
     protected int snapshot(String snapshotName)
     {
         ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
-        TableSnapshot snapshot = SnapshotManager.instance.snapshotBuilder(snapshotName, cfs.getKeyspaceTableName()).takeSnapshot().get(0);
-        return snapshot.getDirectories().size();
+        SnapshotManager.instance.takeUserSnapshot(snapshotName, cfs.getKeyspaceTableName());
+        return (int) SnapshotManager.instance.getSnapshot(cfs.metadata.keyspace, cfs.metadata.name, snapshotName).get().computeSizeOnDiskBytes();
     }
 
     protected void restoreSnapshot(String snapshot)

@@ -106,9 +106,7 @@ public class SnapshotManagerTest
     public void testRemovingManifestsLogicallyRemovesSnapshot() throws Exception
     {
         List<TableSnapshot> tableSnapshots = generateTableSnapshots(10, 100);
-
-        for (TableSnapshot snapshot : tableSnapshots)
-            snapshotManager.addSnapshot(snapshot);
+        snapshotManager.loadSnapshotsInternal(tableSnapshots, false);
 
         // we still have 1000 snapshots because we removed just one manifest
         removeManifestOfSnapshot(tableSnapshots.get(0));

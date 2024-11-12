@@ -432,7 +432,7 @@ public class SchemaCQLHelperTest extends CQLTester
             execute("INSERT INTO %s (pk1, pk2, ck1, ck2, reg1, reg2) VALUES (?, ?, ?, ?, ?, ?)", i, i + 1, i + 2, i + 3, null, i + 5);
 
         ColumnFamilyStore cfs = Keyspace.open(keyspace()).getColumnFamilyStore(tableName);
-        SnapshotManager.instance.snapshotBuilder(SNAPSHOT, cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeUserSnapshot(SNAPSHOT, cfs.getKeyspaceTableName());
 
         String schema = Files.toString(cfs.getDirectories().getSnapshotSchemaFile(SNAPSHOT).toJavaIOFile(), Charset.defaultCharset());
         assertThat(schema,
@@ -481,6 +481,7 @@ public class SchemaCQLHelperTest extends CQLTester
             "INDEX IF NOT EXISTS " + tableName + "_reg2_idx ON " + keyspace() + '.' + tableName + " (reg2)" +
             (" USING '" + (isIndexLegacy ? CassandraIndex.NAME : DatabaseDescriptor.getDefaultSecondaryIndex()) + "'") + ";"));
 
+        // TODO: construct manifest from SnapshotManager
         JsonNode manifest = JsonUtils.JSON_OBJECT_MAPPER.readTree(cfs.getDirectories().getSnapshotManifestFile(SNAPSHOT).toJavaIOFile());
         JsonNode files = manifest.get("files");
         // two files, the second is index
@@ -509,7 +510,7 @@ public class SchemaCQLHelperTest extends CQLTester
             execute("INSERT INTO %s (pk1, pk2, ck1, ck2, reg1) VALUES (?, ?, ?, ?, ?)", i, i + 1, i + 2, i + 3, null);
 
         ColumnFamilyStore cfs = Keyspace.open(keyspace()).getColumnFamilyStore(tableName);
-        SnapshotManager.instance.snapshotBuilder(SNAPSHOT, cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeUserSnapshot(SNAPSHOT, cfs.getKeyspaceTableName());
 
         String schema = Files.toString(cfs.getDirectories().getSnapshotSchemaFile(SNAPSHOT).toJavaIOFile(), Charset.defaultCharset());
         schema = schema.substring(schema.indexOf("CREATE TABLE")); // trim to ensure order
@@ -552,7 +553,7 @@ public class SchemaCQLHelperTest extends CQLTester
             execute("INSERT INTO %s (pk1, reg1) VALUES (?, ?)", i, i + 1);
 
         ColumnFamilyStore cfs = Keyspace.open(keyspace()).getColumnFamilyStore(tableName);
-        SnapshotManager.instance.snapshotBuilder(SNAPSHOT, cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeUserSnapshot(SNAPSHOT, cfs.getKeyspaceTableName());
 
         String schema = Files.toString(cfs.getDirectories().getSnapshotSchemaFile(SNAPSHOT).toJavaIOFile(), Charset.defaultCharset());
         schema = schema.substring(schema.indexOf("CREATE TABLE")); // trim to ensure order
@@ -578,7 +579,7 @@ public class SchemaCQLHelperTest extends CQLTester
     public void testSystemKsSnapshot()
     {
         ColumnFamilyStore cfs = Keyspace.open("system").getColumnFamilyStore("peers");
-        SnapshotManager.instance.snapshotBuilder(SNAPSHOT, cfs.getKeyspaceTableName()).takeSnapshot();
+        SnapshotManager.instance.takeUserSnapshot(SNAPSHOT, cfs.getKeyspaceTableName());
 
         Assert.assertTrue(cfs.getDirectories().getSnapshotManifestFile(SNAPSHOT).exists());
         Assert.assertFalse(cfs.getDirectories().getSnapshotSchemaFile(SNAPSHOT).exists());

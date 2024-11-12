@@ -200,7 +200,7 @@ public class SASIIndexTest
 
         try
         {
-            SnapshotManager.instance.snapshotBuilder(snapshotName, store.getKeyspaceTableName()).takeSnapshot();
+            SnapshotManager.instance.takeUserSnapshot("basic", store.getKeyspaceTableName());
 
             // Compact to make true snapshot size != 0
             store.forceMajorCompaction();

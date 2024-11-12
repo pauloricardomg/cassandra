@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
+import java.util.HashMap;
 
 import org.junit.Test;
 
@@ -42,6 +43,7 @@ public class SnapshotTest extends CQLTester
             File toc = sstable.descriptor.fileFor(Components.TOC);
             Files.write(toc.toPath(), new byte[0], StandardOpenOption.TRUNCATE_EXISTING);
         }
-        SnapshotManager.instance.snapshotBuilder("hello", getCurrentColumnFamilyStore().getKeyspaceTableName()).takeSnapshot();
+        // TODO: what is this testing ?
+        SnapshotManager.instance.takeUserSnapshot("hello", getCurrentColumnFamilyStore().getKeyspaceTableName());
     }
 }

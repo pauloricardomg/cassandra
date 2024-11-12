@@ -19,7 +19,6 @@
 package org.apache.cassandra.tools;
 
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -93,7 +92,7 @@ public class StandaloneUpgraderOnSStablesTest
     {
         LegacySSTableTest.truncateLegacyTables(legacyId);
         LegacySSTableTest.loadLegacyTables(legacyId);
-        SnapshotManager.instance.takeSnapshot("testsnapshot", Map.of(), "legacy_tables.legacy_" + legacyId + "_simple");
+        SnapshotManager.instance.takeUserSnapshot("testsnapshot", "legacy_tables.legacy_" + legacyId + "_simple");
 
         ToolResult tool = ToolRunner.invokeClass(StandaloneUpgrader.class,
                                                  "-k",
