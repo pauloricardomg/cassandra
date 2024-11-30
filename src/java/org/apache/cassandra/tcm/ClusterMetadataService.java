@@ -632,6 +632,11 @@ public class ClusterMetadataService
         return log.metadata();
     }
 
+    public boolean isInitialized()
+    {
+        return log.isReady();
+    }
+
     /**
      * Fetches log entries from directly from CMS, at least to the specified epoch.
      *

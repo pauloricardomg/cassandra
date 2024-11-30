@@ -578,6 +578,11 @@ public abstract class LocalLog implements Closeable
         return waitForHighestConsecutive();
     }
 
+    public boolean isReady()
+    {
+        return replayComplete.get();
+    }
+
     private void maybeNotifyListeners(Entry entry, Transformation.Result result)
     {
         for (LogListener listener : listeners)
