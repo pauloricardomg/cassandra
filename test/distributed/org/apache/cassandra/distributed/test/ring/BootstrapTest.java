@@ -18,33 +18,60 @@
 
 package org.apache.cassandra.distributed.test.ring;
 
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.util.Collection;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import javax.management.JMX;
+import javax.management.MBeanServerConnection;
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
+import javax.management.remote.JMXConnector;
+
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.implementation.MethodDelegation;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.TokenSupplier;
+import org.apache.cassandra.distributed.shared.JMXUtil;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.StorageServiceMBean;
+import org.apache.cassandra.utils.Closeable;
 
 import static java.util.Arrays.asList;
+import static net.bytebuddy.matcher.ElementMatchers.named;
+import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 import static org.apache.cassandra.distributed.action.GossipHelper.bootstrap;
 import static org.apache.cassandra.distributed.action.GossipHelper.pullSchemaFrom;
 import static org.apache.cassandra.distributed.action.GossipHelper.statusToBootstrap;
 import static org.apache.cassandra.distributed.action.GossipHelper.withProperty;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class BootstrapTest extends TestBaseImpl
 {
@@ -150,4 +177,83 @@ public class BootstrapTest extends TestBaseImpl
                         .collect(Collectors.toMap(nodeId -> nodeId,
                                                   nodeId -> (Long) cluster.get(nodeId).executeInternal("SELECT count(*) FROM " + KEYSPACE + ".tbl")[0][0]));
     }
+
+
+    /**
+     * This regression test for CASSANDRA-19902 ensures {@link StorageServiceMBean} JMX
+     * interface is published before the node finishes bootstrapping
+     */
+    @Test
+    public void testStorageServiceMBeanIsPublishedOnJMXDuringBootstrap() throws Throwable
+    {
+        ExecutorService es = Executors.newFixedThreadPool(1);
+        try (Cluster cluster = builder().withNodes(2)
+                                        .withConfig(config -> config.with(GOSSIP)
+                                                                    .with(NETWORK)
+                                                                    .with(Feature.JMX)
+                                                                    .set("auto_bootstrap", true))
+                                        .withInstanceInitializer(BBBootstrapInterceptor::install)
+                                        .createWithoutStarting();
+             Closeable ignored = es::shutdown)
+        {
+            Runnable test = () ->
+            {
+                // Wait for bootstrap to start via countdown latch
+                IInvokableInstance joiningInstance = cluster.get(2);
+                joiningInstance.runOnInstance(() -> Uninterruptibles.awaitUninterruptibly(BBBootstrapInterceptor.bootstrapStart));
+                // At this point, it should be possible to check bootstrap status via JMX
+                IInstanceConfig config = joiningInstance.config();
+                try (JMXConnector jmxc = JMXUtil.getJmxConnector(config))
+                {
+                    MBeanServerConnection mbsc = jmxc.getMBeanServerConnection();
+                    StorageServiceMBean sp = JMX.newMBeanProxy(mbsc, new ObjectName("org.apache.cassandra.db:type=StorageService"), StorageServiceMBean.class);
+                    assertEquals(sp.getOperationMode(), StorageService.Mode.JOINING.toString());
+                }
+                catch (IOException | MalformedObjectNameException e)
+                {
+                    throw new RuntimeException(e);
+                }
+                finally
+                {
+                    // Complete bootstrap via countdown latch so test will finish properly
+                    joiningInstance.runOnInstance(() -> BBBootstrapInterceptor.bootstrapReady.countDown());
+                }
+            };
+
+            Future<?> testResult = es.submit(test);
+            try
+            {
+                cluster.startup();
+            }
+            catch (Exception ex) {
+                // ignore exceptions from startup process. More interested in the test result.
+            }
+            testResult.get();
+        }
+        es.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    public static class BBBootstrapInterceptor
+    {
+        final static CountDownLatch bootstrapReady = new CountDownLatch(1);
+        final static CountDownLatch bootstrapStart = new CountDownLatch(1);
+        static void install(ClassLoader cl, int nodeNumber)
+        {
+            if (nodeNumber != 2)
+                return;
+            new ByteBuddy().rebase(StorageService.class)
+                           .method(named("bootstrap").and(takesArguments(2)))
+                           .intercept(MethodDelegation.to(BBBootstrapInterceptor.class))
+                           .make()
+                           .load(cl, ClassLoadingStrategy.Default.INJECTION);
+        }
+
+        public static boolean bootstrap(Collection<Token> tokens, long bootstrapTimeoutMillis)
+        {
+            bootstrapStart.countDown();
+            Uninterruptibles.awaitUninterruptibly(bootstrapReady);
+            return false; // bootstrap fails
+        }
+    }
+
 }
