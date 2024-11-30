@@ -3815,13 +3815,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public Mode operationMode()
     {
-        if (!isInitialized())
+        ClusterMetadataService cms = ClusterMetadataService.instance();
+        if (cms == null || !cms.isInitialized())
             return Mode.STARTING;
 
         if (transientMode.isPresent())
             return transientMode.get();
 
-        NodeState nodeState = ClusterMetadata.current().myNodeState();
+        NodeState nodeState = cms.metadata().myNodeState();
         switch (nodeState)
         {
             case REGISTERED:
