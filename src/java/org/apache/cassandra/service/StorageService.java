@@ -492,9 +492,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         sstablesTracker = new SSTablesGlobalTracker(DatabaseDescriptor.getSelectedSSTableFormat());
     }
 
-    public void registerMBeans()
+    protected void registerMBeans()
     {
-        logger.info("Initializing storage service mbean");
+        logger.debug("Initializing storage service mbean");
         MBeanWrapper.instance.registerMBean(this, jmxObjectName);
         MBeanWrapper.instance.registerMBean(StreamManager.instance, StreamManager.OBJECT_NAME);
     }
@@ -743,6 +743,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
         }, "StorageServiceShutdownHook");
         Runtime.getRuntime().addShutdownHook(drainOnShutdown);
+        registerMBeans();
 
         Schema.instance.saveSystemKeyspace();
         DatabaseDescriptor.getInternodeAuthenticator().setupInternode();
