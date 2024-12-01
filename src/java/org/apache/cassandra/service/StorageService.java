@@ -273,6 +273,7 @@ import static org.apache.cassandra.utils.FBUtilities.now;
  */
 public class StorageService extends NotificationBroadcasterSupport implements IEndpointStateChangeSubscriber, StorageServiceMBean
 {
+    public static final String MBEAN_NAME = "org.apache.cassandra.db:type=StorageService";
     private static final Logger logger = LoggerFactory.getLogger(StorageService.class);
 
     public static final int INDEFINITE = -1;
@@ -487,8 +488,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // use dedicated executor for handling JMX notifications
         super(JMXBroadcastExecutor.executor);
 
-        jmxObjectName = "org.apache.cassandra.db:type=StorageService";
-
+        jmxObjectName = MBEAN_NAME;
         sstablesTracker = new SSTablesGlobalTracker(DatabaseDescriptor.getSelectedSSTableFormat());
     }
 

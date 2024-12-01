@@ -324,7 +324,7 @@ public class BootstrapTest extends TestBaseImpl
                 try (JMXConnector jmxc = JMXUtil.getJmxConnector(config))
                 {
                     MBeanServerConnection mbsc = jmxc.getMBeanServerConnection();
-                    StorageServiceMBean sp = JMX.newMBeanProxy(mbsc, new ObjectName("org.apache.cassandra.db:type=StorageService"), StorageServiceMBean.class);
+                    StorageServiceMBean sp = JMX.newMBeanProxy(mbsc, new ObjectName(StorageService.MBEAN_NAME), StorageServiceMBean.class);
                     assertEquals(sp.getOperationMode(), StorageService.Mode.JOINING.toString());
                 }
                 catch (Throwable t)
