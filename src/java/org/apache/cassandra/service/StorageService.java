@@ -263,6 +263,7 @@ import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddressAndPort;
  */
 public class StorageService extends NotificationBroadcasterSupport implements IEndpointStateChangeSubscriber, StorageServiceMBean
 {
+    public static final String MBEAN_NAME = "org.apache.cassandra.db:type=StorageService";
     private static final Logger logger = LoggerFactory.getLogger(StorageService.class);
 
     public static final int INDEFINITE = -1;
@@ -455,8 +456,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private final List<IEndpointLifecycleSubscriber> lifecycleSubscribers = new CopyOnWriteArrayList<>();
 
-    private final String jmxObjectName;
-
     // true when keeping strict consistency while bootstrapping
     public static final boolean useStrictConsistency = CONSISTENT_RANGE_MOVEMENT.getBoolean();
     private boolean joinRing = JOIN_RING.getBoolean();
@@ -475,15 +474,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // use dedicated executor for handling JMX notifications
         super(JMXBroadcastExecutor.executor);
 
-        jmxObjectName = "org.apache.cassandra.db:type=StorageService";
-
         sstablesTracker = new SSTablesGlobalTracker(DatabaseDescriptor.getSelectedSSTableFormat());
     }
 
     protected void registerMBeans()
     {
         logger.debug("Initializing storage service mbean");
-        MBeanWrapper.instance.registerMBean(this, jmxObjectName);
+        MBeanWrapper.instance.registerMBean(this, MBEAN_NAME);
         MBeanWrapper.instance.registerMBean(StreamManager.instance, StreamManager.OBJECT_NAME);
     }
 
