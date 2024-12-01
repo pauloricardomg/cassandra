@@ -468,8 +468,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private final List<IEndpointLifecycleSubscriber> lifecycleSubscribers = new CopyOnWriteArrayList<>();
 
-    private final String jmxObjectName;
-
     // true when keeping strict consistency while bootstrapping
     public static final boolean useStrictConsistency = CONSISTENT_RANGE_MOVEMENT.getBoolean();
     private boolean joinRing = JOIN_RING.getBoolean();
@@ -488,14 +486,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // use dedicated executor for handling JMX notifications
         super(JMXBroadcastExecutor.executor);
 
-        jmxObjectName = MBEAN_NAME;
         sstablesTracker = new SSTablesGlobalTracker(DatabaseDescriptor.getSelectedSSTableFormat());
     }
 
     protected void registerMBeans()
     {
         logger.debug("Initializing storage service mbean");
-        MBeanWrapper.instance.registerMBean(this, jmxObjectName);
+        MBeanWrapper.instance.registerMBean(this, MBEAN_NAME);
         MBeanWrapper.instance.registerMBean(StreamManager.instance, StreamManager.OBJECT_NAME);
     }
 
