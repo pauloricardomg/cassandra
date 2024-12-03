@@ -72,7 +72,7 @@ public class RowCacheTest
     private static final String CF_CACHEDNOCLUSTER = "CachedNoClustering";
 
     @BeforeClass
-    public static void defineSchema() throws ConfigurationException
+    public static void beforeTest() throws ConfigurationException
     {
         TEST_ORG_CAFFINITAS_OHC_SEGMENTCOUNT.setInt(16);
         SchemaLoader.prepareServer();
@@ -83,6 +83,7 @@ public class RowCacheTest
                                     SchemaLoader.standardCFMD(KEYSPACE_CACHED, CF_CACHED).caching(CachingParams.CACHE_EVERYTHING),
                                     SchemaLoader.standardCFMD(KEYSPACE_CACHED, CF_CACHEDINT, 1, IntegerType.instance)
                                                 .caching(new CachingParams(true, 100)));
+        StorageService.instance.initServer();
     }
 
     @AfterClass
