@@ -492,8 +492,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     protected void registerMBeans()
     {
         logger.debug("Initializing storage service mbean");
-        MBeanWrapper.instance.registerMBean(this, MBEAN_NAME);
-        MBeanWrapper.instance.registerMBean(StreamManager.instance, StreamManager.OBJECT_NAME);
+        MBeanWrapper.registerIfNotRegistered(this, MBEAN_NAME);
+        MBeanWrapper.registerIfNotRegistered(StreamManager.instance, StreamManager.OBJECT_NAME);
     }
 
     public void registerDaemon(CassandraDaemon daemon)
