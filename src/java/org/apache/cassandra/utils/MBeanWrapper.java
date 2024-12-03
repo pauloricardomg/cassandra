@@ -85,13 +85,13 @@ public interface MBeanWrapper
 
     static void registerIfNotRegistered(Object obj, String mbeanName)
     {
-        if (MBeanWrapper.getMBeanWrapper().isRegistered(mbeanName))
+        if (instance.isRegistered(mbeanName))
         {
             logger.warn("JMX Mbean already registered: {}", mbeanName);
         }
         else
         {
-            MBeanWrapper.getMBeanWrapper().registerMBean(obj, mbeanName);
+            instance.registerMBean(obj, mbeanName);
         }
     }
 
