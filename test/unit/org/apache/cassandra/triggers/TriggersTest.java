@@ -64,12 +64,12 @@ public class TriggersTest
     public static void beforeTest() throws ConfigurationException
     {
         SchemaLoader.loadSchema();
+        StorageService.instance.initServer();
     }
 
     @Before
     public void setup() throws Exception
     {
-        StorageService.instance.initServer();
         originalTriggersPolicy = DatabaseDescriptor.getTriggersPolicy();
 
         String cql = String.format("CREATE KEYSPACE IF NOT EXISTS %s " +
