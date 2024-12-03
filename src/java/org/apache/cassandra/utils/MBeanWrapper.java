@@ -82,6 +82,19 @@ public interface MBeanWrapper
 
     // Passing true for graceful will log exceptions instead of rethrowing them
     void registerMBean(Object obj, ObjectName mbeanName, OnException onException);
+
+    static void registerIfNotRegistered(Object obj, String mbeanName)
+    {
+        if (instance.isRegistered(mbeanName))
+        {
+            logger.warn("JMX Mbean already registered: {}", mbeanName);
+        }
+        else
+        {
+            instance.registerMBean(obj, mbeanName);
+        }
+    }
+
     default void registerMBean(Object obj, ObjectName mbeanName)
     {
         registerMBean(obj, mbeanName, OnException.THROW);
