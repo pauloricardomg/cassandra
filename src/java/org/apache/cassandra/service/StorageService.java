@@ -836,7 +836,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         try
         {
             if (joinRing)
-                joinRing();
+                joinRing(true);
             else
             {
                 ClusterMetadata metadata = ClusterMetadata.current();
@@ -937,7 +937,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public synchronized void joinRing() throws IOException
     {
-        if (isStarting())
+        joinRing(false);
+    }
+
+    public synchronized void joinRing(boolean isServerInit) throws IOException
+    {
+        if (isServerInit)
         {
             // Node was started with -Dcassandra.join_ring=false before joining, so it has never
             // begun the join process.
