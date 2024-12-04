@@ -48,6 +48,7 @@ import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.stopUnchecked;
 import static org.apache.cassandra.service.StorageService.Mode.DECOMMISSION_FAILED;
+import static org.apache.cassandra.service.StorageService.Mode.NORMAL;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -174,6 +175,7 @@ public class DecommissionTest extends TestBaseImpl
                                                                        .set("auto_bootstrap", true))
                                                                        .start()))
         {
+            assertOperationMode(cluster.get(2), NORMAL);
             assertNodeHasDoneBootstrapStreaming(cluster.get(2));
             cluster.get(2).nodetoolResult("decommission", "--force").asserts().success();
             cluster.get(2).shutdown().get();
@@ -191,6 +193,7 @@ public class DecommissionTest extends TestBaseImpl
 
             GossipHelper.withProperty(CassandraRelevantProperties.OVERRIDE_DECOMMISSION, true, () -> cluster.get(2).startup());
             assertBootstrapState(cluster.get(2), COMPLETED);
+            assertOperationMode(cluster.get(2), NORMAL);
             assertNodeSkippedBootstrapStreaming(cluster.get(2));
         }
     }
