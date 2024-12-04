@@ -29,10 +29,12 @@ import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import net.bytebuddy.implementation.MethodDelegation;
 import net.bytebuddy.implementation.bind.annotation.SuperCall;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.action.GossipHelper;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.schema.SystemDistributedKeyspace;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tcm.ClusterMetadataService;
 import org.apache.cassandra.tcm.membership.NodeId;
@@ -168,9 +170,11 @@ public class DecommissionTest extends TestBaseImpl
     {
         try (Cluster cluster = init(Cluster.build(2)
                                            .withConfig(config -> config.with(GOSSIP)
-                                                                       .with(NETWORK))
-                                           .start()))
+                                                                       .with(NETWORK)
+                                                                       .set("auto_bootstrap", true))
+                                                                       .start()))
         {
+            assertNodeHasDoneBootstrapStreaming(cluster.get(2));
             cluster.get(2).nodetoolResult("decommission", "--force").asserts().success();
             cluster.get(2).shutdown().get();
             try
@@ -181,11 +185,13 @@ public class DecommissionTest extends TestBaseImpl
             catch (Exception e)
             {
                 cluster.get(2).runOnInstance(() -> ClusterMetadataService.unsetInstance());
+                clearAvailableRanges(cluster.get(2));
                 assertTrue(e.getMessage().contains("This node was decommissioned and will not rejoin the ring unless cassandra.override_decommission=true"));
             }
 
             GossipHelper.withProperty(CassandraRelevantProperties.OVERRIDE_DECOMMISSION, true, () -> cluster.get(2).startup());
             assertBootstrapState(cluster.get(2), COMPLETED);
+            assertNodeSkippedBootstrapStreaming(cluster.get(2));
         }
     }
 
@@ -201,4 +207,18 @@ public class DecommissionTest extends TestBaseImpl
         i.runOnInstance(() -> assertEquals(operationMode, StorageService.instance.operationMode().name()));
     }
 
+    private static void assertNodeHasDoneBootstrapStreaming(IInvokableInstance i)
+    {
+        i.runOnInstance(() -> assertFalse(SystemKeyspace.getAvailableRanges(SystemDistributedKeyspace.NAME, DatabaseDescriptor.getPartitioner()).full.isEmpty()));
+    }
+
+    private static void assertNodeSkippedBootstrapStreaming(IInvokableInstance i)
+    {
+        i.runOnInstance(() -> assertTrue(SystemKeyspace.getAvailableRanges(SystemDistributedKeyspace.NAME, DatabaseDescriptor.getPartitioner()).full.isEmpty()));
+    }
+
+    private static void clearAvailableRanges(IInvokableInstance i)
+    {
+        i.runOnInstance(SystemKeyspace::resetAvailableStreamedRanges);
+    }
 }
