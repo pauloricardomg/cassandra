@@ -765,6 +765,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             if (CassandraRelevantProperties.OVERRIDE_DECOMMISSION.getBoolean())
             {
+                assert operationMode() == DECOMMISSIONED : String.format("Operation mode is %s, expected %s.", operationMode(), DECOMMISSIONED);
                 logger.warn("This node was decommissioned, but overriding by operator request.");
                 SystemKeyspace.setBootstrapState(SystemKeyspace.BootstrapState.COMPLETED);
             }
@@ -837,7 +838,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         try
         {
             if (joinRing)
-                joinRing();
+            {
+                try
+                {
+                    org.apache.cassandra.tcm.Startup.startup(!isSurveyMode, shouldBootstrap(), isReplacing());
+                }
+                catch (ConfigurationException e)
+                {
+                    throw new IOException(e.getMessage());
+                }
+            }
             else
             {
                 ClusterMetadata metadata = ClusterMetadata.current();
@@ -938,15 +948,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public synchronized void joinRing() throws IOException
     {
-        if (isStarting())
+        ClusterMetadata metadata = ClusterMetadata.current();
+
+        if (!joinRing)
         {
-            // Node was started with -Dcassandra.join_ring=false before joining, so it has never
-            // begun the join process.
-            if (!joinRing)
-            {
-                logger.info("Joining ring by operator request");
-                joinRing = true;
-            }
             try
             {
                 org.apache.cassandra.tcm.Startup.startup(!isSurveyMode, shouldBootstrap(), isReplacing());
@@ -955,9 +960,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             {
                 throw new IOException(e.getMessage());
             }
-        }
-        else if (!joinRing)
-        {
             // Previously joined node was restarted with -Dcassandra.join_ring=false and so started
             // with `hibernate` status. Bring it out of that state now, but don't do anything else
             // as the join/replace process has already completed.
@@ -965,7 +967,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             {
                 logger.info("Joining ring by operator request");
                 joinRing = true;
-                ClusterMetadata metadata = ClusterMetadata.current();
                 Gossiper.instance.mergeNodeToGossip(metadata.myNodeId(), metadata);
             }
         }
