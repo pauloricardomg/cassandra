@@ -766,6 +766,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             if (CassandraRelevantProperties.OVERRIDE_DECOMMISSION.getBoolean())
             {
                 logger.warn("This node was decommissioned, but overriding by operator request.");
+                SystemKeyspace.setBootstrapState(SystemKeyspace.BootstrapState.COMPLETED);
             }
             else
             {
