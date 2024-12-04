@@ -946,13 +946,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         if (isServerInit)
         {
-            // Node was started with -Dcassandra.join_ring=false before joining, so it has never
-            // begun the join process.
-            if (!joinRing)
-            {
-                logger.info("Joining ring by operator request");
-                joinRing = true;
-            }
             try
             {
                 org.apache.cassandra.tcm.Startup.startup(!isSurveyMode, shouldBootstrap(), isReplacing());
