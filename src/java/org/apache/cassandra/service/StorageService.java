@@ -838,7 +838,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         try
         {
             if (joinRing)
-                joinRing(true);
+            {
+                try
+                {
+                    org.apache.cassandra.tcm.Startup.startup(!isSurveyMode, shouldBootstrap(), isReplacing());
+                }
+                catch (ConfigurationException e)
+                {
+                    throw new IOException(e.getMessage());
+                }
+            }
             else
             {
                 ClusterMetadata metadata = ClusterMetadata.current();
@@ -939,12 +948,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public synchronized void joinRing() throws IOException
     {
-        joinRing(false);
-    }
+        ClusterMetadata metadata = ClusterMetadata.current();
 
-    public synchronized void joinRing(boolean isServerInit) throws IOException
-    {
-        if (isServerInit)
+        if (!joinRing)
         {
             try
             {
@@ -954,9 +960,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             {
                 throw new IOException(e.getMessage());
             }
-        }
-        else if (!joinRing)
-        {
             // Previously joined node was restarted with -Dcassandra.join_ring=false and so started
             // with `hibernate` status. Bring it out of that state now, but don't do anything else
             // as the join/replace process has already completed.
@@ -964,7 +967,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             {
                 logger.info("Joining ring by operator request");
                 joinRing = true;
-                ClusterMetadata metadata = ClusterMetadata.current();
                 Gossiper.instance.mergeNodeToGossip(metadata.myNodeId(), metadata);
             }
         }
