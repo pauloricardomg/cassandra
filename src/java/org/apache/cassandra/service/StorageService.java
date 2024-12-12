@@ -753,6 +753,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             if (CassandraRelevantProperties.OVERRIDE_DECOMMISSION.getBoolean())
             {
+                assert operationMode() == DECOMMISSIONED : String.format("Operation mode is %s, expected %s.", operationMode(), DECOMMISSIONED);
                 logger.warn("This node was decommissioned, but overriding by operator request.");
             }
             else
