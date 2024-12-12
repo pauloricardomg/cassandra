@@ -826,7 +826,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         try
         {
             if (joinRing)
-                joinRing();
+                startupTcm();
             else
             {
                 ClusterMetadata metadata = ClusterMetadata.current();
@@ -920,35 +920,25 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public synchronized void joinRing() throws IOException
     {
-        if (isStarting())
+        if (!joinRing)
         {
-            // Node was started with -Dcassandra.join_ring=false before joining, so it has never
-            // begun the join process.
-            if (!joinRing)
-            {
-                logger.info("Joining ring by operator request");
-                joinRing = true;
-            }
-            try
-            {
-                org.apache.cassandra.tcm.Startup.startup(!isSurveyMode, shouldBootstrap(), isReplacing());
-            }
-            catch (ConfigurationException e)
-            {
-                throw new IOException(e.getMessage());
-            }
-        }
-        else if (!joinRing)
-        {
-            // Previously joined node was restarted with -Dcassandra.join_ring=false and so started
-            // with `hibernate` status. Bring it out of that state now, but don't do anything else
-            // as the join/replace process has already completed.
             if (readyToFinishJoiningRing())
             {
+                // Previously joined node was restarted with -Dcassandra.join_ring=false and so started
+                // with `hibernate` status. Bring it out of that state now, but don't do anything else
+                // as the join/replace process has already completed.
                 logger.info("Joining ring by operator request");
                 joinRing = true;
                 ClusterMetadata metadata = ClusterMetadata.current();
                 Gossiper.instance.mergeNodeToGossip(metadata.myNodeId(), metadata);
+            }
+            else
+            {
+                // Node was started with -Dcassandra.join_ring=false before joining, so it has never
+                // begun the join process.
+                logger.info("Joining ring by operator request");
+                joinRing = true;
+                startupTcm();
             }
         }
         else if (isSurveyMode)
@@ -990,6 +980,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
+    private void startupTcm() throws IOException
+    {
+        try
+        {
+            org.apache.cassandra.tcm.Startup.startup(!isSurveyMode, shouldBootstrap(), isReplacing());
+        }
+        catch (ConfigurationException e)
+        {
+            throw new IOException(e.getMessage());
+        }
+    }
+
     public void resumeBootstrapSequence()
     {
         ClusterMetadata metadata = ClusterMetadata.current();
@@ -1021,13 +1023,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (sequence == null && metadata.directory.peerState(id) == JOINED)
             return true;
 
-        if ((sequence.kind() == MultiStepOperation.Kind.JOIN && sequence.nextStep() == Transformation.Kind.MID_JOIN)
-            || (sequence.kind() == MultiStepOperation.Kind.REPLACE && sequence.nextStep() == Transformation.Kind.MID_REPLACE))
-        {
-            return true;
-        }
-
-        return false;
+        return sequence != null && ((sequence.kind() == MultiStepOperation.Kind.JOIN && sequence.nextStep() == Transformation.Kind.MID_JOIN)
+                                    || (sequence.kind() == MultiStepOperation.Kind.REPLACE && sequence.nextStep() == Transformation.Kind.MID_REPLACE));
     }
 
     /**
