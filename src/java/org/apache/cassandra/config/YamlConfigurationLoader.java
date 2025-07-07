@@ -39,6 +39,7 @@ import com.google.common.io.ByteStreams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.util.File;
 import org.yaml.snakeyaml.DumperOptions;
@@ -65,6 +66,8 @@ import static org.apache.cassandra.config.Replacements.getNameReplacements;
 
 public class YamlConfigurationLoader implements ConfigurationLoader
 {
+    public static final ObjectMapper JSON_OBJECT_MAPPER = new ObjectMapper();
+
     private static final Logger logger = LoggerFactory.getLogger(YamlConfigurationLoader.class);
 
     /**
@@ -72,6 +75,9 @@ public class YamlConfigurationLoader implements ConfigurationLoader
      * system properties do not conflict with other system properties; the name "settings" matches system_views.settings.
      */
     static final String SYSTEM_PROPERTY_PREFIX = "cassandra.settings.";
+    static final String ENVIRONMENT_VARIABLE_PREFIX = "CASS_";
+    public static final String NESTED_CONFIG_SEPARATOR = ".";
+    public static final String NESTED_CONFIG_SEPARATOR_ENVIRONMENT = "__";
 
     /**
      * Inspect the classpath to find storage configuration file
@@ -155,6 +161,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         Config result = loadConfig(yaml, configBytes);
         propertiesChecker.check();
         maybeAddSystemProperties(result);
+        maybeAddEnvironmentVariables(result);
         return result;
     }
 
@@ -164,17 +171,59 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         {
             java.util.Properties props = System.getProperties();
             Map<String, String> map = new HashMap<>();
-            for (String name : props.stringPropertyNames())
+            for (String originalKey : props.stringPropertyNames())
             {
-                if (name.startsWith(SYSTEM_PROPERTY_PREFIX))
+                if (originalKey.startsWith(SYSTEM_PROPERTY_PREFIX))
                 {
-                    String value = props.getProperty(name);
-                    if (value != null)
-                        map.put(name.replace(SYSTEM_PROPERTY_PREFIX, ""), value);
+                    String value = props.getProperty(originalKey);
+                    String configKey = originalKey.replace(SYSTEM_PROPERTY_PREFIX, "");
+                    if (value != null && !map.containsKey(configKey)) {
+                        if (DatabaseDescriptor.hasLoggedConfig())
+                            logger.warn("Detected JVM property {}={} override for cassandra configuration '{}' (ignored if setting does not exist).", originalKey, value, configKey);
+                        map.put(configKey, getScalarValueOrJsonObject(value));
+                    }
                 }
             }
             if (!map.isEmpty())
                 updateFromMap(map, false, obj);
+        }
+    }
+
+    private static void maybeAddEnvironmentVariables(Object obj)
+    {
+        if (CassandraRelevantProperties.CONFIG_ALLOW_ENVIRONMENT_VARIABLES.getBoolean())
+        {
+            Map<String, String> environment = System.getenv();
+            Map<String, Object> configOverrides = new HashMap<>();
+            for (Map.Entry<String, String> env : environment.entrySet())
+            {
+                String originalKey = env.getKey();
+                if (env.getKey().startsWith(ENVIRONMENT_VARIABLE_PREFIX))
+                {
+                    String configKey = originalKey.replace(ENVIRONMENT_VARIABLE_PREFIX, "")
+                                                   .replace(NESTED_CONFIG_SEPARATOR_ENVIRONMENT, NESTED_CONFIG_SEPARATOR)
+                                                   .toLowerCase();
+                    String configValue = env.getValue();
+                    // TODO: do not include config if it is not a valid config key
+                    if (configValue != null && !configOverrides.containsKey(configKey))
+                    {
+                        if (DatabaseDescriptor.hasLoggedConfig())
+                            logger.warn("Detected environment variable {}={} override for cassandra configuration '{}' (ignored if setting does not exist).", originalKey, configValue, configKey);
+                        configOverrides.put(configKey, getScalarValueOrJsonObject(configValue));
+                    }
+                }
+            }
+            if (!configOverrides.isEmpty())
+                updateFromMap(configOverrides, false, obj);
+        }
+    }
+
+    private static Object getScalarValueOrJsonObject(String value)
+    {
+        try {
+            return JSON_OBJECT_MAPPER.readValue(value, Object.class);
+        } catch (Exception e) {
+            return value;
         }
     }
 
@@ -238,6 +287,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         if (shouldCheck)
             propertiesChecker.check();
         maybeAddSystemProperties(value);
+        maybeAddEnvironmentVariables(value);
         return value;
     }
 
@@ -413,7 +463,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
 
         private Property getProperty0(Class<? extends Object> type, String name)
         {
-            if (name.contains("."))
+            if (name.contains(NESTED_CONFIG_SEPARATOR))
                 return getNestedProperty(type, name);
             return getFlatProperty(type, name);
         }
