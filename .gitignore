@@ -94,3 +94,6 @@ cassandra-builds/
 cassandra-dtest/
 
 conf/triggers/trigger-example.jar
+
+worktrees/
+CLAUDE.md
