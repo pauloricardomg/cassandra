@@ -1,4 +1,12 @@
 4.1.10
+ * Improved observability in AutoRepair to report both expected vs. actual repair bytes and expected vs. actual keyspaces (CASSANDRA-20581)
+ * Stop repair scheduler if two major versions are detected (CASSANDRA-20048)
+ * AutoRepair: Safeguard Full repair against disk protection (CASSANDRA-20045)
+ * Stop AutoRepair monitoring thread upon Cassandra shutdown (CASSANDRA-20623)
+ * Fix race condition in auto-repair scheduler (CASSANDRA-20265)
+ * Implement minimum repair task duration setting for auto-repair scheduler (CASSANDRA-20160)
+ * Implement preview_repaired auto-repair type (CASSANDRA-20046)
+ * Automated Repair Inside Cassandra for CEP-37 (CASSANDRA-19918)
  * Improve CommitLogSegmentReader to skip SyncBlocks correctly in case of CRC errors (CASSANDRA-20664)
  * Do not crash on first boot with data_disk_usage_max_disk_size set when data directory is not created yet (CASSANDRA-20787)
  * Rework / simplification of nodetool get/setguardrailsconfig commands (CASSANDRA-20778)

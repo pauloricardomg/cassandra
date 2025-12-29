@@ -79,6 +79,15 @@ Upgrading
       (using the cassandra.custom_query_handler_class system property) will
       need to be recompiled.  For further details, see CASSANDRA-19534.
 
+New features
+------------
+    [The following is a placeholder, to be revised asap]
+    - CEP-37 Auto Repair is a fully automated scheduler that provides repair orchestration within Apache Cassandra. This
+    significantly reduces operational overhead by eliminating the need for operators to deploy external tools to submit
+    and manage repairs. See
+    https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-37+Apache+Cassandra+Unified+Repair+Solution for more
+    details on the motivation and design.
+
 4.1.3
 =====
 
