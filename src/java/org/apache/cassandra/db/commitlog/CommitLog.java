@@ -469,7 +469,6 @@ public class CommitLog implements CommitLogMBean
         logger.info("Updated CDC block_writes from {} to {}", oldVal, val);
     }
 
-
     @Override
     public boolean isCDCOnRepairEnabled()
     {

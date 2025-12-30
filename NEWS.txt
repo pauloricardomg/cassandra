@@ -81,6 +81,12 @@ New features
 ------------
     - Full support for Java 17, it is not experimental anymore.
 
+    - CEP-37 Auto Repair is a fully automated scheduler that provides repair orchestration within Apache Cassandra. This
+    significantly reduces operational overhead by eliminating the need for operators to deploy external tools to submit
+    and manage repairs. See
+    https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-37+Apache+Cassandra+Unified+Repair+Solution for more
+    details on the motivation and design.
+
 5.0.4
 =====
 
